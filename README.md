@@ -15,6 +15,10 @@ https://github.com/user-attachments/assets/ea66f6d6-7bc5-4308-8a88-1ce3e07400d2
 
 > 🎧 **Try it now**: Experience Supertonic in your browser with our [**Interactive Demo**](https://huggingface.co/spaces/Supertone/supertonic#interactive-demo), or get started with pre-trained models from [**Hugging Face Hub**](https://huggingface.co/Supertone/supertonic)
 
+## 📰 Update News
+
+**2025.11.24** - Added Flutter SDK support with macOS compatibility
+
 ### Table of Contents
 
 - [Why Supertonic?](#why-supertonic)
@@ -49,6 +53,7 @@ We provide ready-to-use TTS inference examples across multiple ecosystems:
 | [**Swift**](swift/) | `swift/` | macOS applications |
 | [**iOS**](ios/) | `ios/` | Native iOS apps |
 | [**Rust**](rust/) | `rust/` | Memory-safe systems |
+| [**Flutter**](flutter/) | `flutter/` | Cross-platform apps |
 
 > For detailed usage instructions, please refer to the README.md in each language directory.
 
@@ -386,7 +391,7 @@ This paper describes the self-purification technique for training flow matching 
 
 ## License
 
-This project’s sample code is released under the MIT License. - see the [LICENSE](https://github.com/supertone-inc/supertonic?tab=MIT-1-ov-file) for details.
+This project's sample code is released under the MIT License. - see the [LICENSE](https://github.com/supertone-inc/supertonic?tab=MIT-1-ov-file) for details.
 
 The accompanying model is released under the OpenRAIL-M License. - see the [LICENSE](https://huggingface.co/Supertone/supertonic/blob/main/LICENSE) file for details.
 
