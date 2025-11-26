@@ -10,7 +10,6 @@ final class TTSViewModel: ObservableObject {
     @Published var isPlaying: Bool = false
     @Published var errorMessage: String?
     @Published var audioURL: URL?
-
     @Published var elapsedSeconds: Double?
     @Published var audioSeconds: Double?
 
@@ -19,14 +18,12 @@ final class TTSViewModel: ObservableObject {
 
     var rtfText: String? {
         guard let e = elapsedSeconds, let a = audioSeconds, a > 0 else { return nil }
-        let rtf = e / a
-        return String(format: "RTF %.2fx · %.2fs / %.2fs", rtf, e, a)
+        return String(format: "RTF %.2fx · %.2fs / %.2fs", e / a, e, a)
     }
 
     func startup() {
         do {
             service = try TTSService()
-            Task { await self.service?.warmup(nfe: 5) }
         } catch {
             errorMessage = "Failed to init TTS: \(error.localizedDescription)"
         }
@@ -40,15 +37,18 @@ final class TTSViewModel: ObservableObject {
         elapsedSeconds = nil
         audioSeconds = nil
         Task {
+            let tic = Date()
             do {
-                let result = try await service.synthesize(text: text, nfe: Int(nfe), voice: voice)
+                let url = try await service.synthesize(text: text, nfe: Int(nfe), voice: voice)
+                let elapsed = Date().timeIntervalSince(tic)
+                let audio = audioDuration(at: url)
                 await MainActor.run {
-                    self.audioURL = result.url
-                    self.elapsedSeconds = result.elapsedSeconds
-                    self.audioSeconds = result.audioSeconds
+                    self.audioURL = url
+                    self.elapsedSeconds = elapsed
+                    self.audioSeconds = audio
                     self.isGenerating = false
+                    self.play(url: url)
                 }
-                self.play(url: result.url)
             } catch {
                 await MainActor.run {
                     self.errorMessage = error.localizedDescription
@@ -72,5 +72,10 @@ final class TTSViewModel: ObservableObject {
             DispatchQueue.main.async { self?.isPlaying = false }
         }
         isPlaying = true
+    }
+
+    private func audioDuration(at url: URL) -> Double? {
+        guard let file = try? AVAudioFile(forReading: url) else { return nil }
+        return Double(file.length) / file.fileFormat.sampleRate
     }
 }

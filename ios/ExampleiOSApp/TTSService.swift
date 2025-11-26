@@ -4,24 +4,10 @@ import OnnxRuntimeBindings
 final class TTSService {
     enum Voice { case male, female }
 
-    struct Settings {
-        var nTest: Int = 1
-    }
-
-    struct SynthesisResult {
-        let url: URL
-        let elapsedSeconds: Double
-        let audioSeconds: Double
-        var rtf: Double { elapsedSeconds / max(audioSeconds, 1e-6) }
-    }
-
     private let env: ORTEnv
     private let textToSpeech: TextToSpeech
     private let bundleOnnxDir: String
     private let sampleRate: Int
-
-    // Cached style per voice (precomputed at startup or on first use)
-    private var cachedStyle: [Voice: Style] = [:]
 
     init() throws {
         bundleOnnxDir = try Self.locateOnnxDirInBundle()
@@ -30,50 +16,21 @@ final class TTSService {
         sampleRate = textToSpeech.sampleRate
     }
 
-    // Public warmup: precompute styles and run a quick generation to warm models
-    func warmup(nfe: Int = 1) async {
-        do { try precomputeStyle(for: .male) } catch { print("Warmup style (M) error: \(error)") }
-        do { try precomputeStyle(for: .female) } catch { print("Warmup style (F) error: \(error)") }
-        // Run a tiny synthesis to JIT/warm up kernels; discard file
-        do {
-            let res = try await synthesize(text: "Warm up", nfe: max(1, nfe), voice: .male)
-            try? FileManager.default.removeItem(at: res.url)
-        } catch {
-            print("Warmup synth error: \(error)")
-        }
-    }
-
-    func synthesize(text: String, nfe: Int, voice: Voice, settings: Settings = Settings()) async throws -> SynthesisResult {
-        let tic = Date()
-
-        // 1) Get or compute style for the selected voice
-        let style = try getStyle(voice: voice)
+    func synthesize(text: String, nfe: Int, voice: Voice) async throws -> URL {
+        // Load style for the selected voice
+        let styleURL = try Self.locateVoiceStyleURL(voice: voice)
+        let style = try loadVoiceStyle([styleURL.path], verbose: false)
 
         // 2) Synthesize via packed TextToSpeech component
-        let (wav, duration) = try textToSpeech.call([text], style, nfe)
-        let audioSeconds = Double(duration[0])
+        let (wav, duration) = try textToSpeech.call(text, style, nfe)
+        let audioSeconds = Double(duration)
         let wavLenSample = min(Int(Double(sampleRate) * audioSeconds), wav.count)
         let wavOut = Array(wav[0..<wavLenSample])
 
         let tmpURL = FileManager.default.temporaryDirectory.appendingPathComponent("supertonic_tts_\(UUID().uuidString).wav")
         try writeWavFile(tmpURL.path, wavOut, sampleRate)
 
-        let elapsed = Date().timeIntervalSince(tic)
-        return SynthesisResult(url: tmpURL, elapsedSeconds: elapsed, audioSeconds: audioSeconds)
-    }
-
-    // MARK: - Style helpers
-    private func precomputeStyle(for voice: Voice) throws {
-        if cachedStyle[voice] != nil { return }
-        let styleURL = try Self.locateVoiceStyleURL(voice: voice)
-        let style = try loadVoiceStyle([styleURL.path], verbose: false)
-        cachedStyle[voice] = style
-    }
-
-    private func getStyle(voice: Voice) throws -> Style {
-        if let style = cachedStyle[voice] { return style }
-        try precomputeStyle(for: voice)
-        return cachedStyle[voice]!
+        return tmpURL
     }
 
     // MARK: - Resource location helpers

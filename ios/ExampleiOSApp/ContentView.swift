@@ -16,24 +16,16 @@ struct ContentView: View {
                         .font(.title2.weight(.semibold))
                         .foregroundColor(.primary)
 
-                    ZStack(alignment: .topLeading) {
-                        if vm.text.isEmpty {
-                            Text("Type text to synthesize")
-                                .foregroundColor(.secondary)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 12)
-                        }
-                        TextEditor(text: $vm.text)
-                            .frame(minHeight: 120, maxHeight: 180)
-                            .padding(8)
-                            .background(Color(.secondarySystemBackground))
-                            .cornerRadius(12)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-                            )
-                    }
-                    .padding(.horizontal)
+                    TextEditor(text: $vm.text)
+                        .frame(minHeight: 120, maxHeight: 180)
+                        .padding(8)
+                        .background(Color(.secondarySystemBackground))
+                        .cornerRadius(12)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                        )
+                        .padding(.horizontal)
 
                     HStack(spacing: 12) {
                         Text("NFE")
@@ -91,8 +83,4 @@ struct ContentView: View {
         }
         .onAppear { vm.startup() }
     }
-}
-
-#Preview {
-    ContentView()
 }
