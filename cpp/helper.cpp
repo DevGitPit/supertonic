@@ -732,7 +732,7 @@ Style loadVoiceStyle(const std::vector<std::string>& voice_style_paths, bool ver
     std::vector<int64_t> dp_shape = {bsz, dp_dim1, dp_dim2};
     
     if (verbose) {
-        std::cout << "Loaded " << bsz << " voice styles" << std::endl;
+        std::cerr << "Loaded " << bsz << " voice styles" << std::endl;
     }
     
     return Style(ttl_flat, ttl_shape, dp_flat, dp_shape);
@@ -742,19 +742,35 @@ Style loadVoiceStyle(const std::vector<std::string>& voice_style_paths, bool ver
 // TextToSpeech loading
 // ============================================================================
 
+
+// ============================================================================
+// TextToSpeech loading (OPTIMIZED FOR TERMUX/ANDROID)
+// ============================================================================
+
 std::unique_ptr<TextToSpeech> loadTextToSpeech(
     Ort::Env& env,
     const std::string& onnx_dir,
     bool use_gpu
 ) {
     Ort::SessionOptions opts;
+    
+    // --- ANDROID/TERMUX OPTIMIZATIONS ---
+    // Default (0) uses all cores, which hits the slow "efficiency" cores on phones.
+    // Setting this to 2 or 4 forces execution on the "Performance" cores.
+    opts.SetIntraOpNumThreads(5); 
+    
+    // Enable full graph fusion (merges multiple math ops into one)
+    opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+    // ------------------------------------
+
     if (use_gpu) {
         throw std::runtime_error("GPU mode is not supported yet");
     } else {
-        std::cout << "Using CPU for inference" << std::endl;
+        std::cerr << "Using CPU for inference [Optimized: Threads=5]" << std::endl;
     }
     
     auto cfgs = loadCfgs(onnx_dir);
+    // Pass the optimized 'opts' to all models
     auto models = loadOnnxAll(env, onnx_dir, opts);
     auto text_processor = loadTextProcessor(onnx_dir);
     
@@ -769,7 +785,6 @@ std::unique_ptr<TextToSpeech> loadTextToSpeech(
     );
     
     // Keep the models and processor alive by storing them
-    // (In production, you'd want better lifetime management)
     static OnnxModels static_models;
     static std::unique_ptr<UnicodeProcessor> static_text_processor;
     static_models = std::move(models);

@@ -115,8 +115,27 @@ else()
     )
 endif()
 
+# Native Messaging Host
+add_executable(native_host
+    native_host.cpp
+)
+
+if(onnxruntime_FOUND)
+    target_link_libraries(native_host
+        tts_helper
+        onnxruntime::onnxruntime
+        nlohmann_json::nlohmann_json
+    )
+else()
+    target_link_libraries(native_host
+        tts_helper
+        ${ONNXRUNTIME_LIB}
+        nlohmann_json::nlohmann_json
+    )
+endif()
+
 # Installation
-install(TARGETS example_onnx DESTINATION bin)
+install(TARGETS example_onnx native_host DESTINATION bin)
 install(TARGETS tts_helper DESTINATION lib)
 install(FILES helper.h DESTINATION include)
 

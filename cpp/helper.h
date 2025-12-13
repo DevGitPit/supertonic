@@ -206,11 +206,11 @@ std::vector<int64_t> loadJsonInt64(const std::string& file_path);
 template<typename Func>
 auto timer(const std::string& name, Func&& func) -> decltype(func()) {
     auto start = std::chrono::high_resolution_clock::now();
-    std::cout << name << "..." << std::endl;
+    std::cerr << name << "..." << std::endl;
     auto result = func();
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
-    std::cout << "  -> " << name << " completed in " 
+    std::cerr << "  -> " << name << " completed in " 
               << std::fixed << std::setprecision(2) << elapsed.count() << " sec" << std::endl;
     return result;
 }
