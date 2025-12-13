@@ -215,12 +215,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Restore input mode on user interaction
   textInput.addEventListener('click', () => {
-      textInput.inputMode = 'text';
+      // If readOnly is false, allow normal keyboard interaction
+      if (!textInput.readOnly) {
+          textInput.inputMode = 'text';
+      }
   });
   textInput.addEventListener('focus', () => {
-      // If user focuses manually, we want keyboard
-      // But avoid enabling it during programmatic focus in streaming
-      if (!isStreaming) { 
+      // If user focuses manually, we want keyboard if not readOnly
+      if (!textInput.readOnly) { 
           textInput.inputMode = 'text'; 
       }
   });
@@ -231,7 +233,8 @@ document.addEventListener('DOMContentLoaded', function() {
       streamAudioQueue = [];
       
       // Suppress keyboard during automated highlighting
-      textInput.inputMode = 'none';
+      textInput.readOnly = true;
+      textInput.inputMode = 'none'; // Also keep inputMode for good measure
       
       // Disable controls
       toggleControls(true);
@@ -385,6 +388,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Restore keyboard
     textInput.inputMode = 'text';
+    textInput.readOnly = false;
     
     if (fullReset) {
         sentences = [];
