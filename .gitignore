@@ -59,3 +59,11 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+downloads/
+*.apk
+*.zip
+android/app/build/
+android/.gradle/
+rust/target/
+*.hprof
+local.properties

@@ -673,25 +673,38 @@ impl TextToSpeech {
         Ok((wav, duration))
     }
 
-    pub fn call(
+    pub fn call<F>(
         &mut self,
         text: &str,
         style: &Style,
         total_step: usize,
         speed: f32,
         silence_duration: f32,
-    ) -> Result<(Vec<f32>, f32)> {
+        mut callback: F,
+    ) -> Result<(Vec<f32>, f32)> 
+    where F: FnMut(usize, usize, Option<&[f32]>) -> bool {
         let chunks = chunk_text(text, None);
+        let num_chunks = chunks.len();
         
         let mut wav_cat: Vec<f32> = Vec::new();
         let mut dur_cat: f32 = 0.0;
 
         for (i, chunk) in chunks.iter().enumerate() {
+            // Notify start of chunk (audio is None)
+            if !callback(i, num_chunks, None) {
+                return Err(anyhow::anyhow!("Synthesis cancelled by user"));
+            }
+            
             let (wav, duration) = self._infer(&[chunk.clone()], style, total_step, speed)?;
             
             let dur = duration[0];
             let wav_len = (self.sample_rate as f32 * dur) as usize;
             let wav_chunk = &wav[..wav_len.min(wav.len())];
+
+            // Send audio chunk
+            if !callback(i, num_chunks, Some(wav_chunk)) {
+                 return Err(anyhow::anyhow!("Synthesis cancelled by user"));
+            }
 
             if i == 0 {
                 wav_cat.extend_from_slice(wav_chunk);
@@ -705,6 +718,7 @@ impl TextToSpeech {
                 dur_cat += silence_duration + dur;
             }
         }
+        callback(num_chunks, num_chunks, None);
 
         Ok((wav_cat, dur_cat))
     }

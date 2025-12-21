@@ -1,0 +1,3 @@
+[target.aarch64-linux-android]
+linker = "aarch64-linux-android34-clang"
+rustflags = ["-C", "link-arg=-L/home/pankaj/.gemini/tmp/9cc4c367faa6a0837cbd20970fab0676889bace9f16405c8326e978a6515bd6c/android-sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/34", "-l", "log"]

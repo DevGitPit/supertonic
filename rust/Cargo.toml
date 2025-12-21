@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 # ONNX Runtime
-ort = "2.0.0-rc.7"
+ort = { version = "2.0.0-rc.7", features = ["load-dynamic"] }
 
 # Array processing (like NumPy)
 ndarray = { version = "0.16", features = ["rayon"] }
@@ -37,8 +37,14 @@ regex = "1.10"
 
 # System calls
 libc = "0.2"
+jni = "0.21"
+android_logger = "0.13"
+log = "0.4"
 
-[[bin]]
-name = "example_onnx"
-path = "src/example_onnx.rs"
+[lib]
+name = "supertonic_tts"
+crate-type = ["cdylib"]
 
+#[[bin]]
+#name = "example_onnx"
+#path = "src/example_onnx.rs"
