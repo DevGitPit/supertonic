@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', function() {
-  const textInput = document.getElementById('textInput');
+  const textInput = document.getElementById('textInput'); // Now a div contenteditable
   const fetchBtn = document.getElementById('fetchBtn');
   const voiceSelect = document.getElementById('voiceSelect');
   const speedRange = document.getElementById('speedRange');
@@ -8,39 +8,73 @@ document.addEventListener('DOMContentLoaded', function() {
   const stepValue = document.getElementById('stepValue');
   const bufferRange = document.getElementById('bufferRange');
   const bufferValue = document.getElementById('bufferValue');
-  const playFullBtn = document.getElementById('playFullBtn');
-  const streamBtn = document.getElementById('streamBtn');
+  const streamBtn = document.getElementById('streamBtn'); // "Play" button
   const statusDiv = document.getElementById('status');
   const audioPlayer = document.getElementById('audioPlayer');
+  const serverControls = document.getElementById('serverControls');
+  const engineRadios = document.querySelectorAll('input[name="engine"]');
+  const refreshServerBtn = document.getElementById('refreshServerBtn');
+  const serverStatusMsg = document.getElementById('serverStatusMsg');
 
   let audioContext = null;
   let isStreaming = false;
-  let isConvertingFull = false;
-  let conversionCancelled = false;
   let streamAudioQueue = []; 
   let currentSentenceIndex = 0;
-  let sentences = [];
+  let sentences = []; // Stores objects: { text, index, length }
   let isPlayingStream = false;
   let lastStreamedText = "";
+  let currentEngine = 'system'; // Default to system
+  let serverAvailable = false;
   
   // Buffering state
   let fetchIndex = 0;
   let playIndex = 0;
 
   // Restore state from storage
-  chrome.storage.local.get(['savedText', 'savedSpeed', 'savedStep', 'savedBuffer', 'savedVoice'], (result) => {
-      if (result.savedText) textInput.value = result.savedText;
+  chrome.storage.local.get(['savedText', 'savedSpeed', 'savedStep', 'savedBuffer', 'savedVoice', 'savedEngine'], (result) => {
+      // For contenteditable div, set innerText
+      if (result.savedText) textInput.innerText = result.savedText;
       if (result.savedSpeed) { speedRange.value = result.savedSpeed; speedValue.textContent = result.savedSpeed; }
       if (result.savedStep) { stepRange.value = result.savedStep; stepValue.textContent = result.savedStep; }
       if (result.savedBuffer) { bufferRange.value = result.savedBuffer; bufferValue.textContent = result.savedBuffer; }
-      if (result.savedVoice) voiceSelect.value = result.savedVoice;
+      
+      if (result.savedEngine) {
+          currentEngine = result.savedEngine;
+      } else {
+          currentEngine = 'system'; // Default
+      }
+      
+      // Update UI to match
+      document.querySelector(`input[name="engine"][value="${currentEngine}"]`).checked = true;
+      
+      updateEngineUI();
+      
+      // Restore voice after engine update
+      if (result.savedVoice) {
+          setTimeout(() => {
+             voiceSelect.value = result.savedVoice; 
+          }, 100);
+      }
   });
 
   // --- Event Listeners ---
 
-  // Auto-save settings
+  engineRadios.forEach(radio => {
+      radio.addEventListener('change', (e) => {
+          currentEngine = e.target.value;
+          chrome.storage.local.set({ savedEngine: currentEngine });
+          updateEngineUI();
+          stopPlayback(true);
+      });
+  });
+  
+  refreshServerBtn.addEventListener('click', () => {
+      checkServerStatus();
+  });
+
+  // Auto-save settings - now using innerText
   textInput.addEventListener('input', () => {
-      chrome.storage.local.set({ savedText: textInput.value });
+      chrome.storage.local.set({ savedText: textInput.innerText });
   });
 
   speedRange.addEventListener('input', () => {
@@ -71,9 +105,8 @@ document.addEventListener('DOMContentLoaded', function() {
         func: () => document.body.innerText
       });
       if (result && result[0] && result[0].result) {
-        const fetched = result[0].result.replace(/\s+/g, ' ').trim();
-        textInput.value = fetched;
-        // Save fetched text to decouple from page
+        const fetched = result[0].result.trim(); // Preserve formatting
+        textInput.innerText = fetched; // Set innerText for contenteditable div
         chrome.storage.local.set({ savedText: fetched });
         statusDiv.textContent = "Text fetched.";
       } else {
@@ -85,146 +118,193 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
-  playFullBtn.addEventListener('click', () => {
-    if (isConvertingFull) {
-        // User clicked "Stop Converting"
-        conversionCancelled = true;
-        statusDiv.textContent = "Conversion cancelled.";
-        resetFullConversionUI();
-        return;
-    }
-
-    const text = textInput.value.trim();
-    if (!text) return;
-    playFull(text);
-  });
-
   streamBtn.addEventListener('click', () => {
-    const text = textInput.value.trim();
+    const text = textInput.innerText.trim(); // Use innerText
     if (!text) return;
     
     if (isStreaming) {
-       // Already streaming - this acts as Pause/Stop
+       // Already playing - this acts as Stop/Pause
        stopPlayback();
        return;
     }
     
-    // Check if text changed since last stream
+    // Check if text changed since last play
     if (text !== lastStreamedText) {
         stopPlayback(true); // Force full reset
         lastStreamedText = text;
-        
-        // New stream segmentation
-        try {
-            const segmenter = new Intl.Segmenter(navigator.language, { granularity: 'sentence' });
-            const segments = segmenter.segment(text);
-            sentences = Array.from(segments).map(s => s.segment).filter(s => s.trim().length > 0);
-        } catch (e) {
-            sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
-        }
-        
-        currentSentenceIndex = 0;
-        startStreaming();
+        segmentAndPlay(text);
         return;
     }
     
-    // Resume logic if sentences exist and text matches
+    // Resume logic
     if (sentences.length > 0) {
         // Go back one sentence for context
         currentSentenceIndex = Math.max(0, currentSentenceIndex - 1);
         startStreaming();
     } else {
-        // Safe fallback
-        lastStreamedText = text;
-        try {
-            const segmenter = new Intl.Segmenter(navigator.language, { granularity: 'sentence' });
-            const segments = segmenter.segment(text);
-            sentences = Array.from(segments).map(s => s.segment).filter(s => s.trim().length > 0);
-        } catch (e) {
-            sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
-        }
-        currentSentenceIndex = 0;
-        startStreaming();
+        // Fallback if state is weird
+        segmentAndPlay(text);
     }
   });
+  
+  function segmentAndPlay(text) {
+      try {
+          const segmenter = new Intl.Segmenter(navigator.language, { granularity: 'sentence' });
+          const segments = segmenter.segment(text);
+          sentences = Array.from(segments)
+              .filter(s => s.segment.trim().length > 0)
+              .map(s => ({
+                  text: s.segment,
+                  index: s.index,
+                  length: s.segment.length
+              }));
+      } catch (e) {
+          // Fallback regex segmentation
+          sentences = [];
+          const regex = /[^.!?]+[.!?]+|[^.!?]+$/g;
+          let match;
+          while ((match = regex.exec(text)) !== null) {
+              if (match[0].trim().length > 0) {
+                  sentences.push({
+                      text: match[0],
+                      index: match.index,
+                      length: match[0].length
+                  });
+              }
+          }
+          if (sentences.length === 0) {
+              sentences = [{ text: text, index: 0, length: text.length }];
+          }
+      }
+      
+      currentSentenceIndex = 0;
+      startStreaming();
+  }
 
   // --- Core Functions ---
   
+  function updateEngineUI() {
+      voiceSelect.innerHTML = ""; 
+      
+      // Default state for controls (will be overridden if server is down)
+      toggleControls(false); 
+
+      if (currentEngine === 'system') {
+          // --- SYSTEM TTS MODE ---
+          serverControls.style.opacity = "0.5";
+          serverControls.style.pointerEvents = "none";
+          refreshServerBtn.style.display = "none";
+          serverStatusMsg.style.display = "none";
+          
+          const voices = window.speechSynthesis.getVoices();
+          if (voices.length === 0) {
+              window.speechSynthesis.onvoiceschanged = () => updateEngineUI();
+              const opt = document.createElement('option');
+              opt.text = "Loading system voices...";
+              voiceSelect.add(opt);
+          } else {
+              voices.forEach(v => {
+                 const opt = document.createElement('option');
+                 opt.value = v.name; 
+                 opt.text = `${v.name} (${v.lang})`;
+                 voiceSelect.add(opt);
+              });
+          }
+      } else {
+          // --- SERVER MODE ---
+          serverControls.style.opacity = "1";
+          serverControls.style.pointerEvents = "auto";
+          refreshServerBtn.style.display = "block"; // Show refresh button
+          
+          // Check server status immediately
+          checkServerStatus();
+      }
+  }
+
+  function checkServerStatus() {
+      if (currentEngine !== 'supertonic') return;
+      
+      serverStatusMsg.style.display = "none"; // Hide initially
+      refreshServerBtn.disabled = true;
+      refreshServerBtn.textContent = "...";
+      
+      fetch('http://127.0.0.1:8080/synthesize', { method: 'OPTIONS' })
+      .then(response => {
+          if (response.ok) {
+              // Server is UP
+              serverAvailable = true;
+              populateServerVoices();
+              toggleControls(false); // Enable everything
+              serverStatusMsg.style.display = "none";
+          } else {
+              throw new Error("Server responded but not OK");
+          }
+      })
+      .catch(error => {
+          // Server is DOWN
+          console.log("Server check failed:", error);
+          serverAvailable = false;
+          toggleControls(true); // Disable most controls
+          // Re-enable text input and fetch button specifically
+          textInput.contentEditable = true; // For contenteditable div
+          fetchBtn.disabled = false;
+          
+          voiceSelect.innerHTML = "<option>Server Unavailable</option>";
+          serverStatusMsg.style.display = "block";
+      })
+      .finally(() => {
+          refreshServerBtn.disabled = false;
+          refreshServerBtn.textContent = "Refresh";
+      });
+  }
+
+  function populateServerVoices() {
+      voiceSelect.innerHTML = "";
+      const supertonicVoices = [
+         { val: "F1.json", text: "Female 1" },
+         { val: "F2.json", text: "Female 2" },
+         { val: "F3.json", text: "Female 3" },
+         { val: "F4.json", text: "Female 4" },
+         { val: "F5.json", text: "Female 5" },
+         { val: "M1.json", text: "Male 1" },
+         { val: "M2.json", text: "Male 2" },
+         { val: "M3.json", text: "Male 3" },
+         { val: "M4.json", text: "Male 4" },
+         { val: "M5.json", text: "Male 5" }
+      ];
+      
+      supertonicVoices.forEach(v => {
+         const opt = document.createElement('option');
+         opt.value = v.val;
+         opt.text = v.text;
+         voiceSelect.add(opt);
+      });
+  }
+
   function toggleControls(disabled) {
       voiceSelect.disabled = disabled;
-      speedRange.disabled = disabled;
-      stepRange.disabled = disabled;
-      bufferRange.disabled = disabled;
+      speedRange.disabled = disabled; 
+      
+      if (currentEngine === 'supertonic') {
+          stepRange.disabled = disabled;
+          bufferRange.disabled = disabled;
+          streamBtn.disabled = disabled; 
+      } else {
+          streamBtn.disabled = disabled;
+      }
+      
       fetchBtn.disabled = disabled;
-      textInput.disabled = disabled;
-  }
-
-  async function playFull(text) {
-    stopPlayback(true); // Reset any streaming
-    
-    isConvertingFull = true;
-    conversionCancelled = false;
-    
-    toggleControls(true);
-    playFullBtn.textContent = "Stop Converting";
-    streamBtn.disabled = true;
-    statusDiv.textContent = "Synthesizing full text... (Click button to cancel)";
-
-    try {
-      const response = await sendRequest(text);
-      
-      if (conversionCancelled) {
-          return; // Do nothing, UI already reset
-      }
-
-      if (response.error) throw new Error(response.error);
-      
-      if (response.audio) {
-        const blob = base64ToBlob(response.audio, 'audio/wav');
-        const url = URL.createObjectURL(blob);
-        
-        audioPlayer.src = url;
-        audioPlayer.style.display = 'block';
-        audioPlayer.play();
-        
-        setupMediaSession();
-        statusDiv.textContent = "Playing...";
-        
-        // Reset UI to playing state
-        resetFullConversionUI();
-        
-        audioPlayer.onended = () => {
-            statusDiv.textContent = "Finished.";
-        };
-      }
-    } catch (e) {
-      if (!conversionCancelled) {
-          statusDiv.textContent = "Error: " + e.message;
-          resetFullConversionUI();
-      }
-    }
-  }
-  
-  function resetFullConversionUI() {
-      isConvertingFull = false;
-      toggleControls(false);
-      playFullBtn.textContent = "Play (Full)";
-      playFullBtn.disabled = false;
-      streamBtn.disabled = false;
+      // For contenteditable div, control editability
+      textInput.contentEditable = !disabled; 
   }
 
   // Restore input mode on user interaction
+  // For contenteditable, readOnly and inputMode are not directly applicable
   textInput.addEventListener('click', () => {
-      // If readOnly is false, allow normal keyboard interaction
-      if (!textInput.readOnly) {
-          textInput.inputMode = 'text';
-      }
+      textInput.focus();
   });
   textInput.addEventListener('focus', () => {
-      // If user focuses manually, we want keyboard if not readOnly
-      if (!textInput.readOnly) { 
-          textInput.inputMode = 'text'; 
-      }
+      // No specific action needed for contenteditable on focus for now
   });
 
   async function startStreaming() {
@@ -232,14 +312,11 @@ document.addEventListener('DOMContentLoaded', function() {
       isPlayingStream = false;
       streamAudioQueue = [];
       
-      // Suppress keyboard during automated highlighting
-      textInput.readOnly = true;
-      textInput.inputMode = 'none'; // Also keep inputMode for good measure
+      // Disable editability during playback
+      textInput.contentEditable = false; 
       
-      // Disable controls
       toggleControls(true);
       
-      // If resuming, fetchIndex starts from where we left off (playIndex)
       if (sentences.length > 0 && currentSentenceIndex > 0) {
           playIndex = Math.max(0, currentSentenceIndex - 1); 
           fetchIndex = playIndex;
@@ -248,32 +325,36 @@ document.addEventListener('DOMContentLoaded', function() {
           fetchIndex = 0;
       }
       
-      playFullBtn.disabled = true;
-      streamBtn.disabled = false;
-      streamBtn.textContent = "Stop Streaming";
+      streamBtn.textContent = "Stop";
+      streamBtn.classList.remove('btn-success');
+      streamBtn.classList.add('btn-danger');
+      streamBtn.disabled = false; // Always keep the Stop button enabled!
       
-      if (!audioContext) {
-          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      if (currentEngine === 'supertonic') {
+          if (!audioContext) {
+              audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          }
+          if (audioContext.state === 'suspended') {
+              await audioContext.resume();
+          }
       }
-      if (audioContext.state === 'suspended') {
-          await audioContext.resume();
+      
+      statusDiv.textContent = currentEngine === 'system' ? "Speaking..." : "Buffering...";
+      
+      if (currentEngine === 'supertonic') {
+          fetchLoop();
       }
       
-      statusDiv.textContent = "Buffering...";
-      
-      // Start fetching loop
-      fetchLoop();
-      // Start playing watcher
       playLoop();
   }
 
   async function fetchLoop() {
       while (isStreaming && fetchIndex < sentences.length) {
-          const sentence = sentences[fetchIndex];
+          const sentenceObj = sentences[fetchIndex]; 
           
           try {
-              const response = await sendRequest(sentence);
-              if (!isStreaming) break; // Stopped while fetching
+              const response = await sendRequest(sentenceObj.text);
+              if (!isStreaming) break; 
               
               if (response.error) {
                   console.error("Stream fetch error:", response.error);
@@ -282,7 +363,7 @@ document.addEventListener('DOMContentLoaded', function() {
                       audio: response.audio,
                       sampleRate: response.sample_rate,
                       index: fetchIndex,
-                      text: sentence
+                      sentenceObj: sentenceObj 
                   });
               }
               fetchIndex++;
@@ -297,35 +378,68 @@ document.addEventListener('DOMContentLoaded', function() {
       if (!isStreaming) return;
       
       if (isPlayingStream) {
-          // Already playing a chunk, wait
           setTimeout(playLoop, 100);
           return;
       }
       
+      // Handle System TTS "Streaming"
+      if (currentEngine === 'system') {
+           if (playIndex < sentences.length) {
+               const sentenceObj = sentences[playIndex];
+               isPlayingStream = true;
+               highlightSentence(sentenceObj);
+               
+               currentSentenceIndex = playIndex + 1;
+               statusDiv.textContent = `Speaking sentence ${playIndex + 1}/${sentences.length}...`;
+
+               const utterance = new SpeechSynthesisUtterance(sentenceObj.text);
+               const voices = window.speechSynthesis.getVoices();
+               const selectedVoice = voices.find(v => v.name === voiceSelect.value);
+               if (selectedVoice) utterance.voice = selectedVoice;
+               utterance.rate = parseFloat(speedRange.value);
+
+               utterance.onend = () => {
+                   isPlayingStream = false;
+                   playIndex++;
+                   playLoop();
+               };
+               utterance.onerror = (e) => {
+                   console.error("System TTS error", e);
+                   isPlayingStream = false;
+                   playIndex++;
+                   playLoop();
+               };
+               
+               window.speechSynthesis.speak(utterance);
+           } else {
+               statusDiv.textContent = "Finished.";
+               stopPlayback(true);
+           }
+           return;
+      }
+
+      // Handle Supertonic Streaming
       const preBuffer = parseInt(bufferRange.value) || 2;
       const bufferReady = streamAudioQueue.length >= preBuffer;
       const allFetched = fetchIndex >= sentences.length;
       
       if (streamAudioQueue.length > 0 && (bufferReady || allFetched)) {
-          // Play next chunk
           const item = streamAudioQueue.shift();
-          playIndex = item.index; // Sync play index
-          currentSentenceIndex = playIndex + 1; // Update global state for resume
+          playIndex = item.index; 
+          currentSentenceIndex = playIndex + 1; 
           
-          isPlayingStream = true; // Set flag BEFORE highlighting to prevent keyboard
-          highlightSentence(item.text);
-          statusDiv.textContent = `Streaming chunk ${playIndex + 1}/${sentences.length}...`;
+          isPlayingStream = true; 
+          highlightSentence(item.sentenceObj);
+          statusDiv.textContent = `Playing chunk ${playIndex + 1}/${sentences.length}...`;
           
           await playAudioBuffer(item.audio, item.sampleRate);
           isPlayingStream = false;
           
-          // Loop
           playLoop();
       } else if (allFetched && streamAudioQueue.length === 0) {
           statusDiv.textContent = "Finished.";
           stopPlayback(true);
       } else {
-          // Buffering
           statusDiv.textContent = `Buffering... (${streamAudioQueue.length}/${preBuffer})`;
           setTimeout(playLoop, 200);
       }
@@ -368,7 +482,9 @@ document.addEventListener('DOMContentLoaded', function() {
   function stopPlayback(fullReset = false) {
     isStreaming = false;
     isPlayingStream = false;
-    isConvertingFull = false;
+    
+    // Stop System TTS
+    window.speechSynthesis.cancel();
     
     if (audioPlayer) {
         audioPlayer.pause();
@@ -380,15 +496,25 @@ document.addEventListener('DOMContentLoaded', function() {
         audioContext = null;
     }
     
-    toggleControls(false);
-    playFullBtn.textContent = "Play (Full)";
-    playFullBtn.disabled = false;
-    streamBtn.disabled = false;
-    streamBtn.textContent = "Stream";
+    // Restore textInput to plain text (remove highlight span)
+    textInput.innerHTML = textInput.innerText;
+
+    // Re-enable controls
+    if (currentEngine === 'supertonic' && !serverAvailable) {
+        toggleControls(true);
+        textInput.contentEditable = true; // Ensure editable if server down
+        fetchBtn.disabled = false;
+    } else {
+        toggleControls(false);
+    }
+
+    streamBtn.disabled = (currentEngine === 'supertonic' && !serverAvailable);
+    streamBtn.textContent = "Play";
+    streamBtn.classList.remove('btn-danger');
+    streamBtn.classList.add('btn-success');
     
-    // Restore keyboard
-    textInput.inputMode = 'text';
-    textInput.readOnly = false;
+    // Restore editability
+    textInput.contentEditable = true; 
     
     if (fullReset) {
         sentences = [];
@@ -396,20 +522,28 @@ document.addEventListener('DOMContentLoaded', function() {
         streamAudioQueue = [];
         fetchIndex = 0;
         playIndex = 0;
-        lastStreamedText = ""; // Clear text memory
+        lastStreamedText = ""; 
         statusDiv.textContent = "Ready";
     } else {
         statusDiv.textContent = "Paused";
     }
   }
 
-  function highlightSentence(sentence) {
-    const index = textInput.value.indexOf(sentence);
-    if (index !== -1) {
+  function highlightSentence(sentenceObj) {
+    if (sentenceObj && typeof sentenceObj.index === 'number') {
+        const currentPlaintext = textInput.innerText;
+        const before = currentPlaintext.substring(0, sentenceObj.index);
+        const highlighted = currentPlaintext.substring(sentenceObj.index, sentenceObj.index + sentenceObj.length);
+        const after = currentPlaintext.substring(sentenceObj.index + sentenceObj.length);
+
+        textInput.innerHTML = `${before}<span class="sentence-highlight">${highlighted}</span>${after}`;
+        
+        // Ensure the div is focused to show the highlight
         textInput.focus();
-        textInput.setSelectionRange(index, index + sentence.length);
-        const blur = textInput.scrollHeight * (index / textInput.value.length);
-        textInput.scrollTop = blur - 20; 
+        
+        // Scroll to the highlighted text
+        const approxScrollPos = textInput.scrollHeight * (sentenceObj.index / currentPlaintext.length);
+        textInput.scrollTop = approxScrollPos - 20; 
     }
   }
 
@@ -429,41 +563,6 @@ document.addEventListener('DOMContentLoaded', function() {
           }
         });
     });
-  }
-
-  function base64ToBlob(base64, type) {
-    const binStr = atob(base64);
-    const len = binStr.length;
-    const arr = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      arr[i] = binStr.charCodeAt(i);
-    }
-    return new Blob([createWavHeader(arr.length, 44100), arr], { type: type });
-  }
-  
-  function createWavHeader(dataLength, sampleRate) {
-      const header = new ArrayBuffer(44);
-      const view = new DataView(header);
-      writeString(view, 0, 'RIFF');
-      view.setUint32(4, 36 + dataLength, true);
-      writeString(view, 8, 'WAVE');
-      writeString(view, 12, 'fmt ');
-      view.setUint32(16, 16, true);
-      view.setUint16(20, 1, true); 
-      view.setUint16(22, 1, true); 
-      view.setUint32(24, sampleRate, true);
-      view.setUint32(28, sampleRate * 2, true);
-      view.setUint16(32, 2, true); 
-      view.setUint16(34, 16, true); 
-      writeString(view, 36, 'data');
-      view.setUint32(40, dataLength, true);
-      return header;
-  }
-  
-  function writeString(view, offset, string) {
-      for (let i = 0; i < string.length; i++) {
-          view.setUint8(offset + i, string.charCodeAt(i));
-      }
   }
   
   function setupMediaSession() {

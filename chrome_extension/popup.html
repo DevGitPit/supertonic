@@ -8,23 +8,15 @@
       padding: 15px;
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       background-color: #f9f9f9;
+      color: #333;
     }
     h3 {
       margin-top: 0;
       color: #333;
       text-align: center;
     }
-    textarea {
-      width: 100%;
-      height: 120px;
-      margin-bottom: 10px;
-      padding: 8px;
-      resize: vertical;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      font-family: inherit;
-      box-sizing: border-box;
-    }
+    
+    /* Layout */
     .control-group {
       margin-bottom: 12px;
       display: flex;
@@ -45,23 +37,48 @@
       margin-top: 15px;
       flex-wrap: wrap;
     }
-    button {
-      flex: 1;
-      padding: 10px;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-      transition: background-color 0.2s;
+
+    /* Button Styles */
+    .btn {
+        padding: 10px;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: background-color 0.2s, transform 0.1s, box-shadow 0.1s;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+        display: inline-block;
+        text-align: center;
+        flex: 1; /* Default flex for main buttons */
     }
-    #fetchBtn { background-color: #2196F3; width: 100%; margin-bottom: 10px; }
-    #playFullBtn { background-color: #4CAF50; }
-    #streamBtn { background-color: #FF9800; }
+    .btn:hover { opacity: 0.95; }
+    .btn:active { transform: translateY(1px); box-shadow: none; }
+    .btn:disabled { background-color: #ccc !important; color: #666; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    .btn-primary { background-color: #2196F3; }
+    .btn-primary:hover { background-color: #1976D2; }
+
+    .btn-success { background-color: #4CAF50; }
+    .btn-success:hover { background-color: #388E3C; }
+
+    .btn-danger { background-color: #f44336; }
+    .btn-danger:hover { background-color: #d32f2f; }
+
+    .btn-warning { background-color: #FF9800; }
+    .btn-warning:hover { background-color: #F57C00; }
     
-    button:hover { opacity: 0.9; }
-    button:disabled { background-color: #ccc; cursor: not-allowed; opacity: 1; }
+    /* Specific adjustments */
+    #fetchBtn { width: 100%; margin-bottom: 10px; }
     
+    #refreshServerBtn {
+        flex: none; /* Don't expand */
+        padding: 6px 12px;
+        font-size: 12px;
+        margin-left: auto;
+        display: none; /* Toggled via JS */
+    }
+
     #status {
       margin-top: 10px;
       font-size: 12px;
@@ -75,18 +92,72 @@
       display: none;
     }
     
-    /* Highlight style for streaming */
-    .highlight {
-        background-color: #fff9c4;
+    /* Contenteditable Div */
+    #textInput {
+      width: 100%;
+      height: 120px;
+      margin-bottom: 10px;
+      padding: 8px;
+      resize: vertical;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-family: inherit;
+      box-sizing: border-box;
+      overflow-y: auto;
+      cursor: text;
+      white-space: pre-wrap;
+      background-color: white;
+      color: black;
+    }
+    
+    /* Highlight Style */
+    .sentence-highlight {
+        background-color: #ffeb3b; /* Bright Yellow */
+        color: black !important; /* Force black text for contrast */
+        text-decoration: none;
+        box-shadow: 0 0 2px rgba(0,0,0,0.2);
+        border-radius: 2px;
+        padding: 0 2px;
+    }
+
+    /* Dark Mode */
+    @media (prefers-color-scheme: dark) {
+        body {
+            background-color: #202124;
+            color: #e8eaed;
+        }
+        h3 { color: #e8eaed; }
+        label { color: #bdc1c6; }
+        
+        #textInput, select, input[type="text"] {
+            background-color: #292a2d;
+            color: #e8eaed;
+            border-color: #5f6368;
+        }
+        
+        /* Ensure placeholder text is readable */
+        #textInput:empty:before { color: #9aa0a6; }
+        #status { color: #9aa0a6; }
+        #serverStatusMsg { color: #ff8a80 !important; }
     }
   </style>
 </head>
 <body>
   <h3>Supertonic Local TTS</h3>
+
+  <div class="control-group" style="justify-content: flex-start; gap: 15px; margin-bottom: 15px;">
+    <label style="cursor: pointer;">
+      <input type="radio" name="engine" value="supertonic"> Supertonic (Server)
+    </label>
+    <label style="cursor: pointer;">
+      <input type="radio" name="engine" value="system" checked> System TTS
+    </label>
+    <button id="refreshServerBtn" class="btn btn-warning">Refresh</button>
+  </div>
   
-  <button id="fetchBtn">Fetch Page Text</button>
+  <button id="fetchBtn" class="btn btn-primary">Fetch Page Text</button>
   
-  <textarea id="textInput" placeholder="Enter text or fetch from page..."></textarea>
+  <div id="textInput" contenteditable="true" placeholder="Enter text or fetch from page..."></div>
   
   <div class="control-group">
     <label for="voiceSelect">Voice:</label>
@@ -109,19 +180,24 @@
     <input type="range" id="speedRange" min="0.9" max="1.5" step="0.05" value="1.05">
   </div>
 
-  <div class="control-group">
-    <label for="stepRange">Denoise Steps: <span id="stepValue">5</span></label>
-    <input type="range" id="stepRange" min="1" max="10" step="1" value="5">
-  </div>
+  <div id="serverControls">
+    <div class="control-group">
+      <label for="stepRange">Denoise Steps: <span id="stepValue">5</span></label>
+      <input type="range" id="stepRange" min="1" max="10" step="1" value="5">
+    </div>
 
-  <div class="control-group">
-    <label for="bufferRange">Pre-buffer: <span id="bufferValue">2</span></label>
-    <input type="range" id="bufferRange" min="1" max="10" step="1" value="2">
+    <div class="control-group">
+      <label for="bufferRange">Pre-buffer: <span id="bufferValue">2</span></label>
+      <input type="range" id="bufferRange" min="1" max="10" step="1" value="2">
+    </div>
+  </div>
+  
+  <div id="serverStatusMsg" style="text-align: center; font-size: 13px; color: #d32f2f; margin-bottom: 10px; display: none; line-height: 1.4;">
+      Server not available. Enable Python server - then click <b>Refresh</b> button on top.
   </div>
   
   <div class="buttons">
-    <button id="playFullBtn">Play (Full)</button>
-    <button id="streamBtn">Stream</button>
+    <button id="streamBtn" class="btn btn-success">Play</button>
   </div>
   
   <audio id="audioPlayer" controls></audio>
