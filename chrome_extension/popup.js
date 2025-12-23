@@ -1,38 +1,53 @@
 document.addEventListener('DOMContentLoaded', function() {
-  const textInput = document.getElementById('textInput'); // Now a div contenteditable
+  // --- UI Elements ---
+  const textInput = document.getElementById('textInput');
   const fetchBtn = document.getElementById('fetchBtn');
+  const refreshServerBtn = document.getElementById('refreshServerBtn');
+  
+  // Controls
+  const playPauseBtn = document.getElementById('playPauseBtn');
+  const playIcon = document.getElementById('playIcon');
+  const stopIcon = document.getElementById('stopIcon');
+  
   const voiceSelect = document.getElementById('voiceSelect');
   const speedRange = document.getElementById('speedRange');
   const speedValue = document.getElementById('speedValue');
+  
   const stepRange = document.getElementById('stepRange');
   const stepValue = document.getElementById('stepValue');
   const bufferRange = document.getElementById('bufferRange');
   const bufferValue = document.getElementById('bufferValue');
-  const streamBtn = document.getElementById('streamBtn'); // "Play" button
-  const statusDiv = document.getElementById('status');
-  const audioPlayer = document.getElementById('audioPlayer');
-  const serverControls = document.getElementById('serverControls');
-  const engineRadios = document.querySelectorAll('input[name="engine"]');
-  const refreshServerBtn = document.getElementById('refreshServerBtn');
+  
+  const statusBadge = document.getElementById('statusBadge');
   const serverStatusMsg = document.getElementById('serverStatusMsg');
+  const serverControlsCard = document.getElementById('serverControlsCard');
+  
+  // Radios
+  const editModeRadio = document.getElementById('editMode');
+  const playbackModeRadio = document.getElementById('playbackMode');
+  const engineSystemRadio = document.getElementById('engineSystem');
+  const engineServerRadio = document.getElementById('engineServer');
 
+  // --- State ---
   let audioContext = null;
   let isStreaming = false;
+  let isPlaybackMode = false;
   let streamAudioQueue = []; 
   let currentSentenceIndex = 0;
-  let sentences = []; // Stores objects: { text, index, length }
+  let sentences = []; 
   let isPlayingStream = false;
   let lastStreamedText = "";
-  let currentEngine = 'system'; // Default to system
+  let currentEngine = 'system'; 
   let serverAvailable = false;
   
   // Buffering state
   let fetchIndex = 0;
   let playIndex = 0;
 
-  // Restore state from storage
+  // --- Initialization ---
+  
+  // Restore state
   chrome.storage.local.get(['savedText', 'savedSpeed', 'savedStep', 'savedBuffer', 'savedVoice', 'savedEngine'], (result) => {
-      // For contenteditable div, set innerText
       if (result.savedText) textInput.innerText = result.savedText;
       if (result.savedSpeed) { speedRange.value = result.savedSpeed; speedValue.textContent = result.savedSpeed; }
       if (result.savedStep) { stepRange.value = result.savedStep; stepValue.textContent = result.savedStep; }
@@ -40,183 +55,226 @@ document.addEventListener('DOMContentLoaded', function() {
       
       if (result.savedEngine) {
           currentEngine = result.savedEngine;
-      } else {
-          currentEngine = 'system'; // Default
+          if (currentEngine === 'supertonic') {
+              engineServerRadio.checked = true;
+          } else {
+              engineSystemRadio.checked = true;
+          }
       }
-      
-      // Update UI to match
-      document.querySelector(`input[name="engine"][value="${currentEngine}"]`).checked = true;
       
       updateEngineUI();
       
-      // Restore voice after engine update
+      // Restore voice (delayed)
       if (result.savedVoice) {
-          setTimeout(() => {
-             voiceSelect.value = result.savedVoice; 
-          }, 100);
+          setTimeout(() => { voiceSelect.value = result.savedVoice; }, 100);
       }
   });
 
   // --- Event Listeners ---
 
-  engineRadios.forEach(radio => {
-      radio.addEventListener('change', (e) => {
-          currentEngine = e.target.value;
-          chrome.storage.local.set({ savedEngine: currentEngine });
+  // Mode Switch
+  editModeRadio.addEventListener('change', () => {
+      if (editModeRadio.checked) enterEditMode();
+  });
+  playbackModeRadio.addEventListener('change', () => {
+      if (playbackModeRadio.checked) {
+          // If empty, warn? No, just let it process empty
+          enterPlaybackMode(textInput.innerText.trim());
+      }
+  });
+
+  // Engine Switch
+  engineSystemRadio.addEventListener('change', () => {
+      if (engineSystemRadio.checked) {
+          currentEngine = 'system';
+          chrome.storage.local.set({ savedEngine: 'system' });
           updateEngineUI();
           stopPlayback(true);
-      });
+      }
+  });
+  engineServerRadio.addEventListener('change', () => {
+      if (engineServerRadio.checked) {
+          currentEngine = 'supertonic';
+          chrome.storage.local.set({ savedEngine: 'supertonic' });
+          updateEngineUI();
+          stopPlayback(true);
+      }
+  });
+
+  // Seek
+  textInput.addEventListener('click', (e) => {
+      if (isPlaybackMode && e.target.classList.contains('sentence')) {
+          const newIndex = parseInt(e.target.dataset.index);
+          if (!isNaN(newIndex)) {
+              highlightSentence(newIndex);
+              seekTo(newIndex);
+          }
+      }
+  });
+
+  // Play/Stop
+  playPauseBtn.addEventListener('click', () => {
+      if (isStreaming) {
+          stopPlayback(); // Stops logic, remains in playback mode
+      } else {
+          // Start
+          const text = textInput.innerText.trim();
+          if (!text) return;
+
+          // Auto-enter playback mode if needed
+          if (!isPlaybackMode) {
+              playbackModeRadio.checked = true;
+              enterPlaybackMode(text);
+              currentSentenceIndex = 0;
+          }
+          
+          // Force refresh voices just in case (for stale engine fix attempt)
+          if (currentEngine === 'system') {
+              window.speechSynthesis.getVoices();
+          }
+          
+          startStreaming();
+      }
+  });
+
+  // Settings inputs
+  textInput.addEventListener('input', () => {
+      if (!isPlaybackMode) {
+          chrome.storage.local.set({ savedText: textInput.innerText });
+      }
   });
   
-  refreshServerBtn.addEventListener('click', () => {
-      checkServerStatus();
-  });
-
-  // Auto-save settings - now using innerText
-  textInput.addEventListener('input', () => {
-      chrome.storage.local.set({ savedText: textInput.innerText });
-  });
-
   speedRange.addEventListener('input', () => {
-    speedValue.textContent = speedRange.value;
-    chrome.storage.local.set({ savedSpeed: speedRange.value });
+      speedValue.textContent = speedRange.value;
+      chrome.storage.local.set({ savedSpeed: speedRange.value });
   });
-
+  
   stepRange.addEventListener('input', () => {
-    stepValue.textContent = stepRange.value;
-    chrome.storage.local.set({ savedStep: stepRange.value });
+      stepValue.textContent = stepRange.value;
+      chrome.storage.local.set({ savedStep: stepRange.value });
   });
-
+  
   bufferRange.addEventListener('input', () => {
-    bufferValue.textContent = bufferRange.value;
-    chrome.storage.local.set({ savedBuffer: bufferRange.value });
+      bufferValue.textContent = bufferRange.value;
+      chrome.storage.local.set({ savedBuffer: bufferRange.value });
   });
   
   voiceSelect.addEventListener('change', () => {
       chrome.storage.local.set({ savedVoice: voiceSelect.value });
   });
 
+  // Actions
   fetchBtn.addEventListener('click', async () => {
-    statusDiv.textContent = "Fetching text...";
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      const result = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: () => document.body.innerText
-      });
-      if (result && result[0] && result[0].result) {
-        const fetched = result[0].result.trim(); // Preserve formatting
-        textInput.innerText = fetched; // Set innerText for contenteditable div
-        chrome.storage.local.set({ savedText: fetched });
-        statusDiv.textContent = "Text fetched.";
-      } else {
-        statusDiv.textContent = "Could not fetch text.";
+      statusBadge.textContent = "Fetching...";
+      try {
+          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          const result = await chrome.scripting.executeScript({
+              target: { tabId: tab.id },
+              func: () => document.body.innerText
+          });
+          if (result && result[0] && result[0].result) {
+              const fetched = result[0].result.trim();
+              textInput.innerText = fetched;
+              chrome.storage.local.set({ savedText: fetched });
+              statusBadge.textContent = "Fetched";
+              setTimeout(() => { 
+                  if (!isStreaming) statusBadge.textContent = isPlaybackMode ? "🎧 Ready" : "✏️ Ready"; 
+              }, 1500);
+          }
+      } catch (e) {
+          console.error(e);
+          statusBadge.textContent = "Error";
       }
-    } catch (e) {
-      console.error(e);
-      statusDiv.textContent = "Error fetching: " + e.message;
-    }
-  });
-
-  streamBtn.addEventListener('click', () => {
-    const text = textInput.innerText.trim(); // Use innerText
-    if (!text) return;
-    
-    if (isStreaming) {
-       // Already playing - this acts as Stop/Pause
-       stopPlayback();
-       return;
-    }
-    
-    // Check if text changed since last play
-    if (text !== lastStreamedText) {
-        stopPlayback(true); // Force full reset
-        lastStreamedText = text;
-        segmentAndPlay(text);
-        return;
-    }
-    
-    // Resume logic
-    if (sentences.length > 0) {
-        // Go back one sentence for context
-        currentSentenceIndex = Math.max(0, currentSentenceIndex - 1);
-        startStreaming();
-    } else {
-        // Fallback if state is weird
-        segmentAndPlay(text);
-    }
   });
   
-  function segmentAndPlay(text) {
+  refreshServerBtn.addEventListener('click', checkServerStatus);
+
+  // --- Functions ---
+
+  function enterPlaybackMode(text) {
+      if (isPlaybackMode) return; // Already in mode
+      
+      // Tokenize
       try {
           const segmenter = new Intl.Segmenter(navigator.language, { granularity: 'sentence' });
           const segments = segmenter.segment(text);
           sentences = Array.from(segments)
               .filter(s => s.segment.trim().length > 0)
-              .map(s => ({
-                  text: s.segment,
-                  index: s.index,
-                  length: s.segment.length
-              }));
+              .map(s => ({ text: s.segment, index: s.index, length: s.segment.length }));
       } catch (e) {
-          // Fallback regex segmentation
-          sentences = [];
+          sentences = []; // Simple fallback
           const regex = /[^.!?]+[.!?]+|[^.!?]+$/g;
           let match;
           while ((match = regex.exec(text)) !== null) {
               if (match[0].trim().length > 0) {
-                  sentences.push({
-                      text: match[0],
-                      index: match.index,
-                      length: match[0].length
-                  });
+                  sentences.push({ text: match[0], index: match.index, length: match[0].length });
               }
           }
-          if (sentences.length === 0) {
-              sentences = [{ text: text, index: 0, length: text.length }];
-          }
+          if (sentences.length === 0) sentences = [{ text: text, index: 0, length: text.length }];
       }
+
+      // Render
+      const html = sentences.map((s, i) => {
+          const safeText = s.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+          return `<span class="sentence" data-index="${i}">${safeText}</span>`;
+      }).join('');
       
-      currentSentenceIndex = 0;
+      textInput.innerHTML = html;
+      textInput.contentEditable = false;
+      
+      isPlaybackMode = true;
+      playbackModeRadio.checked = true;
+      fetchBtn.disabled = true; // Disable fetch in playback
+      
+      statusBadge.textContent = "🎧 Ready";
+      lastStreamedText = text;
+  }
+
+  function enterEditMode() {
+      stopPlayback(true);
+      
+      // Flatten
+      const plainText = textInput.innerText;
+      textInput.innerText = plainText;
+      textInput.contentEditable = true;
+      
+      isPlaybackMode = false;
+      editModeRadio.checked = true;
+      fetchBtn.disabled = false;
+      
+      statusBadge.textContent = "✏️ Edit Mode";
+  }
+
+  function seekTo(index) {
+      stopPlayback(false); // Pause logic
+      currentSentenceIndex = index;
+      playIndex = Math.max(0, index);
+      fetchIndex = Math.max(0, index);
+      streamAudioQueue = [];
       startStreaming();
   }
 
-  // --- Core Functions ---
-  
   function updateEngineUI() {
-      voiceSelect.innerHTML = ""; 
+      voiceSelect.innerHTML = "";
       
-      // Default state for controls (will be overridden if server is down)
-      toggleControls(false); 
-
       if (currentEngine === 'system') {
-          // --- SYSTEM TTS MODE ---
-          serverControls.style.opacity = "0.5";
-          serverControls.style.pointerEvents = "none";
+          serverControlsCard.style.display = "none";
           refreshServerBtn.style.display = "none";
           serverStatusMsg.style.display = "none";
           
+          // System Voices
           const voices = window.speechSynthesis.getVoices();
           if (voices.length === 0) {
               window.speechSynthesis.onvoiceschanged = () => updateEngineUI();
-              const opt = document.createElement('option');
-              opt.text = "Loading system voices...";
-              voiceSelect.add(opt);
+              voiceSelect.add(new Option("Loading...", ""));
           } else {
               voices.forEach(v => {
-                 const opt = document.createElement('option');
-                 opt.value = v.name; 
-                 opt.text = `${v.name} (${v.lang})`;
-                 voiceSelect.add(opt);
+                  voiceSelect.add(new Option(`${v.name} (${v.lang})`, v.name));
               });
           }
       } else {
-          // --- SERVER MODE ---
-          serverControls.style.opacity = "1";
-          serverControls.style.pointerEvents = "auto";
-          refreshServerBtn.style.display = "block"; // Show refresh button
-          
-          // Check server status immediately
+          serverControlsCard.style.display = "flex";
+          refreshServerBtn.style.display = "flex";
           checkServerStatus();
       }
   }
@@ -224,147 +282,111 @@ document.addEventListener('DOMContentLoaded', function() {
   function checkServerStatus() {
       if (currentEngine !== 'supertonic') return;
       
-      serverStatusMsg.style.display = "none"; // Hide initially
+      serverStatusMsg.style.display = "none";
       refreshServerBtn.disabled = true;
-      refreshServerBtn.textContent = "...";
       
       fetch('http://127.0.0.1:8080/synthesize', { method: 'OPTIONS' })
-      .then(response => {
-          if (response.ok) {
-              // Server is UP
+      .then(resp => {
+          if (resp.ok) {
               serverAvailable = true;
-              populateServerVoices();
-              toggleControls(false); // Enable everything
               serverStatusMsg.style.display = "none";
+              // Populate Server Voices
+              voiceSelect.innerHTML = "";
+              [
+                 { val: "F1.json", text: "Female 1" },
+                 { val: "F2.json", text: "Female 2" },
+                 { val: "F3.json", text: "Female 3" },
+                 { val: "F4.json", text: "Female 4" },
+                 { val: "F5.json", text: "Female 5" },
+                 { val: "M1.json", text: "Male 1" },
+                 { val: "M2.json", text: "Male 2" },
+                 { val: "M3.json", text: "Male 3" },
+                 { val: "M4.json", text: "Male 4" },
+                 { val: "M5.json", text: "Male 5" }
+              ].forEach(v => voiceSelect.add(new Option(v.text, v.val)));
+              
+              playPauseBtn.disabled = false;
           } else {
-              throw new Error("Server responded but not OK");
+              throw new Error("Server error");
           }
       })
-      .catch(error => {
-          // Server is DOWN
-          console.log("Server check failed:", error);
+      .catch(e => {
           serverAvailable = false;
-          toggleControls(true); // Disable most controls
-          // Re-enable text input and fetch button specifically
-          textInput.contentEditable = true; // For contenteditable div
-          fetchBtn.disabled = false;
-          
-          voiceSelect.innerHTML = "<option>Server Unavailable</option>";
+          playPauseBtn.disabled = true;
+          serverStatusMsg.textContent = "Server unavailable. Is it running?";
           serverStatusMsg.style.display = "block";
+          voiceSelect.innerHTML = "<option>Unavailable</option>";
       })
       .finally(() => {
           refreshServerBtn.disabled = false;
-          refreshServerBtn.textContent = "Refresh";
       });
   }
-
-  function populateServerVoices() {
-      voiceSelect.innerHTML = "";
-      const supertonicVoices = [
-         { val: "F1.json", text: "Female 1" },
-         { val: "F2.json", text: "Female 2" },
-         { val: "F3.json", text: "Female 3" },
-         { val: "F4.json", text: "Female 4" },
-         { val: "F5.json", text: "Female 5" },
-         { val: "M1.json", text: "Male 1" },
-         { val: "M2.json", text: "Male 2" },
-         { val: "M3.json", text: "Male 3" },
-         { val: "M4.json", text: "Male 4" },
-         { val: "M5.json", text: "Male 5" }
-      ];
-      
-      supertonicVoices.forEach(v => {
-         const opt = document.createElement('option');
-         opt.value = v.val;
-         opt.text = v.text;
-         voiceSelect.add(opt);
-      });
-  }
-
-  function toggleControls(disabled) {
-      voiceSelect.disabled = disabled;
-      speedRange.disabled = disabled; 
-      
-      if (currentEngine === 'supertonic') {
-          stepRange.disabled = disabled;
-          bufferRange.disabled = disabled;
-          streamBtn.disabled = disabled; 
-      } else {
-          streamBtn.disabled = disabled;
-      }
-      
-      fetchBtn.disabled = disabled;
-      // For contenteditable div, control editability
-      textInput.contentEditable = !disabled; 
-  }
-
-  // Restore input mode on user interaction
-  // For contenteditable, readOnly and inputMode are not directly applicable
-  textInput.addEventListener('click', () => {
-      textInput.focus();
-  });
-  textInput.addEventListener('focus', () => {
-      // No specific action needed for contenteditable on focus for now
-  });
 
   async function startStreaming() {
       isStreaming = true;
       isPlayingStream = false;
       streamAudioQueue = [];
       
-      // Disable editability during playback
-      textInput.contentEditable = false; 
+      // UI Update
+      playIcon.style.display = 'none';
+      stopIcon.style.display = 'block';
+      playPauseBtn.classList.add('playing'); // Optional hook for CSS animations
+      statusBadge.textContent = "🎧 Playing";
       
-      toggleControls(true);
-      
-      if (sentences.length > 0 && currentSentenceIndex > 0) {
-          playIndex = Math.max(0, currentSentenceIndex - 1); 
-          fetchIndex = playIndex;
+      // Index Check
+      if (sentences.length > 0) {
+          if (currentSentenceIndex >= sentences.length) currentSentenceIndex = 0;
+          playIndex = currentSentenceIndex;
+          fetchIndex = currentSentenceIndex;
       } else {
-          playIndex = 0;
-          fetchIndex = 0;
+          playIndex = 0; fetchIndex = 0;
       }
       
-      streamBtn.textContent = "Stop";
-      streamBtn.classList.remove('btn-success');
-      streamBtn.classList.add('btn-danger');
-      streamBtn.disabled = false; // Always keep the Stop button enabled!
-      
       if (currentEngine === 'supertonic') {
-          if (!audioContext) {
-              audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          }
-          if (audioContext.state === 'suspended') {
-              await audioContext.resume();
-          }
-      }
-      
-      statusDiv.textContent = currentEngine === 'system' ? "Speaking..." : "Buffering...";
-      
-      if (currentEngine === 'supertonic') {
+          if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          if (audioContext.state === 'suspended') await audioContext.resume();
           fetchLoop();
       }
       
       playLoop();
   }
 
+  function stopPlayback(fullReset = false) {
+      isStreaming = false;
+      isPlayingStream = false;
+      window.speechSynthesis.cancel();
+      
+      if (audioPlayer) audioPlayer.pause();
+      if (audioContext) audioContext.close(), audioContext = null;
+      
+      // UI Reset
+      playIcon.style.display = 'block';
+      stopIcon.style.display = 'none';
+      playPauseBtn.classList.remove('playing');
+      
+      if (fullReset) {
+          sentences = [];
+          currentSentenceIndex = 0;
+          streamAudioQueue = [];
+          fetchIndex = 0;
+          playIndex = 0;
+          statusBadge.textContent = "✏️ Ready";
+      } else {
+          // If error text present, leave it; otherwise "Paused"
+          if (!statusBadge.textContent.includes("Error")) {
+              statusBadge.textContent = "⏸️ Paused";
+          }
+      }
+  }
+
   async function fetchLoop() {
       while (isStreaming && fetchIndex < sentences.length) {
-          const sentenceObj = sentences[fetchIndex]; 
-          
+          const s = sentences[fetchIndex];
           try {
-              const response = await sendRequest(sentenceObj.text);
-              if (!isStreaming) break; 
-              
-              if (response.error) {
-                  console.error("Stream fetch error:", response.error);
-              } else if (response.audio) {
-                  streamAudioQueue.push({
-                      audio: response.audio,
-                      sampleRate: response.sample_rate,
-                      index: fetchIndex,
-                      sentenceObj: sentenceObj 
-                  });
+              const resp = await sendRequest(s.text);
+              if (!isStreaming) break;
+              if (resp.audio) {
+                  streamAudioQueue.push({ audio: resp.audio, sampleRate: resp.sample_rate, index: fetchIndex });
               }
               fetchIndex++;
           } catch (e) {
@@ -376,205 +398,109 @@ document.addEventListener('DOMContentLoaded', function() {
 
   async function playLoop() {
       if (!isStreaming) return;
+      if (isPlayingStream) { setTimeout(playLoop, 100); return; }
       
-      if (isPlayingStream) {
-          setTimeout(playLoop, 100);
-          return;
-      }
-      
-      // Handle System TTS "Streaming"
       if (currentEngine === 'system') {
-           if (playIndex < sentences.length) {
-               const sentenceObj = sentences[playIndex];
-               isPlayingStream = true;
-               highlightSentence(sentenceObj);
-               
-               currentSentenceIndex = playIndex + 1;
-               statusDiv.textContent = `Speaking sentence ${playIndex + 1}/${sentences.length}...`;
-
-               const utterance = new SpeechSynthesisUtterance(sentenceObj.text);
-               const voices = window.speechSynthesis.getVoices();
-               const selectedVoice = voices.find(v => v.name === voiceSelect.value);
-               if (selectedVoice) utterance.voice = selectedVoice;
-               utterance.rate = parseFloat(speedRange.value);
-
-               utterance.onend = () => {
-                   isPlayingStream = false;
-                   playIndex++;
-                   playLoop();
-               };
-               utterance.onerror = (e) => {
-                   console.error("System TTS error", e);
-                   isPlayingStream = false;
-                   playIndex++;
-                   playLoop();
-               };
-               
-               window.speechSynthesis.speak(utterance);
-           } else {
-               statusDiv.textContent = "Finished.";
-               stopPlayback(true);
-           }
-           return;
-      }
-
-      // Handle Supertonic Streaming
-      const preBuffer = parseInt(bufferRange.value) || 2;
-      const bufferReady = streamAudioQueue.length >= preBuffer;
-      const allFetched = fetchIndex >= sentences.length;
-      
-      if (streamAudioQueue.length > 0 && (bufferReady || allFetched)) {
-          const item = streamAudioQueue.shift();
-          playIndex = item.index; 
-          currentSentenceIndex = playIndex + 1; 
-          
-          isPlayingStream = true; 
-          highlightSentence(item.sentenceObj);
-          statusDiv.textContent = `Playing chunk ${playIndex + 1}/${sentences.length}...`;
-          
-          await playAudioBuffer(item.audio, item.sampleRate);
-          isPlayingStream = false;
-          
-          playLoop();
-      } else if (allFetched && streamAudioQueue.length === 0) {
-          statusDiv.textContent = "Finished.";
-          stopPlayback(true);
+          if (playIndex < sentences.length) {
+              const s = sentences[playIndex];
+              isPlayingStream = true;
+              highlightSentence(playIndex);
+              currentSentenceIndex = playIndex;
+              
+              const u = new SpeechSynthesisUtterance(s.text);
+              const voices = window.speechSynthesis.getVoices();
+              const v = voices.find(vo => vo.name === voiceSelect.value);
+              if (v) u.voice = v;
+              u.rate = parseFloat(speedRange.value);
+              
+              u.onend = () => { isPlayingStream = false; playIndex++; playLoop(); };
+              u.onerror = (e) => {
+                  isPlayingStream = false;
+                  if (e.error === 'interrupted' || e.error === 'canceled') {
+                      stopPlayback(false);
+                  } else {
+                      stopPlayback(false);
+                      statusBadge.textContent = "⚠️ TTS Error";
+                      serverStatusMsg.textContent = "TTS Error. Restart browser if you switched engines.";
+                      serverStatusMsg.style.display = "block";
+                  }
+              };
+              window.speechSynthesis.speak(u);
+          } else {
+              stopPlayback(false);
+              currentSentenceIndex = 0;
+              statusBadge.textContent = "✅ Finished";
+          }
       } else {
-          statusDiv.textContent = `Buffering... (${streamAudioQueue.length}/${preBuffer})`;
-          setTimeout(playLoop, 200);
+          // Server
+          const pre = parseInt(bufferRange.value) || 2;
+          const ready = streamAudioQueue.length >= pre;
+          const all = fetchIndex >= sentences.length;
+          
+          if (streamAudioQueue.length > 0 && (ready || all)) {
+              const item = streamAudioQueue.shift();
+              playIndex = item.index;
+              currentSentenceIndex = playIndex;
+              isPlayingStream = true;
+              highlightSentence(playIndex);
+              
+              await playAudioBuffer(item.audio, item.sampleRate);
+              isPlayingStream = false;
+              playLoop();
+          } else if (all && streamAudioQueue.length === 0) {
+              stopPlayback(false);
+              currentSentenceIndex = 0;
+              statusBadge.textContent = "✅ Finished";
+          } else {
+              setTimeout(playLoop, 200);
+          }
       }
   }
 
-  function playAudioBuffer(base64, sampleRate) {
-    return new Promise((resolve, reject) => {
-        if (!isStreaming) {
-            resolve();
-            return;
-        }
-        
-        const binaryString = atob(base64);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-        }
-        
-        const pcm16 = new Int16Array(bytes.buffer);
-        const float32 = new Float32Array(pcm16.length);
-        for (let i = 0; i < pcm16.length; i++) {
-            float32[i] = pcm16[i] / 32768.0;
-        }
-        
-        const buffer = audioContext.createBuffer(1, float32.length, sampleRate);
-        buffer.getChannelData(0).set(float32);
-        
-        const source = audioContext.createBufferSource();
-        source.buffer = buffer;
-        source.connect(audioContext.destination);
-        source.start();
-        
-        source.onended = () => {
-            resolve();
-        };
-    });
+  function highlightSentence(index) {
+      if (!isPlaybackMode) return;
+      const prev = textInput.querySelector('.sentence.active');
+      if (prev) prev.classList.remove('active');
+      const next = textInput.querySelector(`.sentence[data-index="${index}"]`);
+      if (next) {
+          next.classList.add('active');
+          const top = next.offsetTop - textInput.offsetTop;
+          textInput.scrollTop = top - 40;
+      }
   }
 
-  function stopPlayback(fullReset = false) {
-    isStreaming = false;
-    isPlayingStream = false;
-    
-    // Stop System TTS
-    window.speechSynthesis.cancel();
-    
-    if (audioPlayer) {
-        audioPlayer.pause();
-        audioPlayer.currentTime = 0;
-        audioPlayer.style.display = 'none';
-    }
-    if (audioContext) {
-        audioContext.close();
-        audioContext = null;
-    }
-    
-    // Restore textInput to plain text (remove highlight span)
-    textInput.innerHTML = textInput.innerText;
-
-    // Re-enable controls
-    if (currentEngine === 'supertonic' && !serverAvailable) {
-        toggleControls(true);
-        textInput.contentEditable = true; // Ensure editable if server down
-        fetchBtn.disabled = false;
-    } else {
-        toggleControls(false);
-    }
-
-    streamBtn.disabled = (currentEngine === 'supertonic' && !serverAvailable);
-    streamBtn.textContent = "Play";
-    streamBtn.classList.remove('btn-danger');
-    streamBtn.classList.add('btn-success');
-    
-    // Restore editability
-    textInput.contentEditable = true; 
-    
-    if (fullReset) {
-        sentences = [];
-        currentSentenceIndex = 0;
-        streamAudioQueue = [];
-        fetchIndex = 0;
-        playIndex = 0;
-        lastStreamedText = ""; 
-        statusDiv.textContent = "Ready";
-    } else {
-        statusDiv.textContent = "Paused";
-    }
-  }
-
-  function highlightSentence(sentenceObj) {
-    if (sentenceObj && typeof sentenceObj.index === 'number') {
-        const currentPlaintext = textInput.innerText;
-        const before = currentPlaintext.substring(0, sentenceObj.index);
-        const highlighted = currentPlaintext.substring(sentenceObj.index, sentenceObj.index + sentenceObj.length);
-        const after = currentPlaintext.substring(sentenceObj.index + sentenceObj.length);
-
-        textInput.innerHTML = `${before}<span class="sentence-highlight">${highlighted}</span>${after}`;
-        
-        // Ensure the div is focused to show the highlight
-        textInput.focus();
-        
-        // Scroll to the highlighted text
-        const approxScrollPos = textInput.scrollHeight * (sentenceObj.index / currentPlaintext.length);
-        textInput.scrollTop = approxScrollPos - 20; 
-    }
+  function playAudioBuffer(base64, rate) {
+      return new Promise((resolve) => {
+          if (!isStreaming) { resolve(); return; }
+          const bin = atob(base64);
+          const len = bin.length;
+          const bytes = new Uint8Array(len);
+          for (let i=0; i<len; i++) bytes[i] = bin.charCodeAt(i);
+          const f32 = new Float32Array(new Int16Array(bytes.buffer).length);
+          const pcm = new Int16Array(bytes.buffer);
+          for (let i=0; i<pcm.length; i++) f32[i] = pcm[i]/32768.0;
+          
+          const buf = audioContext.createBuffer(1, f32.length, rate);
+          buf.getChannelData(0).set(f32);
+          const src = audioContext.createBufferSource();
+          src.buffer = buf;
+          src.connect(audioContext.destination);
+          src.start();
+          src.onended = resolve;
+      });
   }
 
   function sendRequest(text) {
-    return new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage({
-          action: "synthesize",
-          text: text,
-          voice_style: voiceSelect.value,
-          speed: parseFloat(speedRange.value),
-          total_step: parseInt(stepRange.value)
-        }, (response) => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-          } else {
-            resolve(response);
-          }
-        });
-    });
-  }
-  
-  function setupMediaSession() {
-      if ('mediaSession' in navigator) {
-          navigator.mediaSession.metadata = new MediaMetadata({
-            title: 'Supertonic TTS',
-            artist: 'Local Synthesis',
-            album: 'Chrome Extension'
+      return new Promise((resolve, reject) => {
+          chrome.runtime.sendMessage({
+              action: "synthesize", text, 
+              voice_style: voiceSelect.value, 
+              speed: parseFloat(speedRange.value), 
+              total_step: parseInt(stepRange.value)
+          }, (r) => {
+              if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
+              else resolve(r);
           });
-          navigator.mediaSession.setActionHandler('play', () => audioPlayer.play());
-          navigator.mediaSession.setActionHandler('pause', () => audioPlayer.pause());
-          navigator.mediaSession.setActionHandler('stop', () => stopPlayback());
-      }
+      });
   }
 });

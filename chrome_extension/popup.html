@@ -1,208 +1,351 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Supertonic Local TTS</title>
-  <style>
-    body {
-      width: 400px;
-      padding: 15px;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background-color: #f9f9f9;
-      color: #333;
-    }
-    h3 {
-      margin-top: 0;
-      color: #333;
-      text-align: center;
-    }
-    
-    /* Layout */
-    .control-group {
-      margin-bottom: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    label {
-      font-size: 13px;
-      color: #555;
-      font-weight: 500;
-    }
-    select, input[type="range"] {
-      width: 65%;
-    }
-    .buttons {
-      display: flex;
-      gap: 10px;
-      margin-top: 15px;
-      flex-wrap: wrap;
-    }
+    <meta charset="UTF-8">
+    <title>Supertonic TTS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --accent-blue: #00d4ff;
+            --background-start: #1a1d29;
+            --background-end: #2d1b3d;
+            --text-primary: #e0e0e0;
+            --text-secondary: #9a9faf;
+            --glass-background: rgba(40, 42, 60, 0.5);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --glow-color: rgba(0, 212, 255, 0.6);
+            --shadow-color: rgba(0, 0, 0, 0.2);
+            --btn-shadow: 0 4px 10px var(--shadow-color);
+        }
 
-    /* Button Styles */
-    .btn {
-        padding: 10px;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 14px;
-        transition: background-color 0.2s, transform 0.1s, box-shadow 0.1s;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.12);
-        display: inline-block;
-        text-align: center;
-        flex: 1; /* Default flex for main buttons */
-    }
-    .btn:hover { opacity: 0.95; }
-    .btn:active { transform: translateY(1px); box-shadow: none; }
-    .btn:disabled { background-color: #ccc !important; color: #666; cursor: not-allowed; transform: none; box-shadow: none; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
 
-    .btn-primary { background-color: #2196F3; }
-    .btn-primary:hover { background-color: #1976D2; }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
 
-    .btn-success { background-color: #4CAF50; }
-    .btn-success:hover { background-color: #388E3C; }
-
-    .btn-danger { background-color: #f44336; }
-    .btn-danger:hover { background-color: #d32f2f; }
-
-    .btn-warning { background-color: #FF9800; }
-    .btn-warning:hover { background-color: #F57C00; }
-    
-    /* Specific adjustments */
-    #fetchBtn { width: 100%; margin-bottom: 10px; }
-    
-    #refreshServerBtn {
-        flex: none; /* Don't expand */
-        padding: 6px 12px;
-        font-size: 12px;
-        margin-left: auto;
-        display: none; /* Toggled via JS */
-    }
-
-    #status {
-      margin-top: 10px;
-      font-size: 12px;
-      color: #666;
-      text-align: center;
-      min-height: 1.2em;
-    }
-    #audioPlayer {
-      width: 100%;
-      margin-top: 10px;
-      display: none;
-    }
-    
-    /* Contenteditable Div */
-    #textInput {
-      width: 100%;
-      height: 120px;
-      margin-bottom: 10px;
-      padding: 8px;
-      resize: vertical;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      font-family: inherit;
-      box-sizing: border-box;
-      overflow-y: auto;
-      cursor: text;
-      white-space: pre-wrap;
-      background-color: white;
-      color: black;
-    }
-    
-    /* Highlight Style */
-    .sentence-highlight {
-        background-color: #ffeb3b; /* Bright Yellow */
-        color: black !important; /* Force black text for contrast */
-        text-decoration: none;
-        box-shadow: 0 0 2px rgba(0,0,0,0.2);
-        border-radius: 2px;
-        padding: 0 2px;
-    }
-
-    /* Dark Mode */
-    @media (prefers-color-scheme: dark) {
         body {
-            background-color: #202124;
-            color: #e8eaed;
+            width: 420px;
+            padding: 24px;
+            box-sizing: border-box;
+            background: linear-gradient(135deg, var(--background-start), var(--background-end));
+            font-family: 'Inter', sans-serif;
+            color: var(--text-primary);
+            animation: fadeIn 0.4s ease-out;
+            position: relative;
+            overflow: hidden;
+            margin: 0;
         }
-        h3 { color: #e8eaed; }
-        label { color: #bdc1c6; }
-        
-        #textInput, select, input[type="text"] {
-            background-color: #292a2d;
-            color: #e8eaed;
-            border-color: #5f6368;
+
+        body::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800"><g fill-opacity="0.01"><circle fill="%23FFFFFF" cx="400" cy="400" r="600"/><circle fill="%231a1d29" cx="400" cy="400" r="500"/><circle fill="%23181a28" cx="400" cy="400" r="400"/><circle fill="%23161823" cx="400" cy="400" r="300"/><circle fill="%2314151f" cx="400" cy="400" r="200"/><circle fill="%2312131a" cx="400" cy="400" r="100"/></g></svg>');
+            opacity: 0.2;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        .main-container {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
         }
         
-        /* Ensure placeholder text is readable */
-        #textInput:empty:before { color: #9aa0a6; }
-        #status { color: #9aa0a6; }
-        #serverStatusMsg { color: #ff8a80 !important; }
-    }
-  </style>
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        #statusBadge {
+            font-size: 12px;
+            font-weight: 600;
+            padding: 6px 12px;
+            border-radius: 16px;
+            background: var(--glass-background);
+            border: 1px solid var(--glass-border);
+            color: var(--text-secondary);
+            backdrop-filter: blur(5px);
+        }
+
+        .segmented-control {
+            display: flex;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 4px;
+            border: 1px solid var(--glass-border);
+        }
+        .segmented-control label {
+            flex: 1;
+            text-align: center;
+            padding: 6px 12px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+        .segmented-control input[type="radio"] { display: none; }
+        .segmented-control input[type="radio"]:checked + label {
+            background: var(--accent-blue);
+            color: #000;
+            font-weight: 600;
+            box-shadow: 0 2px 8px rgba(0, 212, 255, 0.3);
+        }
+        
+        #textInput {
+            width: 100%;
+            height: 160px;
+            background: rgba(20, 22, 34, 0.7);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 16px;
+            color: var(--text-primary);
+            font-size: 15px;
+            line-height: 1.6;
+            resize: vertical;
+            overflow-y: auto;
+            transition: border-color 0.3s, box-shadow 0.3s;
+            scroll-behavior: smooth;
+        }
+        #textInput:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 15px var(--glow-color);
+        }
+        
+        /* Interactive sentences */
+        .sentence {
+            cursor: pointer;
+            border-radius: 3px;
+            transition: background-color 0.2s, transform 0.2s;
+            display: inline;
+        }
+        .sentence:hover {
+            background-color: rgba(0, 212, 255, 0.1);
+        }
+        .sentence.active {
+            background-color: var(--accent-blue);
+            color: #000 !important;
+            box-shadow: 0 2px 8px rgba(0, 212, 255, 0.2);
+            transform: scale(1.02);
+            font-weight: 500;
+        }
+
+        .playback-controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 8px 0;
+        }
+        
+        #playPauseBtn {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            background: linear-gradient(135deg, var(--accent-blue), #2a52bf);
+            box-shadow: 0 6px 20px rgba(0, 212, 255, 0.3);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        #playPauseBtn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 8px 25px rgba(0, 212, 255, 0.5);
+        }
+        #playPauseBtn:active {
+            transform: scale(0.95);
+        }
+        #playPauseBtn:disabled {
+            background: #444;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        #playPauseBtn .icon {
+            fill: white;
+            width: 28px;
+            height: 28px;
+            pointer-events: none;
+        }
+        
+        .card {
+            background: var(--glass-background);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 16px;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .control-group {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .control-group label {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+        .control-group select, .control-group input[type="range"] {
+            width: 60%;
+            background: rgba(0,0,0,0.2);
+            border: 1px solid var(--glass-border);
+            color: white;
+            border-radius: 6px;
+            padding: 4px;
+        }
+        select:focus { outline: none; border-color: var(--accent-blue); }
+
+        .utility-buttons {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+            background: var(--glass-background);
+            border: 1px solid var(--glass-border);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 5px var(--shadow-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px var(--shadow-color);
+            border-color: var(--accent-blue);
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .btn:active { transform: translateY(0); }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        #serverStatusMsg {
+            text-align: center;
+            font-size: 12px;
+            color: #ff8a80;
+            padding: 10px;
+            border-radius: 8px;
+            background: rgba(255, 82, 82, 0.1);
+            border: 1px solid rgba(255, 82, 82, 0.3);
+            margin-top: 8px;
+        }
+        audio { display: none; }
+    </style>
 </head>
 <body>
-  <h3>Supertonic Local TTS</h3>
+    <div class="main-container">
 
-  <div class="control-group" style="justify-content: flex-start; gap: 15px; margin-bottom: 15px;">
-    <label style="cursor: pointer;">
-      <input type="radio" name="engine" value="supertonic"> Supertonic (Server)
-    </label>
-    <label style="cursor: pointer;">
-      <input type="radio" name="engine" value="system" checked> System TTS
-    </label>
-    <button id="refreshServerBtn" class="btn btn-warning">Refresh</button>
-  </div>
-  
-  <button id="fetchBtn" class="btn btn-primary">Fetch Page Text</button>
-  
-  <div id="textInput" contenteditable="true" placeholder="Enter text or fetch from page..."></div>
-  
-  <div class="control-group">
-    <label for="voiceSelect">Voice:</label>
-    <select id="voiceSelect">
-      <option value="F1.json">Female 1</option>
-      <option value="F2.json" selected>Female 2</option>
-      <option value="F3.json">Female 3</option>
-      <option value="F4.json">Female 4</option>
-      <option value="F5.json">Female 5</option>
-      <option value="M1.json">Male 1</option>
-      <option value="M2.json">Male 2</option>
-      <option value="M3.json">Male 3</option>
-      <option value="M4.json">Male 4</option>
-      <option value="M5.json">Male 5</option>
-    </select>
-  </div>
-  
-  <div class="control-group">
-    <label for="speedRange">Speed: <span id="speedValue">1.05</span></label>
-    <input type="range" id="speedRange" min="0.9" max="1.5" step="0.05" value="1.05">
-  </div>
+        <div class="top-bar">
+            <!-- Mode Toggle -->
+            <div class="segmented-control">
+                <input type="radio" name="mode" id="editMode" value="edit" checked>
+                <label for="editMode">Edit</label>
+                <input type="radio" name="mode" id="playbackMode" value="playback">
+                <label for="playbackMode">Playback</label>
+            </div>
+            
+            <div id="statusBadge">✏️ Ready</div>
+        </div>
 
-  <div id="serverControls">
-    <div class="control-group">
-      <label for="stepRange">Denoise Steps: <span id="stepValue">5</span></label>
-      <input type="range" id="stepRange" min="1" max="10" step="1" value="5">
+        <!-- Main Text Area -->
+        <div id="textInput" contenteditable="true" spellcheck="false" placeholder="Enter text here..."></div>
+
+        <!-- Playback Controls -->
+        <div class="playback-controls">
+            <button id="playPauseBtn" title="Play">
+                <!-- Play Icon -->
+                <svg id="playIcon" class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                <!-- Pause/Stop Icon (Stop square for now as logic stops) -->
+                <svg id="stopIcon" class="icon" viewBox="0 0 24 24" style="display: none;"><path d="M6 6h12v12H6z"/></svg>
+            </button>
+        </div>
+
+        <!-- Settings Card -->
+        <div class="card" id="settingsCard">
+            <div class="control-group">
+                <label>Engine</label>
+                <div class="segmented-control" style="width: 60%;">
+                    <input type="radio" name="engine" id="engineSystem" value="system" checked>
+                    <label for="engineSystem">System</label>
+                    <input type="radio" name="engine" id="engineServer" value="supertonic">
+                    <label for="engineServer">Server</label>
+                </div>
+            </div>
+            <div class="control-group">
+                <label for="voiceSelect">Voice</label>
+                <select id="voiceSelect"></select>
+            </div>
+            <div class="control-group">
+                <label for="speedRange">Speed (<span id="speedValue">1.05</span>x)</label>
+                <input type="range" id="speedRange" min="0.9" max="1.5" step="0.05" value="1.05">
+            </div>
+        </div>
+        
+        <!-- Server Extras (Hidden by default) -->
+        <div class="card" id="serverControlsCard" style="display: none;">
+             <div class="control-group">
+                <label for="stepRange">Denoise (<span id="stepValue">5</span>)</label>
+                <input type="range" id="stepRange" min="1" max="10" step="1" value="5">
+            </div>
+            <div class="control-group">
+                <label for="bufferRange">Buffer (<span id="bufferValue">2</span>)</label>
+                <input type="range" id="bufferRange" min="1" max="10" step="1" value="2">
+            </div>
+        </div>
+        
+        <!-- Bottom Actions -->
+        <div class="utility-buttons">
+            <button id="fetchBtn" class="btn">
+                <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                Fetch Page
+            </button>
+            <button id="refreshServerBtn" class="btn" style="display:none; color: #FF9800; border-color: #FF9800;">
+                <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                Refresh
+            </button>
+        </div>
+
+        <div id="serverStatusMsg" style="display: none;"></div>
+        
+        <audio id="audioPlayer"></audio>
     </div>
-
-    <div class="control-group">
-      <label for="bufferRange">Pre-buffer: <span id="bufferValue">2</span></label>
-      <input type="range" id="bufferRange" min="1" max="10" step="1" value="2">
-    </div>
-  </div>
-  
-  <div id="serverStatusMsg" style="text-align: center; font-size: 13px; color: #d32f2f; margin-bottom: 10px; display: none; line-height: 1.4;">
-      Server not available. Enable Python server - then click <b>Refresh</b> button on top.
-  </div>
-  
-  <div class="buttons">
-    <button id="streamBtn" class="btn btn-success">Play</button>
-  </div>
-  
-  <audio id="audioPlayer" controls></audio>
-  <div id="status">Ready</div>
-
-  <script src="popup.js"></script>
+    <script src="popup.js"></script>
 </body>
 </html>
