@@ -4,6 +4,12 @@ document.addEventListener('DOMContentLoaded', function() {
   const fetchBtn = document.getElementById('fetchBtn');
   const refreshServerBtn = document.getElementById('refreshServerBtn');
   
+  // Progress Bar
+  const playbackProgress = document.getElementById('playbackProgress');
+  const progressCurrent = document.getElementById('progressCurrent');
+  const progressTotal = document.getElementById('progressTotal');
+  const progressFill = document.getElementById('progressFill');
+
   // Controls
   const playPauseBtn = document.getElementById('playPauseBtn');
   const playIcon = document.getElementById('playIcon');
@@ -29,24 +35,18 @@ document.addEventListener('DOMContentLoaded', function() {
   const engineServerRadio = document.getElementById('engineServer');
 
   // --- State ---
-  let audioContext = null;
-  let isStreaming = false;
   let isPlaybackMode = false;
-  let streamAudioQueue = []; 
   let currentSentenceIndex = 0;
   let sentences = []; 
-  let isPlayingStream = false;
-  let lastStreamedText = "";
   let currentEngine = 'system'; 
   let serverAvailable = false;
   
-  // Buffering state
-  let fetchIndex = 0;
-  let playIndex = 0;
-
+  // System Engine State
+  // let isSystemPlaying = false; // Removed as part of migration to offscreen
+  
   // --- Initialization ---
   
-  // Restore state
+  // 1. Restore preferences
   chrome.storage.local.get(['savedText', 'savedSpeed', 'savedStep', 'savedBuffer', 'savedVoice', 'savedEngine'], (result) => {
       if (result.savedText) textInput.innerText = result.savedText;
       if (result.savedSpeed) { speedRange.value = result.savedSpeed; speedValue.textContent = result.savedSpeed; }
@@ -60,6 +60,8 @@ document.addEventListener('DOMContentLoaded', function() {
           } else {
               engineSystemRadio.checked = true;
           }
+      } else {
+          engineSystemRadio.checked = true; // Default
       }
       
       updateEngineUI();
@@ -67,6 +69,67 @@ document.addEventListener('DOMContentLoaded', function() {
       // Restore voice (delayed)
       if (result.savedVoice) {
           setTimeout(() => { voiceSelect.value = result.savedVoice; }, 100);
+      }
+      
+      // 2. Check Active Session (Offscreen)
+      chrome.runtime.sendMessage({ type: 'CMD_GET_STATE' }, (state) => {
+          if (chrome.runtime.lastError || !state) return;
+          
+          // Sync engine state
+          if (state.engine) {
+              currentEngine = state.engine;
+              if (currentEngine === 'supertonic') {
+                  engineServerRadio.checked = true;
+              } else {
+                  engineSystemRadio.checked = true;
+              }
+              updateEngineUI();
+          }
+          
+          if (state.isStreaming || state.isPaused) {
+              console.log("Syncing with active session:", state);
+              
+              // Restore UI to playback mode
+              textInput.innerText = state.text; // Ensure text matches
+              enterPlaybackMode(state.text);
+              
+              currentSentenceIndex = state.index;
+              highlightSentence(state.index);
+              updateProgressUI(state.index, sentences.length);
+              
+              // Update controls if they differ
+              if (state.voice) {
+                   // Ensure voice list is populated before setting value
+                   setTimeout(() => { voiceSelect.value = state.voice; }, 500); 
+              }
+              if (state.speed) { speedRange.value = state.speed; speedValue.textContent = state.speed; }
+              
+              // Visual state
+              if (state.isStreaming) {
+                  playIcon.style.display = 'none';
+                  stopIcon.style.display = 'block';
+                  playPauseBtn.classList.add('playing');
+                  statusBadge.textContent = "🎧 Playing";
+                  fetchBtn.style.display = 'none';
+                  playbackProgress.style.display = 'flex';
+                  progressTotal.textContent = sentences.length;
+              } else if (state.isPaused) {
+                   statusBadge.textContent = "⏸️ Paused";
+              }
+          }
+      });
+  });
+
+  // --- Message Listeners ---
+  chrome.runtime.onMessage.addListener((msg) => {
+      if (msg.type === 'UPDATE_PROGRESS') {
+          if (isPlaybackMode) {
+              currentSentenceIndex = msg.index;
+              highlightSentence(msg.index);
+              updateProgressUI(msg.index, sentences.length);
+          }
+      } else if (msg.type === 'PLAYBACK_FINISHED') {
+          onPlaybackFinished();
       }
   });
 
@@ -78,7 +141,6 @@ document.addEventListener('DOMContentLoaded', function() {
   });
   playbackModeRadio.addEventListener('change', () => {
       if (playbackModeRadio.checked) {
-          // If empty, warn? No, just let it process empty
           enterPlaybackMode(textInput.innerText.trim());
       }
   });
@@ -89,7 +151,7 @@ document.addEventListener('DOMContentLoaded', function() {
           currentEngine = 'system';
           chrome.storage.local.set({ savedEngine: 'system' });
           updateEngineUI();
-          stopPlayback(true);
+          stopPlayback(false);
       }
   });
   engineServerRadio.addEventListener('change', () => {
@@ -97,7 +159,7 @@ document.addEventListener('DOMContentLoaded', function() {
           currentEngine = 'supertonic';
           chrome.storage.local.set({ savedEngine: 'supertonic' });
           updateEngineUI();
-          stopPlayback(true);
+          stopPlayback(false);
       }
   });
 
@@ -114,26 +176,25 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Play/Stop
   playPauseBtn.addEventListener('click', () => {
-      if (isStreaming) {
-          stopPlayback(); // Stops logic, remains in playback mode
+      if (playPauseBtn.classList.contains('playing')) {
+          stopPlayback(); 
       } else {
           // Start
           const text = textInput.innerText.trim();
           if (!text) return;
 
-          // Auto-enter playback mode if needed
           if (!isPlaybackMode) {
               playbackModeRadio.checked = true;
               enterPlaybackMode(text);
               currentSentenceIndex = 0;
           }
           
-          // Force refresh voices just in case (for stale engine fix attempt)
           if (currentEngine === 'system') {
               window.speechSynthesis.getVoices();
+              startSystemPlayback();
+          } else {
+              startServerPlayback();
           }
-          
-          startStreaming();
       }
   });
 
@@ -173,12 +234,13 @@ document.addEventListener('DOMContentLoaded', function() {
               func: () => document.body.innerText
           });
           if (result && result[0] && result[0].result) {
+              if (isPlaybackMode) enterEditMode();
               const fetched = result[0].result.trim();
               textInput.innerText = fetched;
               chrome.storage.local.set({ savedText: fetched });
               statusBadge.textContent = "Fetched";
               setTimeout(() => { 
-                  if (!isStreaming) statusBadge.textContent = isPlaybackMode ? "🎧 Ready" : "✏️ Ready"; 
+                  if (!playPauseBtn.classList.contains('playing')) statusBadge.textContent = isPlaybackMode ? "🎧 Ready" : "✏️ Ready"; 
               }, 1500);
           }
       } catch (e) {
@@ -192,28 +254,27 @@ document.addEventListener('DOMContentLoaded', function() {
   // --- Functions ---
 
   function enterPlaybackMode(text) {
-      if (isPlaybackMode) return; // Already in mode
+      if (isPlaybackMode) return;
       
-      // Tokenize
+      // Tokenize (match offscreen logic ideally, but visual split is key)
       try {
           const segmenter = new Intl.Segmenter(navigator.language, { granularity: 'sentence' });
           const segments = segmenter.segment(text);
           sentences = Array.from(segments)
               .filter(s => s.segment.trim().length > 0)
-              .map(s => ({ text: s.segment, index: s.index, length: s.segment.length }));
+              .map(s => ({ text: s.segment, index: s.index }));
       } catch (e) {
-          sentences = []; // Simple fallback
+          sentences = [];
           const regex = /[^.!?]+[.!?]+|[^.!?]+$/g;
           let match;
           while ((match = regex.exec(text)) !== null) {
               if (match[0].trim().length > 0) {
-                  sentences.push({ text: match[0], index: match.index, length: match[0].length });
+                  sentences.push({ text: match[0], index: match.index });
               }
           }
-          if (sentences.length === 0) sentences = [{ text: text, index: 0, length: text.length }];
+          if (sentences.length === 0) sentences = [{ text: text, index: 0 }];
       }
 
-      // Render
       const html = sentences.map((s, i) => {
           const safeText = s.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
           return `<span class="sentence" data-index="${i}">${safeText}</span>`;
@@ -224,16 +285,14 @@ document.addEventListener('DOMContentLoaded', function() {
       
       isPlaybackMode = true;
       playbackModeRadio.checked = true;
-      fetchBtn.disabled = true; // Disable fetch in playback
+      fetchBtn.disabled = false;
       
       statusBadge.textContent = "🎧 Ready";
-      lastStreamedText = text;
   }
 
   function enterEditMode() {
       stopPlayback(true);
       
-      // Flatten
       const plainText = textInput.innerText;
       textInput.innerText = plainText;
       textInput.contentEditable = true;
@@ -246,12 +305,18 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   function seekTo(index) {
-      stopPlayback(false); // Pause logic
       currentSentenceIndex = index;
-      playIndex = Math.max(0, index);
-      fetchIndex = Math.max(0, index);
-      streamAudioQueue = [];
-      startStreaming();
+      // We need to restart streaming from index, for both engines now
+      startServerPlayback(index); // This function delegates to CMD_START_STREAM
+      // Note: startServerPlayback is poorly named now, effectively it is "startPlayback"
+      // but we will keep the name or could refactor. 
+      // Actually, startServerPlayback sets engine: 'supertonic'.
+      
+      if (currentEngine === 'system') {
+          startSystemPlayback(index);
+      } else {
+          startServerPlayback(index);
+      }
   }
 
   function updateEngineUI() {
@@ -262,7 +327,6 @@ document.addEventListener('DOMContentLoaded', function() {
           refreshServerBtn.style.display = "none";
           serverStatusMsg.style.display = "none";
           
-          // System Voices
           const voices = window.speechSynthesis.getVoices();
           if (voices.length === 0) {
               window.speechSynthesis.onvoiceschanged = () => updateEngineUI();
@@ -277,6 +341,11 @@ document.addEventListener('DOMContentLoaded', function() {
           refreshServerBtn.style.display = "flex";
           checkServerStatus();
       }
+      
+      // Ensure fetchBtn is visible if not playing (defensive coding)
+      if (!playPauseBtn.classList.contains('playing')) {
+          fetchBtn.style.display = 'flex';
+      }
   }
 
   function checkServerStatus() {
@@ -290,7 +359,6 @@ document.addEventListener('DOMContentLoaded', function() {
           if (resp.ok) {
               serverAvailable = true;
               serverStatusMsg.style.display = "none";
-              // Populate Server Voices
               voiceSelect.innerHTML = "";
               [
                  { val: "F1.json", text: "Female 1" },
@@ -322,138 +390,88 @@ document.addEventListener('DOMContentLoaded', function() {
       });
   }
 
-  async function startStreaming() {
-      isStreaming = true;
-      isPlayingStream = false;
-      streamAudioQueue = [];
+  // --- Playback Logic ---
+
+  function startServerPlayback(startIndex = 0) {
+      if (startIndex === 0 && currentSentenceIndex > 0) startIndex = currentSentenceIndex;
+
+      updateUIState(true);
       
-      // UI Update
-      playIcon.style.display = 'none';
-      stopIcon.style.display = 'block';
-      playPauseBtn.classList.add('playing'); // Optional hook for CSS animations
-      statusBadge.textContent = "🎧 Playing";
+      const text = textInput.innerText; // Plain text
       
-      // Index Check
-      if (sentences.length > 0) {
-          if (currentSentenceIndex >= sentences.length) currentSentenceIndex = 0;
-          playIndex = currentSentenceIndex;
-          fetchIndex = currentSentenceIndex;
-      } else {
-          playIndex = 0; fetchIndex = 0;
-      }
+      chrome.runtime.sendMessage({
+          type: 'CMD_START_STREAM',
+          payload: {
+              text: text,
+              voice: voiceSelect.value,
+              speed: parseFloat(speedRange.value),
+              total_step: parseInt(stepRange.value),
+              bufferTarget: parseInt(bufferRange.value),
+              index: startIndex,
+              engine: 'supertonic'
+          }
+      });
+  }
+  
+  function startSystemPlayback(startIndex = 0) {
+      if (startIndex === 0 && currentSentenceIndex > 0) startIndex = currentSentenceIndex;
       
-      if (currentEngine === 'supertonic') {
-          if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          if (audioContext.state === 'suspended') await audioContext.resume();
-          fetchLoop();
-      }
+      updateUIState(true);
       
-      playLoop();
+      const text = textInput.innerText;
+      
+      chrome.runtime.sendMessage({
+          type: 'CMD_START_STREAM',
+          payload: {
+              text: text,
+              voice: voiceSelect.value,
+              speed: parseFloat(speedRange.value),
+              total_step: 0, // Not used for system
+              bufferTarget: 0, // Not used for system
+              index: startIndex,
+              engine: 'system'
+          }
+      });
   }
 
   function stopPlayback(fullReset = false) {
-      isStreaming = false;
-      isPlayingStream = false;
-      window.speechSynthesis.cancel();
-      
-      if (audioPlayer) audioPlayer.pause();
-      if (audioContext) audioContext.close(), audioContext = null;
-      
-      // UI Reset
-      playIcon.style.display = 'block';
-      stopIcon.style.display = 'none';
-      playPauseBtn.classList.remove('playing');
+      // Send stop command to offscreen for both engines
+      chrome.runtime.sendMessage({ type: 'CMD_STOP' });
+      onPlaybackFinished(fullReset);
+  }
+  
+  function onPlaybackFinished(fullReset = false) {
+      updateUIState(false);
       
       if (fullReset) {
           sentences = [];
           currentSentenceIndex = 0;
-          streamAudioQueue = [];
-          fetchIndex = 0;
-          playIndex = 0;
           statusBadge.textContent = "✏️ Ready";
       } else {
-          // If error text present, leave it; otherwise "Paused"
-          if (!statusBadge.textContent.includes("Error")) {
-              statusBadge.textContent = "⏸️ Paused";
-          }
+          statusBadge.textContent = "⏸️ Paused";
       }
   }
-
-  async function fetchLoop() {
-      while (isStreaming && fetchIndex < sentences.length) {
-          const s = sentences[fetchIndex];
-          try {
-              const resp = await sendRequest(s.text);
-              if (!isStreaming) break;
-              if (resp.audio) {
-                  streamAudioQueue.push({ audio: resp.audio, sampleRate: resp.sample_rate, index: fetchIndex });
-              }
-              fetchIndex++;
-          } catch (e) {
-              console.error(e);
-              if (!isStreaming) break;
-          }
-      }
-  }
-
-  async function playLoop() {
-      if (!isStreaming) return;
-      if (isPlayingStream) { setTimeout(playLoop, 100); return; }
-      
-      if (currentEngine === 'system') {
-          if (playIndex < sentences.length) {
-              const s = sentences[playIndex];
-              isPlayingStream = true;
-              highlightSentence(playIndex);
-              currentSentenceIndex = playIndex;
-              
-              const u = new SpeechSynthesisUtterance(s.text);
-              const voices = window.speechSynthesis.getVoices();
-              const v = voices.find(vo => vo.name === voiceSelect.value);
-              if (v) u.voice = v;
-              u.rate = parseFloat(speedRange.value);
-              
-              u.onend = () => { isPlayingStream = false; playIndex++; playLoop(); };
-              u.onerror = (e) => {
-                  isPlayingStream = false;
-                  if (e.error === 'interrupted' || e.error === 'canceled') {
-                      stopPlayback(false);
-                  } else {
-                      stopPlayback(false);
-                      statusBadge.textContent = "⚠️ TTS Error";
-                      serverStatusMsg.textContent = "TTS Error. Restart browser if you switched engines.";
-                      serverStatusMsg.style.display = "block";
-                  }
-              };
-              window.speechSynthesis.speak(u);
-          } else {
-              stopPlayback(false);
-              currentSentenceIndex = 0;
-              statusBadge.textContent = "✅ Finished";
-          }
+  
+  function updateUIState(playing) {
+      if (playing) {
+          playIcon.style.display = 'none';
+          stopIcon.style.display = 'block';
+          playPauseBtn.classList.add('playing');
+          statusBadge.textContent = "🎧 Playing";
+          fetchBtn.style.display = 'none';
       } else {
-          // Server
-          const pre = parseInt(bufferRange.value) || 2;
-          const ready = streamAudioQueue.length >= pre;
-          const all = fetchIndex >= sentences.length;
-          
-          if (streamAudioQueue.length > 0 && (ready || all)) {
-              const item = streamAudioQueue.shift();
-              playIndex = item.index;
-              currentSentenceIndex = playIndex;
-              isPlayingStream = true;
-              highlightSentence(playIndex);
-              
-              await playAudioBuffer(item.audio, item.sampleRate);
-              isPlayingStream = false;
-              playLoop();
-          } else if (all && streamAudioQueue.length === 0) {
-              stopPlayback(false);
-              currentSentenceIndex = 0;
-              statusBadge.textContent = "✅ Finished";
-          } else {
-              setTimeout(playLoop, 200);
-          }
+          playIcon.style.display = 'block';
+          stopIcon.style.display = 'none';
+          playPauseBtn.classList.remove('playing');
+          fetchBtn.style.display = 'flex';
+      }
+      
+      // Always show progress if in playback mode and we have sentences
+      if (isPlaybackMode && sentences.length > 0) {
+          playbackProgress.style.display = 'flex';
+          progressTotal.textContent = sentences.length;
+      } else {
+          playbackProgress.style.display = 'none';
       }
   }
 
@@ -469,38 +487,14 @@ document.addEventListener('DOMContentLoaded', function() {
       }
   }
 
-  function playAudioBuffer(base64, rate) {
-      return new Promise((resolve) => {
-          if (!isStreaming) { resolve(); return; }
-          const bin = atob(base64);
-          const len = bin.length;
-          const bytes = new Uint8Array(len);
-          for (let i=0; i<len; i++) bytes[i] = bin.charCodeAt(i);
-          const f32 = new Float32Array(new Int16Array(bytes.buffer).length);
-          const pcm = new Int16Array(bytes.buffer);
-          for (let i=0; i<pcm.length; i++) f32[i] = pcm[i]/32768.0;
-          
-          const buf = audioContext.createBuffer(1, f32.length, rate);
-          buf.getChannelData(0).set(f32);
-          const src = audioContext.createBufferSource();
-          src.buffer = buf;
-          src.connect(audioContext.destination);
-          src.start();
-          src.onended = resolve;
-      });
-  }
-
-  function sendRequest(text) {
-      return new Promise((resolve, reject) => {
-          chrome.runtime.sendMessage({
-              action: "synthesize", text, 
-              voice_style: voiceSelect.value, 
-              speed: parseFloat(speedRange.value), 
-              total_step: parseInt(stepRange.value)
-          }, (r) => {
-              if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
-              else resolve(r);
-          });
-      });
+  function updateProgressUI(current, total) {
+      if (!isPlaybackMode) return;
+      progressCurrent.textContent = current + 1;
+      if (total > 0) {
+          const pct = ((current + 1) / total) * 100;
+          progressFill.style.width = `${pct}%`;
+      } else {
+          progressFill.style.width = '0%';
+      }
   }
 });

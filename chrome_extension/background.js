@@ -1,36 +1,36 @@
+// Offscreen management
+async function setupOffscreenDocument(path) {
+  const existingContexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [path]
+  });
+
+  if (existingContexts.length > 0) return;
+
+  await chrome.offscreen.createDocument({
+    url: path,
+    reasons: ['AUDIO_PLAYBACK'],
+    justification: 'Background TTS playback',
+  });
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === "synthesize") {
-    
-    // Construct path relative to assets folder
-    const voicePath = "assets/voice_styles/" + request.voice_style;
-
-    const message = {
-      command: "synthesize",
-      text: request.text,
-      voice_style_path: voicePath,
-      speed: request.speed,
-      total_step: request.total_step || 5
-    };
-
-    console.log("Sending to HTTP server:", message);
-
-    fetch('http://127.0.0.1:8080/synthesize', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(message)
-    })
-    .then(response => response.json())
-    .then(data => {
-        console.log("Received response:", data);
-        sendResponse(data);
-    })
-    .catch(error => {
-        console.error("Fetch error:", error);
-        sendResponse({ error: "Failed to connect to local server (python3 server.py): " + error.message });
-    });
-
-    return true; // Indicates async response
+  // Offscreen coordination
+  if (request.type === 'CMD_START_STREAM') {
+      const offscreenUrl = chrome.runtime.getURL('offscreen.html');
+      setupOffscreenDocument(offscreenUrl).then(() => {
+          chrome.runtime.sendMessage({
+              type: 'ACT_STREAM',
+              payload: request.payload
+          });
+      });
   }
+  
+  if (request.type === 'CMD_STOP') {
+      chrome.runtime.sendMessage({ type: 'ACT_STOP' });
+      // Also stop any chrome.tts playback
+      chrome.tts.stop();
+  }
+  
+
 });
