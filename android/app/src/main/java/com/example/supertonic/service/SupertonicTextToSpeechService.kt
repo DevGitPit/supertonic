@@ -4,6 +4,7 @@ import android.speech.tts.SynthesisCallback
 import android.speech.tts.SynthesisRequest
 import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeechService
+import android.speech.tts.Voice
 import android.util.Log
 import com.example.supertonic.SupertonicTTS
 import java.io.File
@@ -29,10 +30,17 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
     }
 
     override fun onIsLanguageAvailable(lang: String?, country: String?, variant: String?): Int {
-        // We only support en-US mostly, but we'll accept any English
-        return if ("eng".equals(lang, ignoreCase = true) || "en".equals(lang, ignoreCase = true)) {
-            if ("USA".equals(country, ignoreCase = true) || "US".equals(country, ignoreCase = true) || country.isNullOrEmpty()) {
-                TextToSpeech.LANG_COUNTRY_AVAILABLE
+        val language = lang?.lowercase(Locale.ROOT) ?: return TextToSpeech.LANG_NOT_SUPPORTED
+        // Accept "eng", "en", "en-us", "en_us"
+        return if (language.startsWith("en")) {
+            if (country != null) {
+                // We mainly claim support for US/GB to satisfy apps looking for major English dialects
+                if (country.equals("USA", true) || country.equals("US", true) || 
+                    country.equals("GBR", true) || country.equals("GB", true)) {
+                    TextToSpeech.LANG_COUNTRY_AVAILABLE
+                } else {
+                    TextToSpeech.LANG_AVAILABLE
+                }
             } else {
                 TextToSpeech.LANG_AVAILABLE
             }
@@ -47,6 +55,75 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
 
     override fun onLoadLanguage(lang: String?, country: String?, variant: String?): Int {
         return onIsLanguageAvailable(lang, country, variant)
+    }
+
+    private fun isValidVoiceName(voiceName: String?): Int {
+        if (voiceName == null) return TextToSpeech.ERROR
+        if (voiceName.startsWith("en-us-supertonic-")) {
+            val styleName = voiceName.substringAfter("en-us-supertonic-")
+            val file = File(filesDir, "voice_styles/$styleName.json")
+            return if (file.exists()) TextToSpeech.SUCCESS else TextToSpeech.ERROR
+        }
+        return TextToSpeech.ERROR
+    }
+
+    override fun onLoadVoice(voiceName: String?): Int {
+        if (voiceName == null) return TextToSpeech.ERROR
+        
+        if (voiceName.startsWith("en-us-supertonic-")) {
+            val styleName = voiceName.substringAfter("en-us-supertonic-")
+            val file = File(filesDir, "voice_styles/$styleName.json")
+            if (file.exists()) {
+                return TextToSpeech.SUCCESS
+            }
+        }
+        
+        return TextToSpeech.ERROR
+    }
+
+    override fun onGetDefaultVoiceNameFor(lang: String?, country: String?, variant: String?): String {
+        val prefs = getSharedPreferences("SupertonicPrefs", android.content.Context.MODE_PRIVATE)
+        val selected = prefs.getString("selected_voice", "M1.json") ?: "M1.json"
+        val voiceName = if (selected.endsWith(".json")) selected.substringBeforeLast(".") else selected
+        return "en-us-supertonic-$voiceName"
+    }
+
+    override fun onGetVoices(): List<Voice> {
+        val voicesList = mutableListOf<Voice>()
+        val locale = Locale.US
+        
+        val voiceStylesDir = File(filesDir, "voice_styles")
+        val voiceFiles = voiceStylesDir.listFiles { file -> file.extension == "json" }
+        
+        voiceFiles?.forEach { file ->
+            val voiceName = file.nameWithoutExtension
+            voicesList.add(
+                Voice(
+                    "en-us-supertonic-$voiceName",
+                    locale,
+                    Voice.QUALITY_VERY_HIGH,
+                    Voice.LATENCY_NORMAL,
+                    false,
+                    setOf()
+                )
+            )
+        }
+        
+        // If no files found yet (e.g. during first start), return at least a default
+        if (voicesList.isEmpty()) {
+            voicesList.add(
+                Voice(
+                    "en-us-supertonic-M1",
+                    locale,
+                    Voice.QUALITY_VERY_HIGH,
+                    Voice.LATENCY_NORMAL,
+                    false,
+                    setOf()
+                )
+            )
+        }
+        
+        return voicesList.sortedBy { it.name }
     }
 
     override fun onStop() {
@@ -84,9 +161,14 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
             }
         })
         
-        // Load preferred voice
-        val prefs = getSharedPreferences("SupertonicPrefs", android.content.Context.MODE_PRIVATE)
-        val voiceFile = prefs.getString("selected_voice", "M1.json") ?: "M1.json"
+        // Load requested voice if possible, else fallback to preference
+        val requestedVoice = request.voiceName
+        val voiceFile = if (requestedVoice != null && requestedVoice.startsWith("en-us-supertonic-")) {
+            requestedVoice.substringAfter("en-us-supertonic-") + ".json"
+        } else {
+            val prefs = getSharedPreferences("SupertonicPrefs", android.content.Context.MODE_PRIVATE)
+            prefs.getString("selected_voice", "M1.json") ?: "M1.json"
+        }
         val stylePath = File(filesDir, "voice_styles/$voiceFile").absolutePath
         
         val audioData = SupertonicTTS.generateAudio(text, stylePath, effectiveSpeed, 0.0f, 5)
