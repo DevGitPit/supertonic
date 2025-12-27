@@ -186,6 +186,22 @@ class MainActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
                 generateAndPlay(text)
             }
         }
+        
+        handleIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        val text = intent?.getStringExtra(Intent.EXTRA_TEXT) ?: intent?.data?.getQueryParameter("text")
+        if (!text.isNullOrEmpty()) {
+            inputText.setText(text)
+            statusText.text = "Received text from browser"
+        }
     }
 
     private fun setupQualityControl() {

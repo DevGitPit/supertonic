@@ -97,26 +97,32 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
         notifyListenerState(false)
         
         wakeLock?.acquire(10 * 60 * 1000L)
-        playSilence()
+        
+        // Prepare for streaming
+        initAudioTrack(SupertonicTTS.getAudioSampleRate())
 
         synthesisJob = serviceScope.launch(Dispatchers.IO) {
             val estimatedDuration = text.length / 15.0f
             Log.i(TAG, "Calling native generateAudio...")
             
+            // This blocks until finished, but onAudioChunk fires in between
             val audioData = SupertonicTTS.generateAudio(text, stylePath, speed, estimatedDuration, steps)
-            Log.i(TAG, "Native generateAudio returned: ${audioData?.size} bytes")
-
+            
             withContext(Dispatchers.Main) {
                 if (!isActive || !isSynthesizing) {
-                    Log.i(TAG, "Synthesis finished but cancelled or obsolete.")
                     return@withContext
                 }
                 
                 isSynthesizing = false
-                if (audioData != null && audioData.isNotEmpty()) {
-                    playPcmData(audioData, SupertonicTTS.getAudioSampleRate())
+                if (audioData != null) {
+                    Log.i(TAG, "Synthesis complete.")
+                    // Ensure we stay in playing state
+                    isPlaying = true
+                    notifyListenerState(true)
+                    updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
+                    startForegroundService("Playing Audio", true)
                 } else {
-                    Log.e(TAG, "Synthesis failed or returned empty data")
+                    Log.e(TAG, "Synthesis failed")
                     stopPlayback()
                 }
             }
@@ -133,46 +139,7 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
         }
     }
 
-    private fun playSilence() {
-        try {
-            val sampleRate = 24000
-            val minBufferSize = AudioTrack.getMinBufferSize(
-                sampleRate,
-                AudioFormat.CHANNEL_OUT_MONO,
-                AudioFormat.ENCODING_PCM_16BIT
-            )
-            
-            val bufferSize = minBufferSize * 4
-            val silentData = ByteArray(bufferSize)
-            
-            audioTrack?.release()
-            audioTrack = AudioTrack.Builder()
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build()
-                )
-                .setAudioFormat(
-                    AudioFormat.Builder()
-                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .setSampleRate(sampleRate)
-                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                        .build()
-                )
-                .setBufferSizeInBytes(bufferSize)
-                .setTransferMode(AudioTrack.MODE_STATIC)
-                .build()
-
-            audioTrack?.write(silentData, 0, silentData.size)
-            audioTrack?.setLoopPoints(0, silentData.size / 2, -1)
-            audioTrack?.play()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to start silent playback", e)
-        }
-    }
-
-    private fun playPcmData(data: ByteArray, rate: Int) {
+    private fun initAudioTrack(rate: Int) {
         stopPlayback(false) // Stop previous but keep foreground
         sampleRate = rate
 
@@ -181,6 +148,8 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_16BIT
         )
+        // Buffer size for streaming
+        val bufferSize = Math.max(minBufferSize, 32768)
 
         audioTrack = AudioTrack.Builder()
             .setAudioAttributes(
@@ -196,21 +165,12 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .build()
             )
-            .setBufferSizeInBytes(Math.max(minBufferSize, data.size))
-            .setTransferMode(AudioTrack.MODE_STATIC)
+            .setBufferSizeInBytes(bufferSize)
+            .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
 
-        val frameCount = data.size / 2
-        audioTrack?.notificationMarkerPosition = frameCount
-        audioTrack?.setPlaybackPositionUpdateListener(object : AudioTrack.OnPlaybackPositionUpdateListener {
-            override fun onMarkerReached(track: AudioTrack?) {
-                stopPlayback()
-            }
-            override fun onPeriodicNotification(track: AudioTrack?) {}
-        })
-
-        audioTrack?.write(data, 0, data.size)
-        play()
+        audioTrack?.play()
+        isPlaying = true
     }
 
     override fun onProgress(current: Int, total: Int) {
@@ -218,10 +178,9 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
     }
 
     override fun onAudioChunk(data: ByteArray) {
-        // For main app playback, we currently wait for full generation.
-        // We could implement streaming playback here too, but that requires
-        // changing AudioTrack mode to STREAM and careful buffer management.
-        // For now, we ignore chunks and use the final full blob.
+        if (audioTrack != null) {
+            audioTrack?.write(data, 0, data.size)
+        }
     }
 
     private var listener: PlaybackListener? = null

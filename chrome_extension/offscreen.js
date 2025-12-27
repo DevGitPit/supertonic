@@ -283,7 +283,10 @@ async function handleStreamRequest(payload) {
     currentBufferTarget = payload.bufferTarget || 2;
     currentEngine = payload.engine || 'system';
     
-    if (!sameText || currentSentences.length === 0) {
+    // Use provided sentences to ensure sync with Popup, or fallback to local split
+    if (payload.sentences && Array.isArray(payload.sentences) && payload.sentences.length > 0) {
+        currentSentences = payload.sentences;
+    } else if (!sameText || currentSentences.length === 0) {
         currentSentences = splitIntoSentences(currentText);
     }
     
@@ -294,6 +297,9 @@ async function handleStreamRequest(payload) {
 
 function startStreaming(index) {
     console.log(`${LOG_PREFIX} Starting streaming from index ${index}, engine: ${currentEngine}`);
+    
+    // CRITICAL: Prevent onended events from scheduling old audio
+    isStreaming = false;
     
     stopAllAudioSources();
     window.speechSynthesis.cancel();
@@ -410,6 +416,222 @@ function stopAllAudioSources() {
     activeSources = [];
 }
 
+// --- Text Normalizer ---
+class TextNormalizer {
+    constructor() {
+        this.rules = this.initializeRules();
+    }
+    
+    initializeRules() {
+        return [
+            // 1a. Meters (lowercase 'm' ONLY, no 'mn', no dollar sign implied context)
+            {
+                pattern: /\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*m\b(?=[^a-zA-Z]|$)/g,
+                replacement: (match, amount) => {
+                    const cleanAmount = amount.replace(/,/g, '');
+                    const val = cleanAmount.includes('.') ? cleanAmount.replace('.', ' point ') : cleanAmount;
+                    return cleanAmount === '1' ? '1 meter' : `${val} meters`;
+                }
+            },
+            
+            // 1b. Million (M, mn, or $...mn/M)
+            {
+                pattern: /\$?(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:M|mn)\b/g,
+                replacement: (match, amount) => {
+                    const hasDollar = match.startsWith('$');
+                    const cleanAmount = amount.replace(/,/g, '');
+                    const val = cleanAmount.includes('.') ? cleanAmount.replace('.', ' point ') : cleanAmount;
+                    return hasDollar ? `${val} million dollars` : `${val} million`;
+                }
+            },
+
+            // 1c. Thousand: K or k or $...k/K
+            {
+                pattern: /\$?(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:K|k)\b/g,
+                replacement: (match, amount) => {
+                    const hasDollar = match.startsWith('$');
+                    const cleanAmount = amount.replace(/,/g, '');
+                    const val = cleanAmount.includes('.') ? cleanAmount.replace('.', ' point ') : cleanAmount;
+                    return hasDollar ? `${val} thousand dollars` : `${val} thousand`;
+                }
+            },
+            
+            // 2. Billion: B or bn
+            {
+                pattern: /\$?(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:B|bn)\b/g,
+                replacement: (match, amount) => {
+                    const hasDollar = match.startsWith('$');
+                    const cleanAmount = amount.replace(/,/g, '');
+                    const val = cleanAmount.includes('.') ? cleanAmount.replace('.', ' point ') : cleanAmount;
+                    return hasDollar ? `${val} billion dollars` : `${val} billion`;
+                }
+            },
+            
+            // 3. Trillion: $...T or $...tn or ...tn (T requires $, tn matches both)
+            {
+                pattern: /\$(\d+(?:,\d{3})*(?:\.\d+)?)\s*T\b/g,
+                replacement: (match, amount) => {
+                    const cleanAmount = amount.replace(/,/g, '');
+                    const val = cleanAmount.includes('.') ? cleanAmount.replace('.', ' point ') : cleanAmount;
+                    return `${val} trillion dollars`;
+                }
+            },
+            {
+                pattern: /\$?(\d+(?:,\d{3})*(?:\.\d+)?)\s*tn\b/g,
+                replacement: (match, amount) => {
+                    const hasDollar = match.startsWith('$');
+                    const cleanAmount = amount.replace(/,/g, '');
+                    const val = cleanAmount.includes('.') ? cleanAmount.replace('.', ' point ') : cleanAmount;
+                    return hasDollar ? `${val} trillion dollars` : `${val} trillion`;
+                }
+            },
+
+            // 4. RESTORED: Hours
+            {
+                pattern: /\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*h\b/gi,
+                replacement: (match, amount) => {
+                    const cleanAmount = amount.replace(/,/g, '');
+                    if (cleanAmount.includes('.')) { const parts = cleanAmount.split('.'); return `${parts[0]} point ${parts[1]} hours`; }
+                    return cleanAmount === '1' ? '1 hour' : `${cleanAmount} hours`;
+                }
+            },
+
+            // 5. RESTORED: Speed
+            {
+                pattern: /\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*(kph|mph|kmh|km\/h|m\/s)\b/gi,
+                replacement: (match, amount, unit) => {
+                    const unitMap = { 'kph': 'kilometers per hour', 'kmh': 'kilometers per hour', 'km/h': 'kilometers per hour', 'mph': 'miles per hour', 'm/s': 'meters per second' };
+                    const fullUnit = unitMap[unit.toLowerCase()];
+                    const cleanAmount = amount.replace(/,/g, '');
+                    if (cleanAmount.includes('.')) { const parts = cleanAmount.split('.'); return `${parts[0]} point ${parts[1]} ${fullUnit}`; }
+                    return `${cleanAmount} ${fullUnit}`;
+                }
+            },
+
+            // 6. RESTORED: Weight
+            {
+                pattern: /\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*(kg|lb|lbs|g)\b/gi,
+                replacement: (match, amount, unit) => {
+                    const unitMap = { 'kg': 'kilograms', 'lb': 'pounds', 'lbs': 'pounds', 'g': 'grams' };
+                    const fullUnit = unitMap[unit.toLowerCase()];
+                    const cleanAmount = amount.replace(/,/g, '');
+                    if (cleanAmount.includes('.')) { const parts = cleanAmount.split('.'); return `${parts[0]} point ${parts[1]} ${fullUnit}`; }
+                    return cleanAmount === '1' ? `1 ${fullUnit.slice(0, -1)}` : `${cleanAmount} ${fullUnit}`;
+                }
+            },
+
+            // 7. RESTORED: Distance (km, mi) - Note: 'm' is handled by Rule 1a
+            {
+                pattern: /\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*(km|mi)\b/gi,
+                replacement: (match, amount, unit) => {
+                    const unitMap = { 'km': 'kilometers', 'mi': 'miles' };
+                    const fullUnit = unitMap[unit.toLowerCase()];
+                    const cleanAmount = amount.replace(/,/g, '');
+                    if (cleanAmount.includes('.')) { const parts = cleanAmount.split('.'); return `${parts[0]} point ${parts[1]} ${fullUnit}`; }
+                    return `${cleanAmount} ${fullUnit}`;
+                }
+            },
+            
+            // 8. Ordinals
+            {
+                pattern: /\b(\d+)(st|nd|rd|th)\b/gi,
+                replacement: (match, num) => this.numberToOrdinal(parseInt(num))
+            },
+            
+            // 9. Titles
+            {
+                pattern: /\b(Prof|Dr|Mr|Mrs|Ms)\.\s+/g,
+                replacement: (match, title) => {
+                    const titleMap = { 'Prof': 'Professor ', 'Dr': 'Doctor ', 'Mr': 'Mister ', 'Mrs': 'Missus ', 'Ms': 'Miss ' };
+                    return titleMap[title];
+                }
+            },
+            
+            // 10. Approx
+            { pattern: /\bapprox\.?/gi, replacement: 'approximately' },
+            
+            // 11. Emergency
+            { pattern: /\b911\b/g, replacement: 'nine one one' },
+            { pattern: /\b(999|112)\b/g, replacement: (match, num) => num.split('').join(' ') },
+            
+            // 12. General Currency (Last Resort)
+            {
+                pattern: /\$(\d+(?:,\d{3})*(?:\.\d+)?)/g,
+                replacement: (match, amount) => {
+                    const cleanAmount = amount.replace(/,/g, '');
+                    if (cleanAmount.includes('.')) {
+                        const parts = cleanAmount.split('.');
+                        const dollars = parts[0];
+                        const cents = parts[1];
+                        
+                        if (cents.length === 2) {
+                            const dText = dollars === '1' ? '1 dollar' : `${dollars} dollars`;
+                            const cVal = parseInt(cents);
+                            if (cVal === 0) return dText;
+                            const cText = cVal === 1 ? '1 cent' : `${cVal} cents`;
+                            return `${dText} and ${cText}`;
+                        }
+                        return `${dollars.replace('.', ' point ')} point ${cents} dollars`;
+                    }
+                    return cleanAmount === '1' ? '1 dollar' : `${cleanAmount} dollars`;
+                }
+            }
+        ];
+    }
+    
+    normalize(text) {
+        let normalizedText = text;
+        this.rules.forEach(rule => {
+            normalizedText = normalizedText.replace(rule.pattern, rule.replacement);
+        });
+        return normalizedText;
+    }
+
+    numberToOrdinal(num) {
+        // Direct mappings for 1-20
+        const ordinals = {
+            1: 'first', 2: 'second', 3: 'third', 4: 'fourth', 5: 'fifth',
+            6: 'sixth', 7: 'seventh', 8: 'eighth', 9: 'ninth', 10: 'tenth',
+            11: 'eleventh', 12: 'twelfth', 13: 'thirteenth', 14: 'fourteenth', 
+            15: 'fifteenth', 16: 'sixteenth', 17: 'seventeenth', 18: 'eighteenth', 
+            19: 'nineteenth', 20: 'twentieth'
+        };
+        
+        if (ordinals[num]) return ordinals[num];
+        
+        // For numbers > 20, handle the last digit
+        const tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+        const ones = ['', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth'];
+        
+        if (num < 100) {
+            const tenDigit = Math.floor(num / 10);
+            const oneDigit = num % 10;
+            
+            if (oneDigit === 0) {
+                // 30th, 40th, etc.
+                return tens[tenDigit] + 'th';
+            } else {
+                // 21st, 32nd, 43rd, etc.
+                return tens[tenDigit] + ' ' + ones[oneDigit];
+            }
+        }
+        
+        // For 100+, just use the suffix
+        const lastDigit = num % 10;
+        const lastTwo = num % 100;
+        
+        // Handle 11th, 12th, 13th specially (not 11st, 12nd, 13rd)
+        if (lastTwo >= 11 && lastTwo <= 13) return num + 'th';
+        
+        if (lastDigit === 1) return num + 'st';
+        if (lastDigit === 2) return num + 'nd';
+        if (lastDigit === 3) return num + 'rd';
+        return num + 'th';
+    }
+}
+
+const normalizer = new TextNormalizer();
+
 // --- System TTS Loop ---
 
 async function processSystemLoop(signal) {
@@ -435,7 +657,9 @@ async function processSystemLoop(signal) {
         }
 
         try {
-            await speakSystemSentence(sentenceObj.text, signal);
+            // Normalize before speaking
+            const textToSpeak = normalizer.normalize(sentenceObj.text);
+            await speakSystemSentence(textToSpeak, signal);
         } catch (e) {
             console.error(`${LOG_PREFIX} [SYSTEM_TTS] Error:`, e);
             await waitForTick();
@@ -455,6 +679,7 @@ async function processSystemLoop(signal) {
 function speakSystemSentence(text, signal, maxAttempts = 3) {
     return new Promise((resolve) => {
         if (signal.aborted) return resolve();
+        // ... (rest of speakSystemSentence logic remains the same, but uses 'text' arg which is now normalized)
 
         let attempt = 0;
         let watchdogInterval = null;
@@ -577,7 +802,11 @@ async function processFetchLoop(signal) {
         while (retries < MAX_RETRIES && !success && !signal.aborted) {
             try {
                 const startTime = performance.now();
-                const response = await sendSynthesizeRequest(sentenceObj.text);
+                
+                // Normalize before fetching
+                const textToFetch = normalizer.normalize(sentenceObj.text);
+                const response = await sendSynthesizeRequest(textToFetch);
+                
                 console.log(`${LOG_PREFIX} [FETCH] Success in ${(performance.now() - startTime).toFixed(0)}ms`);
                 
                 if (signal.aborted) break;
@@ -720,21 +949,22 @@ function decodeAudio(base64, sampleRate) {
 }
 
 function splitIntoSentences(text) {
-    try {
-        const segmenter = new Intl.Segmenter(navigator.language, { granularity: 'sentence' });
-        const segments = segmenter.segment(text);
-        return Array.from(segments)
-            .filter(s => s.segment.trim().length > 0)
-            .map(s => ({ text: s.segment, index: s.index }));
-    } catch (e) {
-        const regex = /[^.!?]+[.!?]+|[^.!?]+$/g;
-        const result = [];
-        let match;
-        while ((match = regex.exec(text)) !== null) {
-            if (match[0].trim()) {
-                result.push({ text: match[0], index: match.index });
-            }
-        }
-        return result.length > 0 ? result : [{ text: text, index: 0 }];
-    }
+    const abbreviations = ['Mr.', 'Mrs.', 'Dr.', 'Ms.', 'Prof.', 'Sr.', 'Jr.', 'etc.', 'vs.', 'e.g.', 'i.e.', 'Jan.', 'Feb.', 'Mar.', 'Apr.', 'Jun.', 'Jul.', 'Aug.', 'Sep.', 'Oct.', 'Nov.', 'Dec.'];
+    
+    let protectedText = text;
+    abbreviations.forEach((abbr, index) => {
+        const placeholder = `__ABBR${index}__`;
+        const safeAbbr = abbr.replace(/\./g, '\\.');
+        protectedText = protectedText.replace(new RegExp(safeAbbr, 'g'), placeholder);
+    });
+    
+    const rawSentences = protectedText.split(/(?<=[.!?])\s+(?=[A-Z"])/);
+    
+    return rawSentences.map((sentence, i) => {
+        let restored = sentence;
+        abbreviations.forEach((abbr, index) => {
+            restored = restored.replace(new RegExp(`__ABBR${index}__`, 'g'), abbr);
+        });
+        return { text: restored.trim(), index: i };
+    }).filter(s => s.text.length > 0);
 }

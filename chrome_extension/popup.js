@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const textInput = document.getElementById('textInput');
   const fetchBtn = document.getElementById('fetchBtn');
   const refreshServerBtn = document.getElementById('refreshServerBtn');
+  const sendToAppBtn = document.getElementById('sendToAppBtn');
   
   // Progress Bar
   const playbackProgress = document.getElementById('playbackProgress');
@@ -72,6 +73,11 @@ document.addEventListener('DOMContentLoaded', function() {
       }
       
       // 2. Check Active Session (Offscreen)
+      syncState();
+  });
+
+  // --- Sync Helper ---
+  function syncState() {
       chrome.runtime.sendMessage({ type: 'CMD_GET_STATE' }, (state) => {
           if (chrome.runtime.lastError || !state) return;
           
@@ -89,9 +95,15 @@ document.addEventListener('DOMContentLoaded', function() {
           if (state.isStreaming || state.isPaused) {
               console.log("Syncing with active session:", state);
               
-              // Restore UI to playback mode
-              textInput.innerText = state.text; // Ensure text matches
-              enterPlaybackMode(state.text);
+              // Only rebuild DOM if text changed or we aren't in playback mode
+              const currentUiText = textInput.innerText.trim(); // Works for both plain text and spans
+              const stateText = state.text || "";
+              
+              if (!isPlaybackMode || currentUiText !== stateText) {
+                  isPlaybackMode = false; // Force re-entry
+                  textInput.innerText = stateText;
+                  enterPlaybackMode(stateText);
+              }
               
               currentSentenceIndex = state.index;
               highlightSentence(state.index);
@@ -118,6 +130,19 @@ document.addEventListener('DOMContentLoaded', function() {
               }
           }
       });
+  }
+
+  // --- Auto-Sync on Visibility/Focus ---
+  document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+          console.log("Popup became visible - syncing state");
+          syncState();
+      }
+  });
+
+  window.addEventListener('focus', () => {
+      console.log("Window focused - syncing state");
+      syncState();
   });
 
   // --- Message Listeners ---
@@ -250,34 +275,65 @@ document.addEventListener('DOMContentLoaded', function() {
   });
   
   refreshServerBtn.addEventListener('click', checkServerStatus);
+  
+  sendToAppBtn.addEventListener('click', () => {
+      const text = textInput.innerText.trim();
+      if (!text) {
+          statusBadge.textContent = "No text";
+          return;
+      }
+      
+      statusBadge.textContent = "Sending...";
+      const encodedText = encodeURIComponent(text);
+      // Intent URI for Android with Fallback
+      // scheme=supertonic (matches intent-filter)
+      // package=com.example.supertonic (matches applicationId)
+      // S.android.intent.extra.TEXT (standard extra)
+      // S.browser_fallback_url (redirect if app not installed)
+      const intentUri = `intent://send?text=${encodedText}#Intent;scheme=supertonic;package=com.example.supertonic;S.android.intent.extra.TEXT=${encodedText};S.browser_fallback_url=https%3A%2F%2Fgithub.com%2F;end`;
+      
+      try {
+          chrome.tabs.update({ url: intentUri });
+          statusBadge.textContent = "Sent";
+          setTimeout(() => {
+              statusBadge.textContent = isPlaybackMode ? "🎧 Ready" : "✏️ Ready";
+          }, 2000);
+      } catch (e) {
+          console.error("Navigation failed:", e);
+          statusBadge.textContent = "Error";
+      }
+  });
 
   // --- Functions ---
 
   function enterPlaybackMode(text) {
       if (isPlaybackMode) return;
       
-      // Tokenize (match offscreen logic ideally, but visual split is key)
-      try {
-          const segmenter = new Intl.Segmenter(navigator.language, { granularity: 'sentence' });
-          const segments = segmenter.segment(text);
-          sentences = Array.from(segments)
-              .filter(s => s.segment.trim().length > 0)
-              .map(s => ({ text: s.segment, index: s.index }));
-      } catch (e) {
-          sentences = [];
-          const regex = /[^.!?]+[.!?]+|[^.!?]+$/g;
-          let match;
-          while ((match = regex.exec(text)) !== null) {
-              if (match[0].trim().length > 0) {
-                  sentences.push({ text: match[0], index: match.index });
-              }
-          }
-          if (sentences.length === 0) sentences = [{ text: text, index: 0 }];
-      }
+      // Tokenize using Robust Splitter (Suggestion 5)
+      const abbreviations = ['Mr.', 'Mrs.', 'Dr.', 'Ms.', 'Prof.', 'Sr.', 'Jr.', 'etc.', 'vs.', 'e.g.', 'i.e.', 'Jan.', 'Feb.', 'Mar.', 'Apr.', 'Jun.', 'Jul.', 'Aug.', 'Sep.', 'Oct.', 'Nov.', 'Dec.'];
+      
+      let protectedText = text;
+      abbreviations.forEach((abbr, index) => {
+          const placeholder = `__ABBR${index}__`;
+          // Use regex for global replacement
+          const safeAbbr = abbr.replace(/\./g, '\\.');
+          protectedText = protectedText.replace(new RegExp(safeAbbr, 'g'), placeholder);
+      });
+      
+      // Split on sentence boundaries: punctuation followed by space and capital letter
+      const rawSentences = protectedText.split(/(?<=[.!?])\s+(?=[A-Z"])/);
+      
+      sentences = rawSentences.map((sentence, i) => {
+          let restored = sentence;
+          abbreviations.forEach((abbr, index) => {
+              restored = restored.replace(new RegExp(`__ABBR${index}__`, 'g'), abbr);
+          });
+          return { text: restored.trim(), index: i };
+      }).filter(s => s.text.length > 0);
 
       const html = sentences.map((s, i) => {
           const safeText = s.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-          return `<span class="sentence" data-index="${i}">${safeText}</span>`;
+          return `<span class="sentence" data-index="${i}">${safeText} </span>`;
       }).join('');
       
       textInput.innerHTML = html;
@@ -403,6 +459,7 @@ document.addEventListener('DOMContentLoaded', function() {
           type: 'CMD_START_STREAM',
           payload: {
               text: text,
+              sentences: sentences, // Pass the pre-calculated sentences to ensure sync
               voice: voiceSelect.value,
               speed: parseFloat(speedRange.value),
               total_step: parseInt(stepRange.value),
@@ -424,6 +481,7 @@ document.addEventListener('DOMContentLoaded', function() {
           type: 'CMD_START_STREAM',
           payload: {
               text: text,
+              sentences: sentences, // Pass the pre-calculated sentences to ensure sync
               voice: voiceSelect.value,
               speed: parseFloat(speedRange.value),
               total_step: 0, // Not used for system
@@ -497,4 +555,76 @@ document.addEventListener('DOMContentLoaded', function() {
           progressFill.style.width = '0%';
       }
   }
+
+  // --- Theme Manager ---
+  class ThemeManager {
+      constructor() {
+          this.mode = this.getSavedMode() || 'auto';
+          this.applyMode(this.mode);
+          this.setupToggle();
+          this.watchSystemTheme();
+      }
+
+      getSavedMode() {
+          return localStorage.getItem('tts-theme-mode');
+      }
+
+      getSystemTheme() {
+          return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+
+      applyMode(mode) {
+          this.mode = mode;
+          localStorage.setItem('tts-theme-mode', mode);
+          
+          // Update UI for icon visibility
+          document.documentElement.setAttribute('data-theme-mode', mode);
+          
+          // Apply actual theme colors
+          if (mode === 'auto') {
+              this.applyTheme(this.getSystemTheme());
+          } else {
+              this.applyTheme(mode);
+          }
+          
+          // Update button title
+          const btn = document.getElementById('theme-toggle');
+          if (btn) btn.title = `Theme: ${mode.charAt(0).toUpperCase() + mode.slice(1)}`;
+      }
+
+      applyTheme(theme) {
+          document.documentElement.setAttribute('data-theme', theme);
+          
+          // Update meta theme-color for Android
+          const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+          if (metaThemeColor) {
+              metaThemeColor.content = theme === 'dark' ? '#1a1a2e' : '#ffffff';
+          }
+      }
+
+      cycleMode() {
+          const modes = ['auto', 'light', 'dark'];
+          const currentIndex = modes.indexOf(this.mode);
+          const nextMode = modes[(currentIndex + 1) % modes.length];
+          this.applyMode(nextMode);
+      }
+
+      setupToggle() {
+          const toggleBtn = document.getElementById('theme-toggle');
+          if (toggleBtn) {
+              toggleBtn.addEventListener('click', () => this.cycleMode());
+          }
+      }
+
+      watchSystemTheme() {
+          window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+              if (this.mode === 'auto') {
+                  this.applyTheme(e.matches ? 'dark' : 'light');
+              }
+          });
+      }
+  }
+
+  // Initialize theme manager
+  new ThemeManager();
 });

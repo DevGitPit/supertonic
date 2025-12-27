@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Extension Test</title>
+</head>
+<body>
+    <h1>Browser Fetch Test</h1>
+    <button id="testBtn">Test Connection to 127.0.0.1:8080</button>
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('testBtn').addEventListener('click', () => {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = "Testing...";
+            
+            fetch('http://127.0.0.1:8080/synthesize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    command: "ping", 
+                    text: "test", 
+                    voice_style_path: "assets/voice_styles/M1.json"
+                })
+            })
+            .then(response => {
+                resultDiv.innerHTML += "<br>Fetch Success! Status: " + response.status;
+                return response.json();
+            })
+            .then(data => {
+                resultDiv.innerHTML += "<br>Data: " + JSON.stringify(data);
+            })
+            .catch(error => {
+                resultDiv.innerHTML += "<br>Fetch Failed: " + error.message;
+            });
+        });
+    </script>
+</body>
+</html>

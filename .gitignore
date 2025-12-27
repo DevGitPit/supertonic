@@ -67,3 +67,10 @@ android/.gradle/
 rust/target/
 *.hprof
 local.properties
+
+# Audio and Logs
+*.wav
+*.mp3
+audio_library/
+py/audio_library/
+server.log
