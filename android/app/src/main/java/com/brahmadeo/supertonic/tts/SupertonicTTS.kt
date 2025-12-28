@@ -1,4 +1,4 @@
-package com.example.supertonic
+package com.brahmadeo.supertonic.tts
 
 import android.util.Log
 

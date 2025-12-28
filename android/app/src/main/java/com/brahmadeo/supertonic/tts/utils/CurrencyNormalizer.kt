@@ -1,0 +1,199 @@
+package com.brahmadeo.supertonic.tts.utils
+
+import java.text.NumberFormat
+import java.util.Locale
+import java.util.regex.Pattern
+
+class CurrencyNormalizer {
+
+    private val currencySymbols = mapOf(
+        "$" to "dollars",
+        "£" to "pounds",
+        "€" to "euros",
+        "₹" to "rupees",
+        "¥" to "yen",
+        "₩" to "won"
+    )
+
+    private val currencyPrefixes = mapOf(
+        "C$" to "Canadian dollars",
+        "CA$" to "Canadian dollars",
+        "CAD" to "Canadian dollars",
+        "A$" to "Australian dollars",
+        "AU$" to "Australian dollars",
+        "AUD" to "Australian dollars",
+        "US$" to "US dollars",
+        "USD" to "US dollars",
+        "NZ$" to "New Zealand dollars",
+        "HK$" to "Hong Kong dollars",
+        "SGD" to "Singapore dollars",
+        "S$" to "Singapore dollars",
+        "GBP" to "British pounds",
+        "EUR" to "euros",
+        "INR" to "Indian rupees",
+        "JPY" to "Japanese yen",
+        "CNY" to "Chinese yuan",
+        "KRW" to "South Korean won"
+    )
+
+    data class Rule(val pattern: Pattern, val replacement: (java.util.regex.Matcher) -> String)
+
+    private val rules: List<Rule> = initializeCurrencyRules()
+
+    private fun initializeCurrencyRules(): List<Rule> {
+        val symPattern = "[£€₹¥₩$]"
+        val rulesList = mutableListOf<Rule>()
+
+        fun add(regex: String, replacement: (java.util.regex.Matcher) -> String) {
+            rulesList.add(Rule(Pattern.compile(regex, Pattern.CASE_INSENSITIVE), replacement))
+        }
+
+        // Rule 1
+        add("(C\\$|CA\\$|A\\$|AU\\$|US\\$|NZ\\$|HK\\$|S\\$)(\\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)") { m ->
+            val prefix = m.group(1) ?: ""
+            val amount = m.group(2) ?: ""
+            val suffix = m.group(3) ?: ""
+            
+            var key = prefix.uppercase(Locale.ROOT)
+            if (!key.contains("$")) key = key.replace("S", "S$")
+            
+            val currencyName = currencyPrefixes[key] ?: currencyPrefixes[key.replace("$", "")] ?: "dollars"
+            val magnitude = expandMagnitude(suffix)
+            val formattedAmount = formatAmount(amount)
+            "$formattedAmount $magnitude $currencyName"
+        }
+
+        // Rule 2
+        add("\\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW)\\s*(\\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)") { m ->
+            val code = m.group(1)?.uppercase(Locale.ROOT) ?: ""
+            val amount = m.group(2) ?: ""
+            val suffix = m.group(3) ?: ""
+            
+            val currencyName = currencyPrefixes[code] ?: code
+            val magnitude = expandMagnitude(suffix)
+            val formattedAmount = formatAmount(amount)
+            "$formattedAmount $magnitude $currencyName"
+        }
+
+        // Rule 3
+        add("\\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW)\\s*(\\d+(?:\\.\\d+)?)\\b") { m ->
+            val code = m.group(1)?.uppercase(Locale.ROOT) ?: ""
+            val amount = m.group(2) ?: ""
+            
+            val currencyName = currencyPrefixes[code] ?: code
+            val formattedAmount = formatAmount(amount)
+            "$formattedAmount $currencyName"
+        }
+
+        // Rule 4
+        add("($symPattern)(\\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)\\b") { m ->
+            val symbol = m.group(1) ?: "$"
+            val amount = m.group(2) ?: ""
+            val suffix = m.group(3) ?: ""
+            
+            val currencyName = currencySymbols[symbol] ?: "dollars"
+            val magnitude = expandMagnitude(suffix)
+            val formattedAmount = formatAmount(amount)
+            "$formattedAmount $magnitude $currencyName"
+        }
+
+        // Rule 5
+        add("\\(($symPattern|C\\$|CA\\$|A\\$|AU\\$|US\\$)(\\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)\\)") { m ->
+            val symbol = m.group(1) ?: "$"
+            val amount = m.group(2) ?: ""
+            val suffix = m.group(3) ?: ""
+            
+            val currencyName = if (symbol.length > 1) {
+                currencyPrefixes[symbol.uppercase(Locale.ROOT)] ?: "dollars"
+            } else {
+                currencySymbols[symbol] ?: "dollars"
+            }
+            
+            val magnitude = expandMagnitude(suffix)
+            val formattedAmount = formatAmount(amount)
+            "equivalent to $formattedAmount $magnitude $currencyName"
+        }
+
+        // Rule 6
+        add("($symPattern)(\\d+)\\.(\\d{2})\\b") { m ->
+            val symbol = m.group(1) ?: "$"
+            val whole = m.group(2) ?: ""
+            val cents = m.group(3) ?: ""
+            
+            val currencyName = currencySymbols[symbol] ?: "dollars"
+            
+            if (symbol == "₹" || symbol == "\u20B9") {
+                val formattedWhole = formatIndianAmount(whole)
+                if (cents == "00") {
+                    "$formattedWhole rupees"
+                } else {
+                    "$formattedWhole rupees and $cents paise"
+                }
+            } else {
+                if (cents == "00") {
+                    "$whole $currencyName"
+                } else {
+                    "$whole $currencyName and $cents cents"
+                }
+            }
+        }
+
+        // Rule 7
+        add("($symPattern)(\\d+)\\b") { m ->
+            val symbol = m.group(1) ?: "$"
+            val amount = m.group(2) ?: ""
+            val currencyName = currencySymbols[symbol] ?: "dollars"
+            
+            if (symbol == "₹" || symbol == "\u20B9") {
+                val formattedAmount = formatIndianAmount(amount)
+                "$formattedAmount rupees"
+            } else {
+                "$amount $currencyName"
+            }
+        }
+
+        return rulesList
+    }
+
+    private fun expandMagnitude(suffix: String): String {
+        return when (suffix.lowercase(Locale.ROOT)) {
+            "tn" -> "trillion"
+            "bn" -> "billion"
+            "mn", "m" -> "million"
+            "b" -> "billion"
+            "k" -> "thousand"
+            else -> suffix
+        }
+    }
+
+    private fun formatAmount(amount: String): String {
+        return if (amount.contains(".")) {
+            val parts = amount.split(".")
+            "${parts[0]} point ${parts[1]}"
+        } else {
+            amount
+        }
+    }
+
+    private fun formatIndianAmount(amountStr: String): String {
+        val num = amountStr.replace(",", "").toLongOrNull() ?: return amountStr
+        if (num < 1000) return num.toString()
+        val format = NumberFormat.getNumberInstance(Locale("en", "IN"))
+        return format.format(num)
+    }
+
+    fun normalize(text: String): String {
+        var normalized = text
+        for (rule in rules) {
+            val matcher = rule.pattern.matcher(normalized)
+            val sb = StringBuffer()
+            while (matcher.find()) {
+                val replacement = rule.replacement(matcher).replace("\\", "\\\\").replace("$", "\\$")
+                matcher.appendReplacement(sb, replacement)
+            }
+            matcher.appendTail(sb)
+            normalized = sb.toString()
+        }
+        return normalized
+    }
+}

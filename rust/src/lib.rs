@@ -20,7 +20,7 @@ struct SupertonicEngine {
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_example_supertonic_SupertonicTTS_init(
+pub extern "system" fn Java_com_brahmadeo_supertonic_tts_SupertonicTTS_init(
     mut env: JNIEnv,
     _class: JClass,
     model_path: JString,
@@ -64,7 +64,7 @@ pub extern "system" fn Java_com_example_supertonic_SupertonicTTS_init(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_example_supertonic_SupertonicTTS_synthesize(
+pub extern "system" fn Java_com_brahmadeo_supertonic_tts_SupertonicTTS_synthesize(
     mut env: JNIEnv,
     instance: JObject,
     ptr: jlong,
@@ -160,7 +160,7 @@ pub extern "system" fn Java_com_example_supertonic_SupertonicTTS_synthesize(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_example_supertonic_SupertonicTTS_getSocClass(
+pub extern "system" fn Java_com_brahmadeo_supertonic_tts_SupertonicTTS_getSocClass(
     _env: JNIEnv,
     _class: JClass,
     ptr: jlong,
@@ -176,7 +176,7 @@ pub extern "system" fn Java_com_example_supertonic_SupertonicTTS_getSocClass(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_example_supertonic_SupertonicTTS_getSampleRate(
+pub extern "system" fn Java_com_brahmadeo_supertonic_tts_SupertonicTTS_getSampleRate(
     _env: JNIEnv,
     _class: JClass,
     ptr: jlong,
@@ -187,7 +187,7 @@ pub extern "system" fn Java_com_example_supertonic_SupertonicTTS_getSampleRate(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_example_supertonic_SupertonicTTS_close(
+pub extern "system" fn Java_com_brahmadeo_supertonic_tts_SupertonicTTS_close(
     _env: JNIEnv,
     _class: JClass,
     ptr: jlong,

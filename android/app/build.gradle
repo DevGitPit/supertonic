@@ -4,12 +4,12 @@ plugins {
 }
 
 android {
-    namespace 'com.example.supertonic'
+    namespace 'com.brahmadeo.supertonic.tts'
     compileSdk 34
     ndkVersion "26.1.10909125"
 
     defaultConfig {
-        applicationId "com.example.supertonic"
+        applicationId "com.brahmadeo.supertonic.tts"
         minSdk 24
         targetSdk 34
         versionCode 1

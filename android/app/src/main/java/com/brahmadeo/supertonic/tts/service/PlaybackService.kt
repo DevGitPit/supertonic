@@ -1,4 +1,4 @@
-package com.example.supertonic.service
+package com.brahmadeo.supertonic.tts.service
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -18,10 +18,12 @@ import android.support.v4.media.session.PlaybackStateCompat
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
-import com.example.supertonic.MainActivity
-import com.example.supertonic.R
-import com.example.supertonic.SupertonicTTS
+import com.brahmadeo.supertonic.tts.MainActivity
+import com.brahmadeo.supertonic.tts.R
+import com.brahmadeo.supertonic.tts.SupertonicTTS
+import com.brahmadeo.supertonic.tts.utils.TextNormalizer
 import kotlinx.coroutines.*
+import java.util.regex.Pattern
 
 class PlaybackService : Service(), SupertonicTTS.ProgressListener {
 
@@ -31,7 +33,8 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
     private var isPlaying = false
     private var isSynthesizing = false
     private var sampleRate = 24000
-    // Removed tts instance variable, using Singleton
+    private val textNormalizer = TextNormalizer()
+    private var totalFramesWritten = 0L
     
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
     private var wakeLock: android.os.PowerManager.WakeLock? = null
@@ -53,7 +56,6 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        // SupertonicTTS is a singleton, just set listener
         SupertonicTTS.setProgressListener(this)
         
         val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
@@ -62,17 +64,9 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
         mediaSession = MediaSessionCompat(this, "SupertonicMediaSession").apply {
             setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
             setCallback(object : MediaSessionCompat.Callback() {
-                override fun onPlay() {
-                    play()
-                }
-
-                override fun onPause() {
-                    pause()
-                }
-
-                override fun onStop() {
-                    stopPlayback()
-                }
+                override fun onPlay() { play() }
+                override fun onPause() { pause() }
+                override fun onStop() { stopPlayback() }
             })
             isActive = true
         }
@@ -88,8 +82,14 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
 
     private var synthesisJob: Job? = null
 
-    fun synthesizeAndPlay(text: String, stylePath: String, speed: Float, steps: Int) {
-        Log.i(TAG, "Starting synthesis: speed=$speed, steps=$steps, textLen=${text.length}")
+    fun isServiceActive(): Boolean {
+        return isPlaying || isSynthesizing
+    }
+
+    fun synthesizeAndPlay(text: String, stylePath: String, speed: Float, steps: Int, startIndex: Int = 0) {
+        Log.i(TAG, "Starting synthesis: speed=$speed, steps=$steps, textLen=${text.length}, start=$startIndex")
+        
+        cancelSynthesis()
         
         isSynthesizing = true
         updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
@@ -98,39 +98,70 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
         
         wakeLock?.acquire(10 * 60 * 1000L)
         
-        // Prepare for streaming
         initAudioTrack(SupertonicTTS.getAudioSampleRate())
 
         synthesisJob = serviceScope.launch(Dispatchers.IO) {
-            val estimatedDuration = text.length / 15.0f
-            Log.i(TAG, "Calling native generateAudio...")
-            
-            // This blocks until finished, but onAudioChunk fires in between
-            val audioData = SupertonicTTS.generateAudio(text, stylePath, speed, estimatedDuration, steps)
-            
-            withContext(Dispatchers.Main) {
-                if (!isActive || !isSynthesizing) {
-                    return@withContext
+            val sentences = textNormalizer.splitIntoSentences(text)
+            val totalSentences = sentences.size
+            Log.i(TAG, "Split into $totalSentences sentences")
+
+            for (index in startIndex until totalSentences) {
+                val sentence = sentences[index]
+                if (!isActive || !isSynthesizing) break
+                
+                withContext(Dispatchers.Main) {
+                    listener?.onProgress(index, totalSentences)
+                }
+
+                val normalizedText = textNormalizer.normalize(sentence)
+                Log.d(TAG, "Sentence $index normalized: $normalizedText")
+                
+                val estimatedDuration = normalizedText.length / 15.0f
+                val audioData = SupertonicTTS.generateAudio(normalizedText, stylePath, speed, estimatedDuration, steps)
+                
+                if (audioData != null) {
+                    withContext(Dispatchers.Main) {
+                        if (!isPlaying && isSynthesizing) {
+                            isPlaying = true
+                            notifyListenerState(true)
+                            updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
+                            startForegroundService("Playing Audio", true)
+                        }
+                    }
+                } else {
+                    Log.w(TAG, "Failed to generate audio for sentence $index")
                 }
                 
-                isSynthesizing = false
-                if (audioData != null) {
-                    Log.i(TAG, "Synthesis complete.")
-                    // Ensure we stay in playing state
-                    isPlaying = true
+                if (SupertonicTTS.isCancelled()) break
+            }
+            
+            withContext(Dispatchers.Main) {
+                if (isSynthesizing) {
+                    isSynthesizing = false
+                    Log.i(TAG, "Synthesis loop complete.")
+                    listener?.onProgress(totalSentences, totalSentences)
                     notifyListenerState(true)
-                    updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
-                    startForegroundService("Playing Audio", true)
-                } else {
-                    Log.e(TAG, "Synthesis failed")
-                    stopPlayback()
                 }
+            }
+
+            while (isActive && isPlaying) {
+                val track = audioTrack
+                if (track == null || track.playState != AudioTrack.PLAYSTATE_PLAYING) break
+                
+                val head = track.playbackHeadPosition.toLong() and 0xFFFFFFFFL
+                if (head >= totalFramesWritten && totalFramesWritten > 0) {
+                    withContext(Dispatchers.Main) {
+                        stopPlayback()
+                    }
+                    break
+                }
+                delay(200)
             }
         }
     }
     
     fun cancelSynthesis() {
-        if (isSynthesizing) {
+        if (isSynthesizing || synthesisJob?.isActive == true) {
             Log.i(TAG, "Cancelling synthesis...")
             SupertonicTTS.setCancelled(true)
             synthesisJob?.cancel()
@@ -140,16 +171,18 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
     }
 
     private fun initAudioTrack(rate: Int) {
-        stopPlayback(false) // Stop previous but keep foreground
+        if (audioTrack != null) {
+            try { audioTrack?.release() } catch(e:Exception){}
+        }
         sampleRate = rate
+        totalFramesWritten = 0L
 
         val minBufferSize = AudioTrack.getMinBufferSize(
             sampleRate,
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_16BIT
         )
-        // Buffer size for streaming
-        val bufferSize = Math.max(minBufferSize, 32768)
+        val bufferSize = Math.max(minBufferSize, 32768 * 4)
 
         audioTrack = AudioTrack.Builder()
             .setAudioAttributes(
@@ -174,12 +207,14 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
     }
 
     override fun onProgress(current: Int, total: Int) {
-        listener?.onProgress(current, total)
     }
 
     override fun onAudioChunk(data: ByteArray) {
-        if (audioTrack != null) {
-            audioTrack?.write(data, 0, data.size)
+        if (audioTrack != null && audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING) {
+            val written = audioTrack?.write(data, 0, data.size) ?: 0
+            if (written > 0) {
+                totalFramesWritten += written / 2
+            }
         }
     }
 
@@ -193,25 +228,10 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
 
     fun setListener(listener: PlaybackListener?) {
         this.listener = listener
-        // Initial state update
         listener?.onStateChanged(isPlaying, audioTrack != null, isSynthesizing)
     }
 
     fun seekRelative(seconds: Int) {
-        audioTrack?.let { track ->
-            val rate = track.sampleRate
-            val currentFrame = track.playbackHeadPosition
-            val offsetFrames = seconds * rate
-            val totalFrames = track.bufferSizeInFrames
-            
-            var newPosition = currentFrame + offsetFrames
-            if (newPosition < 0) newPosition = 0
-            if (newPosition > totalFrames) newPosition = totalFrames
-            
-            track.pause()
-            track.playbackHeadPosition = newPosition
-            if (isPlaying) track.play()
-        }
     }
 
     fun togglePlayPause() {
@@ -219,6 +239,7 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
     }
     
     fun stop() {
+        cancelSynthesis()
         stopPlayback()
     }
 
@@ -239,8 +260,11 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
     }
 
     private fun stopPlayback(removeNotification: Boolean = true) {
-        audioTrack?.stop()
-        audioTrack?.release()
+        try {
+            audioTrack?.stop()
+            audioTrack?.release()
+        } catch (e: Exception) { }
+        
         audioTrack = null
         isPlaying = false
         notifyListenerState(false)
@@ -274,7 +298,6 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
 
     private fun startForegroundService(status: String, showControls: Boolean) {
         val notification = buildNotification(status, showControls)
-        // Use ServiceCompat for safe foreground service start
         ServiceCompat.startForeground(
             this, 
             NOTIFICATION_ID, 
@@ -325,7 +348,6 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
                 )
             }
         } else {
-            // Add a dummy action to keep style happy or show "Stop"
              builder.addAction(
                 android.R.drawable.ic_menu_close_clear_cancel, "Stop",
                 androidx.media.session.MediaButtonReceiver.buildMediaButtonPendingIntent(

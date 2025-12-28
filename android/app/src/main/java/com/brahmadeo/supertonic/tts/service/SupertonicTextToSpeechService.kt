@@ -1,4 +1,4 @@
-package com.example.supertonic.service
+package com.brahmadeo.supertonic.tts.service
 
 import android.speech.tts.SynthesisCallback
 import android.speech.tts.SynthesisRequest
@@ -6,7 +6,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeechService
 import android.speech.tts.Voice
 import android.util.Log
-import com.example.supertonic.SupertonicTTS
+import com.brahmadeo.supertonic.tts.SupertonicTTS
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException

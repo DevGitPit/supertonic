@@ -287,10 +287,10 @@ document.addEventListener('DOMContentLoaded', function() {
       const encodedText = encodeURIComponent(text);
       // Intent URI for Android with Fallback
       // scheme=supertonic (matches intent-filter)
-      // package=com.example.supertonic (matches applicationId)
+      // package=com.brahmadeo.supertonic.tts (matches applicationId)
       // S.android.intent.extra.TEXT (standard extra)
       // S.browser_fallback_url (redirect if app not installed)
-      const intentUri = `intent://send?text=${encodedText}#Intent;scheme=supertonic;package=com.example.supertonic;S.android.intent.extra.TEXT=${encodedText};S.browser_fallback_url=https%3A%2F%2Fgithub.com%2F;end`;
+      const intentUri = `intent://send?text=${encodedText}#Intent;scheme=supertonic;package=com.brahmadeo.supertonic.tts;S.android.intent.extra.TEXT=${encodedText};S.browser_fallback_url=https%3A%2F%2Fgithub.com%2F;end`;
       
       try {
           chrome.tabs.update({ url: intentUri });
