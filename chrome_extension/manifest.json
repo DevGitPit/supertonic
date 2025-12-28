@@ -26,7 +26,7 @@
     "service_worker": "background.js"
   },
   "web_accessible_resources": [{
-    "resources": ["icons/*.png", "worklet.js"],
+    "resources": ["icons/*.png", "worklet.js", "offscreen.html", "offscreen.js", "currencyNormalizer.js"],
     "matches": ["<all_urls>"]
   }]
 }

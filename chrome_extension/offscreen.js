@@ -416,177 +416,199 @@ function stopAllAudioSources() {
     activeSources = [];
 }
 
-// --- Text Normalizer ---
+/**
+ * Enhanced TextNormalizer with comprehensive rule set
+ * Handles currencies, numbers, abbreviations, and more for natural TTS
+ */
 class TextNormalizer {
     constructor() {
+        this.currencyNormalizer = new CurrencyNormalizer();
         this.rules = this.initializeRules();
     }
     
     initializeRules() {
         return [
-            // 1a. Meters (lowercase 'm' ONLY, no 'mn', no dollar sign implied context)
+            // EMERGENCY NUMBERS (Priority: Highest)
+            // Rule 1: 911 emergency number
             {
-                pattern: /\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*m\b(?=[^a-zA-Z]|$)/g,
+                pattern: /\b911\b/g,
+                replacement: 'nine one one'
+            },
+            
+            // Rule 2: Other emergency numbers (999, 112, 000)
+            {
+                pattern: /\b(999|112|000)\b/g,
+                replacement: (match, num) => num.split('').join(' ')
+            },
+            
+            // MEASUREMENTS (Before general numbers)
+            // Rule 3: Lowercase m = meters (only when NOT preceded by currency)
+            // This rule is now safe because currency rules run first
+            {
+                pattern: /\b(\d+(?:\.\d+)?)\s*m\b(?=[^a-zA-Z]|$)/g,
                 replacement: (match, amount) => {
-                    const cleanAmount = amount.replace(/,/g, '');
-                    const val = cleanAmount.includes('.') ? cleanAmount.replace('.', ' point ') : cleanAmount;
-                    return cleanAmount === '1' ? '1 meter' : `${val} meters`;
+                    const val = amount.includes('.') 
+                        ? amount.replace('.', ' point ')
+                        : amount;
+                    return amount === '1' ? '1 meter' : `${val} meters`;
                 }
             },
             
-            // 1b. Million (M, mn, or $...mn/M)
+            // Rule 4: Kilometers, miles
             {
-                pattern: /\$?(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:M|mn)\b/g,
-                replacement: (match, amount) => {
-                    const hasDollar = match.startsWith('$');
-                    const cleanAmount = amount.replace(/,/g, '');
-                    const val = cleanAmount.includes('.') ? cleanAmount.replace('.', ' point ') : cleanAmount;
-                    return hasDollar ? `${val} million dollars` : `${val} million`;
-                }
-            },
-
-            // 1c. Thousand: K or k or $...k/K
-            {
-                pattern: /\$?(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:K|k)\b/g,
-                replacement: (match, amount) => {
-                    const hasDollar = match.startsWith('$');
-                    const cleanAmount = amount.replace(/,/g, '');
-                    const val = cleanAmount.includes('.') ? cleanAmount.replace('.', ' point ') : cleanAmount;
-                    return hasDollar ? `${val} thousand dollars` : `${val} thousand`;
-                }
-            },
-            
-            // 2. Billion: B or bn
-            {
-                pattern: /\$?(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:B|bn)\b/g,
-                replacement: (match, amount) => {
-                    const hasDollar = match.startsWith('$');
-                    const cleanAmount = amount.replace(/,/g, '');
-                    const val = cleanAmount.includes('.') ? cleanAmount.replace('.', ' point ') : cleanAmount;
-                    return hasDollar ? `${val} billion dollars` : `${val} billion`;
-                }
-            },
-            
-            // 3. Trillion: $...T or $...tn or ...tn (T requires $, tn matches both)
-            {
-                pattern: /\$(\d+(?:,\d{3})*(?:\.\d+)?)\s*T\b/g,
-                replacement: (match, amount) => {
-                    const cleanAmount = amount.replace(/,/g, '');
-                    const val = cleanAmount.includes('.') ? cleanAmount.replace('.', ' point ') : cleanAmount;
-                    return `${val} trillion dollars`;
-                }
-            },
-            {
-                pattern: /\$?(\d+(?:,\d{3})*(?:\.\d+)?)\s*tn\b/g,
-                replacement: (match, amount) => {
-                    const hasDollar = match.startsWith('$');
-                    const cleanAmount = amount.replace(/,/g, '');
-                    const val = cleanAmount.includes('.') ? cleanAmount.replace('.', ' point ') : cleanAmount;
-                    return hasDollar ? `${val} trillion dollars` : `${val} trillion`;
-                }
-            },
-
-            // 4. RESTORED: Hours
-            {
-                pattern: /\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*h\b/gi,
-                replacement: (match, amount) => {
-                    const cleanAmount = amount.replace(/,/g, '');
-                    if (cleanAmount.includes('.')) { const parts = cleanAmount.split('.'); return `${parts[0]} point ${parts[1]} hours`; }
-                    return cleanAmount === '1' ? '1 hour' : `${cleanAmount} hours`;
-                }
-            },
-
-            // 5. RESTORED: Speed
-            {
-                pattern: /\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*(kph|mph|kmh|km\/h|m\/s)\b/gi,
+                pattern: /\b(\d+(?:\.\d+)?)(km|mi)\b/gi,
                 replacement: (match, amount, unit) => {
-                    const unitMap = { 'kph': 'kilometers per hour', 'kmh': 'kilometers per hour', 'km/h': 'kilometers per hour', 'mph': 'miles per hour', 'm/s': 'meters per second' };
+                    const unitMap = {
+                        'km': 'kilometers',
+                        'mi': 'miles'
+                    };
                     const fullUnit = unitMap[unit.toLowerCase()];
-                    const cleanAmount = amount.replace(/,/g, '');
-                    if (cleanAmount.includes('.')) { const parts = cleanAmount.split('.'); return `${parts[0]} point ${parts[1]} ${fullUnit}`; }
-                    return `${cleanAmount} ${fullUnit}`;
-                }
-            },
-
-            // 6. RESTORED: Weight
-            {
-                pattern: /\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*(kg|lb|lbs|g)\b/gi,
-                replacement: (match, amount, unit) => {
-                    const unitMap = { 'kg': 'kilograms', 'lb': 'pounds', 'lbs': 'pounds', 'g': 'grams' };
-                    const fullUnit = unitMap[unit.toLowerCase()];
-                    const cleanAmount = amount.replace(/,/g, '');
-                    if (cleanAmount.includes('.')) { const parts = cleanAmount.split('.'); return `${parts[0]} point ${parts[1]} ${fullUnit}`; }
-                    return cleanAmount === '1' ? `1 ${fullUnit.slice(0, -1)}` : `${cleanAmount} ${fullUnit}`;
-                }
-            },
-
-            // 7. RESTORED: Distance (km, mi) - Note: 'm' is handled by Rule 1a
-            {
-                pattern: /\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*(km|mi)\b/gi,
-                replacement: (match, amount, unit) => {
-                    const unitMap = { 'km': 'kilometers', 'mi': 'miles' };
-                    const fullUnit = unitMap[unit.toLowerCase()];
-                    const cleanAmount = amount.replace(/,/g, '');
-                    if (cleanAmount.includes('.')) { const parts = cleanAmount.split('.'); return `${parts[0]} point ${parts[1]} ${fullUnit}`; }
-                    return `${cleanAmount} ${fullUnit}`;
+                    const val = amount.includes('.') 
+                        ? amount.replace('.', ' point ')
+                        : amount;
+                    return `${val} ${fullUnit}`;
                 }
             },
             
-            // 8. Ordinals
+            // Rule 5: Speed units (kph, mph, km/h, m/s)
+            {
+                pattern: /\b(\d+(?:\.\d+)?)(kph|mph|kmh|km\/h|m\/s)\b/gi,
+                replacement: (match, amount, unit) => {
+                    const unitMap = {
+                        'kph': 'kilometers per hour',
+                        'kmh': 'kilometers per hour',
+                        'km/h': 'kilometers per hour',
+                        'mph': 'miles per hour',
+                        'm/s': 'meters per second'
+                    };
+                    const fullUnit = unitMap[unit.toLowerCase()];
+                    const val = amount.includes('.') 
+                        ? amount.replace('.', ' point ')
+                        : amount;
+                    return `${val} ${fullUnit}`;
+                }
+            },
+            
+            // Rule 6: Weight units (kg, g, lb)
+            {
+                pattern: /\b(\d+(?:\.\d+)?)(kg|g|lb|lbs)\b/gi,
+                replacement: (match, amount, unit) => {
+                    const unitMap = {
+                        'kg': 'kilograms',
+                        'g': 'grams',
+                        'lb': 'pounds',
+                        'lbs': 'pounds'
+                    };
+                    const fullUnit = unitMap[unit.toLowerCase()];
+                    const val = amount.includes('.') 
+                        ? amount.replace('.', ' point ')
+                        : amount;
+                    return amount === '1' ? `1 ${fullUnit.slice(0, -1)}` : `${val} ${fullUnit}`;
+                }
+            },
+            
+            // Rule 7: Time duration (2.3h)
+            {
+                pattern: /\b(\d+(?:\.\d+)?)h\b/gi,
+                replacement: (match, amount) => {
+                    const val = amount.includes('.') 
+                        ? amount.replace('.', ' point ')
+                        : amount;
+                    return amount === '1' ? '1 hour' : `${val} hours`;
+                }
+            },
+            
+            // LARGE NUMBERS (Non-currency)
+            // Rule 8: Uppercase M or 'mn' = Million (when not preceded by currency symbol)
+            {
+                pattern: /\b(\d+(?:\.\d+)?)\s*(?:M|mn)\b/g,
+                replacement: (match, amount) => {
+                    const val = amount.includes('.') 
+                        ? amount.replace('.', ' point ')
+                        : amount;
+                    return `${val} million`;
+                }
+            },
+            
+            // Rule 9: Uppercase B or 'bn' = Billion
+            {
+                pattern: /\b(\d+(?:\.\d+)?)\s*(?:B|bn)\b/g,
+                replacement: (match, amount) => {
+                    const val = amount.includes('.') 
+                        ? amount.replace('.', ' point ')
+                        : amount;
+                    return `${val} billion`;
+                }
+            },
+            
+            // Rule 10: Lowercase tn = Trillion (without currency)
+            {
+                pattern: /\b(\d+(?:\.\d+)?)tn\b/gi,
+                replacement: (match, amount) => {
+                    const val = amount.includes('.') 
+                        ? amount.replace('.', ' point ')
+                        : amount;
+                    return `${val} trillion`;
+                }
+            },
+            
+            // PERCENTAGES
+            // Rule 11: Percentages
+            {
+                pattern: /\b(\d+(?:\.\d+)?)%/g,
+                replacement: (match, amount) => {
+                    const val = amount.includes('.') 
+                        ? amount.replace('.', ' point ')
+                        : amount;
+                    return `${val} percent`;
+                }
+            },
+            
+            // ORDINALS
+            // Rule 12: Ordinal numbers (1st, 2nd, 3rd, 21st, etc.)
             {
                 pattern: /\b(\d+)(st|nd|rd|th)\b/gi,
                 replacement: (match, num) => this.numberToOrdinal(parseInt(num))
             },
             
-            // 9. Titles
+            // YEARS
+            // Rule 13: Four-digit years (1998, 2025) - split for natural reading
+            {
+                pattern: /\b(19|20)(\d{2})\b(?!s)/g,
+                replacement: '$1 $2' // Split: "1998" → "19 98" (reads as "nineteen ninety-eight")
+            },
+            
+            // TITLES & ABBREVIATIONS
+            // Rule 14: Titles before names
             {
                 pattern: /\b(Prof|Dr|Mr|Mrs|Ms)\.\s+/g,
                 replacement: (match, title) => {
-                    const titleMap = { 'Prof': 'Professor ', 'Dr': 'Doctor ', 'Mr': 'Mister ', 'Mrs': 'Missus ', 'Ms': 'Miss ' };
+                    const titleMap = {
+                        'Prof': 'Professor ',
+                        'Dr': 'Doctor ',
+                        'Mr': 'Mister ',
+                        'Mrs': 'Missus ',
+                        'Ms': 'Miss '
+                    };
                     return titleMap[title];
                 }
             },
             
-            // 10. Approx
-            { pattern: /\bapprox\.?/gi, replacement: 'approximately' },
-            
-            // 11. Emergency
-            { pattern: /\b911\b/g, replacement: 'nine one one' },
-            { pattern: /\b(999|112)\b/g, replacement: (match, num) => num.split('').join(' ') },
-            
-            // 12. General Currency (Last Resort)
+            // Rule 15: Common abbreviations
             {
-                pattern: /\$(\d+(?:,\d{3})*(?:\.\d+)?)/g,
-                replacement: (match, amount) => {
-                    const cleanAmount = amount.replace(/,/g, '');
-                    if (cleanAmount.includes('.')) {
-                        const parts = cleanAmount.split('.');
-                        const dollars = parts[0];
-                        const cents = parts[1];
-                        
-                        if (cents.length === 2) {
-                            const dText = dollars === '1' ? '1 dollar' : `${dollars} dollars`;
-                            const cVal = parseInt(cents);
-                            if (cVal === 0) return dText;
-                            const cText = cVal === 1 ? '1 cent' : `${cVal} cents`;
-                            return `${dText} and ${cText}`;
-                        }
-                        return `${dollars.replace('.', ' point ')} point ${cents} dollars`;
-                    }
-                    return cleanAmount === '1' ? '1 dollar' : `${cleanAmount} dollars`;
+                pattern: /\b(approx|vs|etc)\.?\b/gi,
+                replacement: (match, abbr) => {
+                    const abbrMap = {
+                        'approx': 'approximately',
+                        'vs': 'versus',
+                        'etc': 'et cetera'
+                    };
+                    return abbrMap[abbr.toLowerCase()];
                 }
             }
         ];
     }
     
-    normalize(text) {
-        let normalizedText = text;
-        this.rules.forEach(rule => {
-            normalizedText = normalizedText.replace(rule.pattern, rule.replacement);
-        });
-        return normalizedText;
-    }
-
     numberToOrdinal(num) {
         // Direct mappings for 1-20
         const ordinals = {
@@ -599,7 +621,7 @@ class TextNormalizer {
         
         if (ordinals[num]) return ordinals[num];
         
-        // For numbers > 20, handle the last digit
+        // For numbers > 20, handle compound ordinals
         const tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
         const ones = ['', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth'];
         
@@ -616,17 +638,36 @@ class TextNormalizer {
             }
         }
         
-        // For 100+, just use the suffix
-        const lastDigit = num % 10;
+        // For 100+, use standard suffix rules
         const lastTwo = num % 100;
         
-        // Handle 11th, 12th, 13th specially (not 11st, 12nd, 13rd)
+        // Handle 11th, 12th, 13th specially
         if (lastTwo >= 11 && lastTwo <= 13) return num + 'th';
         
+        const lastDigit = num % 10;
         if (lastDigit === 1) return num + 'st';
         if (lastDigit === 2) return num + 'nd';
         if (lastDigit === 3) return num + 'rd';
         return num + 'th';
+    }
+    
+    normalize(text) {
+        let normalizedText = text;
+        
+        // STEP 1: Normalize currencies FIRST (critical for context)
+        // This prevents "£800m" from being read as "800 meters"
+        normalizedText = this.currencyNormalizer.normalize(normalizedText);
+        
+        // STEP 2: Apply other normalization rules
+        this.rules.forEach(rule => {
+            if (typeof rule.replacement === 'function') {
+                normalizedText = normalizedText.replace(rule.pattern, rule.replacement.bind(this));
+            } else {
+                normalizedText = normalizedText.replace(rule.pattern, rule.replacement);
+            }
+        });
+        
+        return normalizedText;
     }
 }
 

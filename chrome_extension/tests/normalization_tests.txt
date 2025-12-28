@@ -1,0 +1,79 @@
+COMPREHENSIVE NORMALIZATION TEST SUITE
+=====================================
+
+CURRENCY TESTS:
+--------------
+
+1. Basic Currency with Magnitude:
+The investment was £800m ($1.08bn) from European investors.
+Expected: "The investment was 800 million pounds equivalent to 1 point 08 billion dollars from European investors."
+
+2. Prefixed Currencies:
+Canadian branch reported C$2.5bn in revenue while Australian operations generated A$500m profit.
+Expected: "Canadian branch reported 2 point 5 billion Canadian dollars in revenue while Australian operations generated 500 million Australian dollars profit."
+
+3. ISO Currency Codes:
+Invoice totals: CAD 500 for shipping, EUR 1000.50 for consulting, GBP 250mn for acquisition.
+Expected: "Invoice totals: 500 Canadian dollars for shipping, 1000 point 50 euros for consulting, 250 million British pounds for acquisition."
+
+4. Decimal Currency Amounts:
+Ticket prices: £10.50 standard, €99.99 premium, $49.99 economy.
+Expected: "Ticket prices: 10 pounds and 50 cents standard, 99 euros and 99 cents premium, 49 dollars and 99 cents economy."
+
+5. Edge Case - Currency vs Measurement:
+Distance: 2m height, not currency. But: investment of £2m is different.
+Expected: "Distance: 2 meters height, not currency. But: investment of 2 million pounds is different."
+
+EMERGENCY & PHONE NUMBERS:
+-------------------------
+
+6. Emergency Numbers:
+Call 911 immediately or dial 999 for help. International: 112.
+Expected: "Call nine one one immediately or dial 9 9 9 for help. International: 1 1 2."
+
+MEASUREMENTS:
+------------
+
+7. Physical Measurements:
+The package weighs 5.7kg and measures 2m in length at 30kph speed.
+Expected: "The package weighs 5 point 7 kilograms and measures 2 meters in length at 30 kilometers per hour speed."
+
+8. Time Duration:
+Battery lasts 2.3h when operating.
+Expected: "Battery lasts 2 point 3 hours when operating."
+
+LARGE NUMBERS:
+-------------
+
+9. Non-Currency Millions/Billions:
+Population reached 57M with 19.7M in urban areas.
+Expected: "Population reached 57 million with 19 point 7 million in urban areas."
+
+10. Percentages:
+Stock increased by 12.5% yesterday and 3.75% today.
+Expected: "Stock increased by 12 point 5 percent yesterday and 3 point 75 percent today."
+
+ORDINALS & YEARS:
+----------------
+
+11. Ordinal Numbers:
+She finished 1st in 1998, followed by 2nd and 3rd. This is the 21st century, celebrating the 25th anniversary.
+Expected: "She finished first in 19 98, followed by second and third. This is the twenty first century, celebrating the twenty fifth anniversary."
+
+12. Years in Context:
+Founded in 1985, the company thrived through the 1990s and into 2025.
+Expected: "Founded in 19 85, the company thrived through the 1990s and into 20 25."
+
+ABBREVIATIONS:
+-------------
+
+13. Titles and Abbreviations:
+Contact Prof. Smith or Dr. Jones. The value is approx. $500. Innovation vs. tradition, etc.
+Expected: "Contact Professor Smith or Doctor Jones. The value is approximately 500 dollars. Innovation versus tradition, et cetera."
+
+COMPLEX MIXED EXAMPLES:
+----------------------
+
+14. Everything Combined:
+In 1998, the $83bn merger created a company valued at $3.75tn with 57mn customers. Call 911 if issues occur, or contact (212) 555-0142 ext. 402. The device operates at 30kph for 2.3h and costs approx. C$5.2M, a 12.5% increase. The 1st prototype was tested on the 21st.
+Expected: Complex sentence with all rules applied correctly.
