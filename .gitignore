@@ -74,3 +74,15 @@ local.properties
 audio_library/
 py/audio_library/
 server.log
+
+# Temporary / Backup files
+*.bak
+*.backup*
+py/test.py
+py/clean.py
+py/cleaned_article.txt
+py/test_book.txt
+py/convert_interactive.py
+
+# Dependencies
+cpp/onnxruntime-*/
