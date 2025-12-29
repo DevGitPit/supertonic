@@ -11,14 +11,15 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
-import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.Spinner
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.brahmadeo.supertonic.tts.service.PlaybackService
+import com.brahmadeo.supertonic.tts.utils.HistoryManager
 import kotlinx.coroutines.*
 import java.io.File
 import java.io.FileOutputStream
@@ -28,6 +29,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var statusText: TextView
     private lateinit var voiceSpinner: Spinner
+    private lateinit var importVoiceBtn: Button
+    private lateinit var historyBtn: Button
     private lateinit var speedSeekBar: SeekBar
     private lateinit var speedValue: TextView
     private lateinit var qualitySeekBar: SeekBar
@@ -45,26 +48,85 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.RequestPermission()
     ) { }
 
-    private val voices = mapOf(
-        "M1 - Lively, Upbeat" to "M1.json",
-        "M2 - Deep, Calm" to "M2.json",
-        "M3 - Polished, Authoritative" to "M3.json",
-        "M4 - Soft, Youthful" to "M4.json",
-        "M5 - Warm, Soothing" to "M5.json",
-        "F1 - Calm, Professional" to "F1.json",
-        "F2 - Bright, Playful" to "F2.json",
-        "F3 - Broadcast, Clear" to "F3.json",
-        "F4 - Crisp, Confident" to "F4.json",
-        "F5 - Kind, Gentle" to "F5.json"
+    private val importVoiceLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val contentResolver = applicationContext.contentResolver
+                    val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    contentResolver.takePersistableUriPermission(uri, takeFlags)
+                } catch (e: Exception) {
+                    // Ignore if unable to take persistable permission
+                }
+
+                try {
+                    val inputStream = contentResolver.openInputStream(uri)
+                    var filename = uri.lastPathSegment ?: "imported_voice.json"
+                    if (!filename.endsWith(".json")) filename += ".json"
+                    filename = filename.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                    
+                    val voiceDir = File(filesDir, "voice_styles")
+                    if (!voiceDir.exists()) voiceDir.mkdirs()
+                    
+                    val outFile = File(voiceDir, filename)
+                    val outputStream = FileOutputStream(outFile)
+                    
+                    inputStream?.use { input ->
+                        outputStream.use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@MainActivity, "Imported $filename", Toast.LENGTH_SHORT).show()
+                        setupVoiceSpinner()
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@MainActivity, "Import Failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
+
+    private val historyLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val selectedText = result.data?.getStringExtra("selected_text")
+            if (!selectedText.isNullOrEmpty()) {
+                inputText.setText(selectedText)
+                Toast.makeText(this, "Loaded from History", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private val defaultVoiceNames = mapOf(
+        "M1.json" to "M1 - Lively, Upbeat",
+        "M2.json" to "M2 - Deep, Calm",
+        "M3.json" to "M3 - Polished, Authoritative",
+        "M4.json" to "M4 - Soft, Youthful",
+        "M5.json" to "M5 - Warm, Soothing",
+        "F1.json" to "F1 - Calm, Professional",
+        "F2.json" to "F2 - Bright, Playful",
+        "F3.json" to "F3 - Broadcast, Clear",
+        "F4.json" to "F4 - Crisp, Confident",
+        "F5.json" to "F5 - Kind, Gentle"
     )
+    
+    private var voiceFiles = mutableMapOf<String, String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Bind Views
         statusText = findViewById(R.id.statusText)
         voiceSpinner = findViewById(R.id.voiceSpinner)
+        importVoiceBtn = findViewById(R.id.importVoiceBtn)
+        historyBtn = findViewById(R.id.historyBtn)
         speedSeekBar = findViewById(R.id.speedSeekBar)
         speedValue = findViewById(R.id.speedValue)
         qualitySeekBar = findViewById(R.id.qualitySeekBar)
@@ -72,7 +134,6 @@ class MainActivity : AppCompatActivity() {
         inputText = findViewById(R.id.inputText)
         synthButton = findViewById(R.id.synthButton)
         
-        // Hide overlay views if they exist in layout (we aren't using them anymore)
         findViewById<View>(R.id.playbackControls)?.visibility = View.GONE
 
         val placeholderText = "Hello world, this is Supertonic TTS on Android. Select a voice and speed above!"
@@ -81,8 +142,15 @@ class MainActivity : AppCompatActivity() {
                 inputText.setText("")
             }
         }
+        
+        importVoiceBtn.setOnClickListener {
+            importVoiceLauncher.launch("application/json")
+        }
 
-        setupVoiceSpinner()
+        historyBtn.setOnClickListener {
+            historyLauncher.launch(Intent(this, HistoryActivity::class.java))
+        }
+
         setupSpeedControl()
         setupQualityControl()
         checkNotificationPermission()
@@ -90,21 +158,15 @@ class MainActivity : AppCompatActivity() {
         synthButton.isEnabled = false
         statusText.text = "Initializing..."
 
-        // Start service to ensure it's alive (optional but good practice)
         startService(Intent(this, PlaybackService::class.java))
 
-        // Initialize Engine
         scope.launch(Dispatchers.IO) {
             val modelPath = copyAssets()
-            val libPath = applicationInfo.nativeLibraryDir + "/libonnxruntime.so"
+            withContext(Dispatchers.Main) {
+                setupVoiceSpinner()
+            }
             
-            // We need to access SupertonicTTS directly to initialize, or use Service binder.
-            // Since MainActivity doesn't bind anymore (PlaybackActivity does), we can init via singleton helper or static call?
-            // Actually SupertonicTTS object is accessible.
-            // But good practice to do it via Service if we want to keep logic encapsulated.
-            // However, MainActivity initialization logic was fine before.
-            // Let's bind temporarily or just assume SupertonicTTS singleton works.
-            // Yes, SupertonicTTS is an object.
+            val libPath = applicationInfo.nativeLibraryDir + "/libonnxruntime.so"
             
             if (modelPath != null) {
                 if (SupertonicTTS.initialize(modelPath, libPath)) {
@@ -177,15 +239,39 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupVoiceSpinner() {
-        val voiceNames = voices.keys.toList().sorted()
+        voiceFiles.clear()
+        
+        val voiceDir = File(filesDir, "voice_styles")
+        if (voiceDir.exists()) {
+            val files = voiceDir.listFiles { _, name -> name.endsWith(".json") }
+            files?.forEach { file ->
+                val friendlyName = defaultVoiceNames[file.name] ?: file.name.removeSuffix(".json")
+                voiceFiles[friendlyName] = file.name
+            }
+        }
+        
+        if (voiceFiles.isEmpty()) {
+            defaultVoiceNames.forEach { (filename, name) -> voiceFiles[name] = filename }
+        }
+
+        val voiceNames = voiceFiles.keys.toList().sorted()
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, voiceNames)
         voiceSpinner.adapter = adapter
-        val defaultIndex = voiceNames.indexOf("M1 - Lively, Upbeat")
-        if (defaultIndex >= 0) voiceSpinner.setSelection(defaultIndex)
+        
+        val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
+        val savedFile = prefs.getString("selected_voice", "M1.json")
+        
+        val savedName = voiceFiles.entries.find { it.value == savedFile }?.key
+        val defaultIndex = if (savedName != null) voiceNames.indexOf(savedName) else 0
+        
+        if (defaultIndex >= 0 && defaultIndex < voiceNames.size) {
+            voiceSpinner.setSelection(defaultIndex)
+        }
 
         voiceSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                selectedVoiceFile = voices[voiceNames[position]] ?: "M1.json"
+                val name = voiceNames[position]
+                selectedVoiceFile = voiceFiles[name] ?: "M1.json"
                 getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
                     .edit().putString("selected_voice", selectedVoiceFile).apply()
             }
@@ -254,6 +340,10 @@ class MainActivity : AppCompatActivity() {
              statusText.text = "Error: Voice style not found"
              return
         }
+
+        // Save to History
+        val voiceName = voiceSpinner.selectedItem.toString()
+        HistoryManager.saveItem(this, text, voiceName)
 
         val intent = Intent(this, PlaybackActivity::class.java).apply {
             putExtra(PlaybackActivity.EXTRA_TEXT, text)

@@ -35,12 +35,12 @@
 ## Phase 4: Housekeeping & Polish (Next Steps)
 *Goal: Clean up technical debt and prepare for release.*
 
-- [ ] **[Global] Package Renaming**:
+- [x] **[Global] Package Renaming**:
     -   Refactor package name from `com.example.supertonic` to `com.brahmadeo.supertonic`.
     -   Update `build.gradle`, `AndroidManifest.xml`, and source files.
     -   **CRITICAL**: Update JNI native method signatures in C++ code to match the new package name before compiling.
 
 ## Phase 5: Future Features (Backlog)
-- [ ] **[Android] Audio Export**: Add functionality to save the synthesized audio as a `.wav` file.
-- [ ] **[Android] Voice Management**: Create a UI to manage/import voice style files (`.json`) from device storage.
-- [ ] **[Android] History**: Keep a local history of synthesized texts.
+- [x] **[Android] Audio Export**: Add functionality to save the synthesized audio as a `.wav` file.
+- [x] **[Android] Voice Management**: Create a UI to manage/import voice style files (`.json`) from device storage.
+- [x] **[Android] History**: Keep a local history of synthesized texts.

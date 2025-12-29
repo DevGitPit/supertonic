@@ -25,7 +25,68 @@ import com.brahmadeo.supertonic.tts.utils.TextNormalizer
 import kotlinx.coroutines.*
 import java.util.regex.Pattern
 
+import com.brahmadeo.supertonic.tts.utils.WavUtils
+import java.io.ByteArrayOutputStream
+import java.io.File
+
 class PlaybackService : Service(), SupertonicTTS.ProgressListener {
+
+    // ... (existing members)
+
+    fun exportAudio(text: String, stylePath: String, speed: Float, steps: Int, outputFile: File, onComplete: (Boolean) -> Unit) {
+        cancelSynthesis()
+        stopPlayback()
+        
+        startForegroundService("Exporting Audio...", false)
+        
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val sentences = textNormalizer.splitIntoSentences(text)
+                val outputStream = ByteArrayOutputStream()
+                var success = true
+                
+                for (sentence in sentences) {
+                    if (!isActive) {
+                        success = false
+                        break
+                    }
+                    val normalizedText = textNormalizer.normalize(sentence)
+                    val estimatedDuration = normalizedText.length / 15.0f
+                    
+                    // Use standard buffer/steps for high quality export
+                    val audioData = SupertonicTTS.generateAudio(normalizedText, stylePath, speed, estimatedDuration, steps)
+                    
+                    if (audioData != null) {
+                        outputStream.write(audioData)
+                    } else {
+                        Log.w(TAG, "Failed to export sentence: $sentence")
+                        // Continue or fail? Let's continue.
+                    }
+                }
+                
+                if (success && outputStream.size() > 0) {
+                    WavUtils.saveWav(outputFile, outputStream.toByteArray(), SupertonicTTS.getAudioSampleRate())
+                    withContext(Dispatchers.Main) {
+                        stopForeground(true)
+                        onComplete(true)
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        stopForeground(true)
+                        onComplete(false)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Export failed", e)
+                withContext(Dispatchers.Main) {
+                    stopForeground(true)
+                    onComplete(false)
+                }
+            }
+        }
+    }
+
+    // ... (rest of the class)
 
     private val binder = LocalBinder()
     private lateinit var mediaSession: MediaSessionCompat

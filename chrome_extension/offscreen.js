@@ -1248,10 +1248,10 @@ function splitIntoSentences(text) {
     });
     
     // IMPROVED: Better handling of quotes
-    // Split on: period/!/?  optionally followed by quote  space  capital/quote
-    // This regex handles: `said. "That's` and `open," Trump`
-    // Also handles smart quotes (U+201C, U+201D, etc.)
-    const sentenceRegex = /(?<=[.!?])['"”’]?\s+(?=['"“‘]?[A-Z])/;
+    // Split on: 
+    // 1. period/!/? optionally followed by quote, then space, then capital/quote
+    // 2. semicolon or em-dash followed by space
+    const sentenceRegex = /(?<=[.!?])['"”’]?\s+(?=['"“‘]?[A-Z])|(?<=[;—])\s+/;
     const rawSentences = protectedText.split(sentenceRegex);
     
     // Filter out empty and restore

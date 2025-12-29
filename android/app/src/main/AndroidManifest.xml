@@ -33,6 +33,10 @@
         <activity android:name=".PlaybackActivity"
             android:parentActivityName=".MainActivity" />
 
+        <activity android:name=".HistoryActivity"
+            android:parentActivityName=".MainActivity"
+            android:label="History" />
+
         <service android:name=".service.PlaybackService"
             android:foregroundServiceType="mediaPlayback"
             android:exported="false" />

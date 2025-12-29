@@ -329,8 +329,10 @@ document.addEventListener('DOMContentLoaded', function() {
           protectedText = protectedText.replace(new RegExp(safeAbbr, 'g'), placeholder);
       });
       
-      // Split on sentence boundaries: punctuation followed by space and capital letter
-      const sentenceRegex = /(?<=[.!?])['"”’]?\s+(?=['"“‘]?[A-Z])/;
+      // Split on sentence boundaries: 
+      // 1. Punctuation (.!?) followed by space and capital letter
+      // 2. Semi-colons (;) or Em-dashes (—) followed by space (regardless of next letter case)
+      const sentenceRegex = /(?<=[.!?])['"”’]?\s+(?=['"“‘]?[A-Z])|(?<=[;—])\s+/;
       const rawSentences = protectedText.split(sentenceRegex);
       
       sentences = rawSentences.map((sentence, i) => {

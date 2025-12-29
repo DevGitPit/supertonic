@@ -75,6 +75,15 @@ We provide ready-to-use TTS inference examples across multiple ecosystems:
 
 > For detailed usage instructions, please refer to the README.md in each language directory.
 
+## Android App Features
+
+The Android application included in this repository (`android/`) has been updated with advanced features:
+
+-   **🎧 Audio Export**: Save synthesized speech as `.wav` files directly to your device's Downloads folder.
+-   **🗣️ Voice Management**: Import custom voice style (`.json`) files from device storage to expand your voice library.
+-   **📜 History**: Automatically saves synthesized texts for quick access and restoration.
+-   **🌐 Chrome Integration**: Send text directly from your mobile browser to the app via the "Share" menu or the custom Chrome Extension.
+
 ## Getting Started
 
 First, clone the repository:

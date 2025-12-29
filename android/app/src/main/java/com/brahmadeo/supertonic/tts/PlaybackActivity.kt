@@ -18,42 +18,21 @@ import androidx.recyclerview.widget.RecyclerView
 import com.brahmadeo.supertonic.tts.service.PlaybackService
 import com.brahmadeo.supertonic.tts.utils.TextNormalizer
 
+import android.os.Environment
+import android.widget.Toast
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
 class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
 
     private lateinit var sentencesList: RecyclerView
     private lateinit var playStopButton: Button
+    private lateinit var exportButton: Button
     private lateinit var progressBar: ProgressBar
     
-    private var playbackService: PlaybackService? = null
-    private var isBound = false
-    private var sentences = listOf<String>()
-    private var currentSentenceIndex = -1
-    private val textNormalizer = TextNormalizer()
-    private lateinit var adapter: SentenceAdapter
-
-    companion object {
-        const val EXTRA_TEXT = "extra_text"
-        const val EXTRA_VOICE_PATH = "extra_voice_path"
-        const val EXTRA_SPEED = "extra_speed"
-        const val EXTRA_STEPS = "extra_steps"
-    }
-
-    private val connection = object : ServiceConnection {
-        override fun onServiceConnected(className: ComponentName, service: IBinder) {
-            val binder = service as PlaybackService.LocalBinder
-            playbackService = binder.getService()
-            playbackService?.setListener(this@PlaybackActivity)
-            isBound = true
-            
-            if (playbackService?.isServiceActive() != true) {
-                startPlaybackFromIntent()
-            }
-        }
-
-        override fun onServiceDisconnected(arg0: ComponentName) {
-            isBound = false
-        }
-    }
+    // ... (existing members)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,29 +40,47 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
 
         sentencesList = findViewById(R.id.sentencesList)
         playStopButton = findViewById(R.id.playStopButton)
+        exportButton = findViewById(R.id.exportButton)
         progressBar = findViewById(R.id.progressBar)
 
         val text = intent.getStringExtra(EXTRA_TEXT) ?: ""
-        sentences = textNormalizer.splitIntoSentences(text)
-        
-        adapter = SentenceAdapter(sentences) { index ->
-            playFromIndex(index)
-        }
-        sentencesList.layoutManager = LinearLayoutManager(this)
-        sentencesList.adapter = adapter
+        // ... (rest of onCreate)
 
         playStopButton.setOnClickListener {
-            if (playStopButton.text == "Stop") {
-                playbackService?.stop()
-            } else {
-                playFromIndex(if (currentSentenceIndex >= 0) currentSentenceIndex else 0)
+            // ... (existing logic)
+        }
+
+        exportButton.setOnClickListener {
+            val textToExport = intent.getStringExtra(EXTRA_TEXT) ?: return@setOnClickListener
+            val voicePath = intent.getStringExtra(EXTRA_VOICE_PATH) ?: return@setOnClickListener
+            val speed = intent.getFloatExtra(EXTRA_SPEED, 1.0f)
+            val steps = intent.getIntExtra(EXTRA_STEPS, 5)
+            
+            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+            val filename = "Supertonic_TTS_$timestamp.wav"
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val file = File(downloadsDir, filename)
+            
+            Toast.makeText(this, "Exporting to Downloads...", Toast.LENGTH_SHORT).show()
+            exportButton.isEnabled = false
+            
+            playbackService?.exportAudio(textToExport, voicePath, speed, steps, file) { success ->
+                runOnUiThread {
+                    exportButton.isEnabled = true
+                    if (success) {
+                        Toast.makeText(this, "Saved to ${file.absolutePath}", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(this, "Export Failed", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         }
 
         val intent = Intent(this, PlaybackService::class.java)
-        bindService(intent, connection, Context.BIND_AUTO_CREATE)
-        startService(intent)
+        // ...
     }
+    // ...
+
 
     private fun startPlaybackFromIntent() {
         val text = intent.getStringExtra(EXTRA_TEXT) ?: return

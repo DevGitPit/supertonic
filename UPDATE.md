@@ -37,3 +37,12 @@ The `chrome_extension` has been significantly upgraded:
     ```bash
     python3 server.py
     ```
+
+### 4. Android App Features (2025-12-29)
+*   **Audio Export:** Added "Save WAV" functionality to export synthesized audio to the Downloads folder.
+*   **Voice Management:** Implemented a UI to import custom voice style `.json` files from device storage.
+*   **History:** Added a local history feature to save and restore previously synthesized texts.
+*   **Package Renaming:** Standardized package name to `com.brahmadeo.supertonic.tts`.
+
+### 5. Chrome Extension Fixes (2025-12-29)
+*   **Complex Text Handling:** Fixed an issue where the TTS engine would hang on long sentences containing semicolons or em-dashes by improving the sentence splitting logic.
