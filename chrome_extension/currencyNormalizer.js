@@ -45,6 +45,14 @@ class CurrencyNormalizer {
         const symPattern = '[£€₹¥₩$]';
         
         return [
+            // Rule 0: Remove commas from numbers (they cause "zero zero" reading in some engines)
+            {
+                pattern: /\b(\d{1,3}(?:,\d{3})+)\b/g,
+                replacement: (match) => {
+                    return match.replace(/,/g, '');
+                }
+            },
+            
             // Rule 1: Prefixed currencies with magnitude (C$2.5bn, A$500m)
             // Must come first to catch specific currency types
             {
@@ -176,29 +184,12 @@ class CurrencyNormalizer {
     }
 
     formatIndianAmount(amountStr) {
-        // Convert string to number (remove commas if any)
+        // DO NOT format with commas - TTS reads them as "zero zero"
+        // Just return the plain number
         const num = parseInt(amountStr.replace(/,/g, ''), 10);
         if (isNaN(num)) return amountStr;
-
-        if (num < 1000) return num.toString();
         
-        // 10,000 to 99,999 -> Just comma
-        if (num < 100000) {
-            // JS toLocaleString('en-IN') handles this perfectly
-            return num.toLocaleString('en-IN');
-        }
-        
-        // Lakhs (1,00,000)
-        if (num >= 100000 && num < 10000000) {
-             return num.toLocaleString('en-IN'); // e.g. 1,00,000
-        }
-        
-        // Crores (1,00,00,000)
-        if (num >= 10000000) {
-            return num.toLocaleString('en-IN');
-        }
-        
-        return num.toLocaleString('en-IN');
+        return num.toString(); // Return plain number without commas
     }
     
     normalize(text) {

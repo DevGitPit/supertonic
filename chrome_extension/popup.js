@@ -155,8 +155,17 @@ document.addEventListener('DOMContentLoaded', function() {
           }
       } else if (msg.type === 'PLAYBACK_FINISHED') {
           onPlaybackFinished();
+      } else if (msg.type === 'VOICE_CHANGED' || msg.type === 'ENGINE_CHANGED') {
+          updateEngineUI();
       }
   });
+
+  // Periodically check for voice changes (every 5 seconds)
+  setInterval(() => {
+      if (currentEngine === 'system') {
+          updateEngineUI();
+      }
+  }, 5000);
 
   // --- Event Listeners ---
 
@@ -321,7 +330,8 @@ document.addEventListener('DOMContentLoaded', function() {
       });
       
       // Split on sentence boundaries: punctuation followed by space and capital letter
-      const rawSentences = protectedText.split(/(?<=[.!?])\s+(?=[A-Z"])/);
+      const sentenceRegex = /(?<=[.!?])['"”’]?\s+(?=['"“‘]?[A-Z])/;
+      const rawSentences = protectedText.split(sentenceRegex);
       
       sentences = rawSentences.map((sentence, i) => {
           let restored = sentence;
@@ -376,6 +386,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   function updateEngineUI() {
+      const currentVal = voiceSelect.value;
       voiceSelect.innerHTML = "";
       
       if (currentEngine === 'system') {
@@ -384,13 +395,21 @@ document.addEventListener('DOMContentLoaded', function() {
           serverStatusMsg.style.display = "none";
           
           const voices = window.speechSynthesis.getVoices();
-          if (voices.length === 0) {
+          // Filter to English voices only
+          const englishVoices = voices.filter(v => v.lang.startsWith('en-') || v.lang.startsWith('en_'));
+          
+          if (englishVoices.length === 0) {
               window.speechSynthesis.onvoiceschanged = () => updateEngineUI();
               voiceSelect.add(new Option("Loading...", ""));
           } else {
-              voices.forEach(v => {
+              englishVoices.forEach(v => {
                   voiceSelect.add(new Option(`${v.name} (${v.lang})`, v.name));
               });
+              
+              // Restore previous selection if still available
+              if (currentVal && Array.from(voiceSelect.options).some(o => o.value === currentVal)) {
+                  voiceSelect.value = currentVal;
+              }
           }
       } else {
           serverControlsCard.style.display = "flex";

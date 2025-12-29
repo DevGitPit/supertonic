@@ -191,7 +191,13 @@ class TextNormalizer {
     }
 
     fun splitIntoSentences(text: String): List<String> {
-        val abbreviations = listOf("Mr.", "Mrs.", "Dr.", "Ms.", "Prof.", "Sr.", "Jr.", "etc.", "vs.", "e.g.", "i.e.")
+        val abbreviations = listOf(
+            "Mr.", "Mrs.", "Dr.", "Ms.", "Prof.", "Sr.", "Jr.", 
+            "etc.", "vs.", "e.g.", "i.e.",
+            "Jan.", "Feb.", "Mar.", "Apr.", "May.", "Jun.", 
+            "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec.",
+            "U.S.", "U.K.", "E.U."
+        )
         var protectedText = text
         
         abbreviations.forEachIndexed { index, abbr ->
@@ -199,8 +205,9 @@ class TextNormalizer {
             protectedText = protectedText.replace(abbr, placeholder, ignoreCase = true)
         }
         
-        // Split by punctuation followed by space or newline
-        val pattern = Pattern.compile("(?<=[.!?])\\s+(?=[A-Z0-9])")
+        // Split by punctuation followed by optional quote and space
+        // Matches logic in Chrome Extension to handle quotes better (including smart quotes)
+        val pattern = Pattern.compile("(?<=[.!?])['\"”’]?\\s+(?=['\"“‘]?[A-Z])")
         val rawSentences = protectedText.split(pattern)
         
         return rawSentences.map { sentence ->

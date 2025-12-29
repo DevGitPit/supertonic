@@ -72,8 +72,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           }
       };
       
-      if (request.voiceName) {
+      // CRITICAL FIX: Set voice correctly
+      if (request.voiceName && request.voiceName.trim() !== '') {
+          // For Android, voice name might be the full locale string
           options.voiceName = request.voiceName;
+          
+          // ALSO try setting lang if voiceName looks like a locale
+          if (request.voiceName.includes('_') || request.voiceName.includes('-')) {
+              // e.g., "en_GB" or "en-us-supertonic-F5"
+              const parts = request.voiceName.split(/[-_]/);
+              if (parts.length >= 2) {
+                  // Reconstruct a standard locale string like "en-GB"
+                  options.lang = `${parts[0]}-${parts[1].toUpperCase()}`;
+              }
+          }
+          
+          console.log('[BACKGROUND] Voice options:', options);
       }
 
       try {

@@ -48,6 +48,11 @@ class CurrencyNormalizer {
             rulesList.add(Rule(Pattern.compile(regex, Pattern.CASE_INSENSITIVE), replacement))
         }
 
+        // Rule 0: Remove commas from numbers
+        add("\\b(\\d{1,3}(?:,\\d{3})+)\\b") { m ->
+            m.group(0)?.replace(",", "") ?: ""
+        }
+
         // Rule 1
         add("(C\\$|CA\\$|A\\$|AU\\$|US\\$|NZ\\$|HK\\$|S\\$)(\\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)") { m ->
             val prefix = m.group(1) ?: ""
@@ -176,10 +181,9 @@ class CurrencyNormalizer {
     }
 
     private fun formatIndianAmount(amountStr: String): String {
-        val num = amountStr.replace(",", "").toLongOrNull() ?: return amountStr
-        if (num < 1000) return num.toString()
-        val format = NumberFormat.getNumberInstance(Locale("en", "IN"))
-        return format.format(num)
+        // Just return the plain number, removing commas if any exist
+        val num = amountStr.replace(",", "").toLongOrNull()
+        return num?.toString() ?: amountStr
     }
 
     fun normalize(text: String): String {

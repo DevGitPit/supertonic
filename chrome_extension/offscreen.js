@@ -684,18 +684,33 @@ class TextNormalizer {
     normalize(text) {
         let normalizedText = text;
         
+        console.log(`${LOG_PREFIX} [NORMALIZE] BEFORE:`, text.substring(0, 100));
+        
         // STEP 1: Normalize currencies FIRST (critical for context)
         // This prevents "£800m" from being read as "800 meters"
         normalizedText = this.currencyNormalizer.normalize(normalizedText);
         
         // STEP 2: Apply other normalization rules
-        this.rules.forEach(rule => {
+        this.rules.forEach((rule, index) => {
+            const before = normalizedText;
             if (typeof rule.replacement === 'function') {
                 normalizedText = normalizedText.replace(rule.pattern, rule.replacement.bind(this));
             } else {
                 normalizedText = normalizedText.replace(rule.pattern, rule.replacement);
             }
+
+            // Log if rule made changes
+            if (before !== normalizedText) {
+                console.log(`${LOG_PREFIX} [NORMALIZE] Rule ${index} changed text`);
+            }
         });
+        
+        console.log(`${LOG_PREFIX} [NORMALIZE] AFTER:`, normalizedText.substring(0, 100));
+        
+        // Check for problematic patterns
+        if (normalizedText.includes('zero zero')) {
+            console.error(`${LOG_PREFIX} [NORMALIZE] ⚠️ Contains "zero zero" - comma issue!`);
+        }
         
         return normalizedText;
     }
@@ -1232,18 +1247,32 @@ function splitIntoSentences(text) {
         }
     });
     
-    // Split on sentence boundaries
-    // More robust: handle quotes and multiple punctuation
-    const rawSentences = protectedText.split(/(?<=[.!?]["']?)\s+(?=[A-Z""'])/);
+    // IMPROVED: Better handling of quotes
+    // Split on: period/!/?  optionally followed by quote  space  capital/quote
+    // This regex handles: `said. "That's` and `open," Trump`
+    // Also handles smart quotes (U+201C, U+201D, etc.)
+    const sentenceRegex = /(?<=[.!?])['"”’]?\s+(?=['"“‘]?[A-Z])/;
+    const rawSentences = protectedText.split(sentenceRegex);
     
-    return rawSentences.map((sentence, i) => {
-        let restored = sentence.trim();
-        
-        // Restore abbreviations
-        placeholders.forEach(({ placeholder, abbr }) => {
-            restored = restored.replace(new RegExp(placeholder, 'g'), abbr);
+    // Filter out empty and restore
+    const sentences = rawSentences
+        .map(sentence => sentence.trim())
+        .filter(sentence => sentence.length > 0)
+        .map((sentence, i) => {
+            let restored = sentence;
+            
+            // Restore abbreviations
+            placeholders.forEach(({ placeholder, abbr }) => {
+                restored = restored.replace(new RegExp(placeholder, 'g'), abbr);
+            });
+            
+            return { text: restored, index: i };
         });
-        
-        return { text: restored, index: i };
-    }).filter(s => s.text.length > 0);
+    
+    console.log(`${LOG_PREFIX} Split into ${sentences.length} sentences`);
+    sentences.slice(0, 3).forEach((s, i) => {
+        console.log(`${LOG_PREFIX} Sentence ${i}: "${s.text.substring(0, 60)}..."`);
+    });
+    
+    return sentences;
 }
