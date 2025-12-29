@@ -682,9 +682,17 @@ class TextNormalizer {
     }
     
     normalize(text) {
-        // Step 0: Fix merged sentences (e.g. "reserved.Reuse") and smushed words (e.g. "InsightGerard")
+        // Fix smushed text from webpage layouts
         let normalizedText = text.replace(/([a-z])\.([A-Z])/g, '$1. $2');
-        normalizedText = normalizedText.replace(/([a-z])([A-Z][a-z])/g, '$1 $2');
+        normalizedText = normalizedText.replace(/([a-z])([A-Z])/g, '$1 $2');
+        normalizedText = normalizedText.replace(/([A-Z])([A-Z][a-z])/g, '$1 $2');
+        
+        // Fix letter-number merges (Published8 -> Published 8)
+        normalizedText = normalizedText.replace(/([a-zA-Z])(\d)/g, '$1 $2');
+
+        // Break up navigation menu "soup"
+        const navKeywords = /([^\.\!\?]\s)\b(Skip to|Sign In|Subscribe|OPEN SIDE|MENU|Add to myFT|Save|Print this page|Published|Copyright|©)\b/gi;
+        normalizedText = normalizedText.replace(navKeywords, '$1. $2');
         
         console.log(`${LOG_PREFIX} [NORMALIZE] BEFORE:`, text.substring(0, 100));
         

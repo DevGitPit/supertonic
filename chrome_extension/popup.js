@@ -318,9 +318,17 @@ document.addEventListener('DOMContentLoaded', function() {
   function enterPlaybackMode(text) {
       if (isPlaybackMode) return;
       
-      // Fix merged sentences (e.g. "reserved.Reuse") and smushed words (e.g. "InsightGerard")
+      // Fix smushed text from webpage layouts
       let fixedText = text.replace(/([a-z])\.([A-Z])/g, '$1. $2');
-      fixedText = fixedText.replace(/([a-z])([A-Z][a-z])/g, '$1 $2');
+      fixedText = fixedText.replace(/([a-z])([A-Z])/g, '$1 $2');
+      fixedText = fixedText.replace(/([A-Z])([A-Z][a-z])/g, '$1 $2');
+      
+      // Fix letter-number merges (Published8 -> Published 8)
+      fixedText = fixedText.replace(/([a-zA-Z])(\d)/g, '$1 $2');
+
+      // Break up navigation menu "soup"
+      const navKeywords = /([^\.\!\?]\s)\b(Skip to|Sign In|Subscribe|OPEN SIDE|MENU|Add to myFT|Save|Print this page|Published|Copyright|©)\b/gi;
+      fixedText = fixedText.replace(navKeywords, '$1. $2');
       
       // Tokenize using Robust Splitter (Suggestion 5)
       const abbreviations = ['Mr.', 'Mrs.', 'Dr.', 'Ms.', 'Prof.', 'Sr.', 'Jr.', 'etc.', 'vs.', 'e.g.', 'i.e.', 'Jan.', 'Feb.', 'Mar.', 'Apr.', 'May.', 'Jun.', 'Jul.', 'Aug.', 'Sep.', 'Oct.', 'Nov.', 'Dec.'];

@@ -93,7 +93,7 @@ class CurrencyNormalizer {
             "$formattedAmount $currencyName"
         }
 
-        // Rule 4
+        // Rule 4: Symbol + amount + magnitude (£800m, €500bn)
         add("($symPattern)(\\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)\\b") { m ->
             val symbol = m.group(1) ?: "$"
             val amount = m.group(2) ?: ""
@@ -105,14 +105,17 @@ class CurrencyNormalizer {
             "$formattedAmount $magnitude $currencyName"
         }
 
-        // Rule 5
-        add("\\(($symPattern|C\\$|CA\\$|A\\$|AU\\$|US\\$)(\\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)\\)") { m ->
+        // Rule 5: Parenthetical magnitudes (£800m ($1.08bn), (SR3mn))
+        add("\\(($symPattern|C\\$|CA\\$|A\\$|AU\\$|US\\$|SR|RMB)(\\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)\\)") { m ->
             val symbol = m.group(1) ?: "$"
             val amount = m.group(2) ?: ""
             val suffix = m.group(3) ?: ""
             
-            val currencyName = if (symbol.length > 1) {
-                currencyPrefixes[symbol.uppercase(Locale.ROOT)] ?: "dollars"
+            var key = symbol.uppercase(Locale.ROOT)
+            if (key.startsWith("S") && !key.contains("$") && key != "SR") key = key.replace("S", "S$")
+
+            val currencyName = if (key.length > 1) {
+                currencyPrefixes[key] ?: currencyPrefixes[key.replace("$", "")] ?: "dollars"
             } else {
                 currencySymbols[symbol] ?: "dollars"
             }
@@ -122,7 +125,25 @@ class CurrencyNormalizer {
             "equivalent to $formattedAmount $magnitude $currencyName"
         }
 
-        // Rule 6
+        // Rule 5b: Parenthetical whole amounts ($800,000), (SR 3000)
+        add("\\(($symPattern|C\\$|CA\\$|A\\$|AU\\$|US\\$|SR|RMB)\\s*(\\d+(?:\\.\\d+)?)\\)") { m ->
+            val symbol = m.group(1) ?: "$"
+            val amount = m.group(2) ?: ""
+            
+            var key = symbol.uppercase(Locale.ROOT)
+            if (key.startsWith("S") && !key.contains("$") && key != "SR") key = key.replace("S", "S$")
+
+            val currencyName = if (key.length > 1) {
+                currencyPrefixes[key] ?: currencyPrefixes[key.replace("$", "")] ?: "dollars"
+            } else {
+                currencySymbols[symbol] ?: "dollars"
+            }
+            
+            val formattedAmount = formatAmount(amount)
+            "equivalent to $formattedAmount $currencyName"
+        }
+
+        // Rule 6: Plain symbol + amount with decimals (£10.50)
         add("($symPattern)(\\d+)\\.(\\d{2})\\b") { m ->
             val symbol = m.group(1) ?: "$"
             val whole = m.group(2) ?: ""

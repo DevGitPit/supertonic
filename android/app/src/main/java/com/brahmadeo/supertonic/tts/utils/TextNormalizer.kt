@@ -173,15 +173,27 @@ class TextNormalizer {
     }
 
     fun normalize(text: String): String {
-        // Step 0: Fix merged sentences and words (e.g. "reserved.Reuse", "InsightGerard")
-        // Fix merged sentences: lowercase char, period, uppercase char
-        val mergedSentencePattern = Pattern.compile("([a-z])\\.([A-Z])")
-        var fixedText = mergedSentencePattern.matcher(text).replaceAll("$1. $2")
+        // Step 0: Fix smushed text from webpage layouts
+        // Fix smushed sentences: lowercase char, period, uppercase char (reserved.Reuse)
+        val smushedSentencePattern = Pattern.compile("([a-z])\\.([A-Z])")
+        var fixedText = smushedSentencePattern.matcher(text).replaceAll("$1. $2")
         
-        // Fix smushed words: lowercase char, uppercase char (like "InsightGerard")
-        // We look for lowercase followed by uppercase+lowercase to avoid breaking all-caps
-        val smushedWordPattern = Pattern.compile("([a-z])([A-Z][a-z])")
-        fixedText = smushedWordPattern.matcher(fixedText).replaceAll("$1 $2")
+        // Fix smushed words: lowercase char, uppercase char (economyIMF)
+        val smushedWordPattern1 = Pattern.compile("([a-z])([A-Z])")
+        fixedText = smushedWordPattern1.matcher(fixedText).replaceAll("$1 $2")
+        
+        // Fix smushed words: Uppercase followed by Uppercase+Lowercase (FTNews)
+        val smushedWordPattern2 = Pattern.compile("([A-Z])([A-Z][a-z])")
+        fixedText = smushedWordPattern2.matcher(fixedText).replaceAll("$1 $2")
+
+        // Fix letter-number merges (Published8 -> Published 8)
+        val letterNumberPattern = Pattern.compile("([a-zA-Z])(\\d)")
+        fixedText = letterNumberPattern.matcher(fixedText).replaceAll("$1 $2")
+
+        // Break up navigation menu "soup" (Skip to main content...)
+        // Insert period before specific keywords if not already preceded by punctuation
+        val navPattern = Pattern.compile("(?<![.!?]\\s)\\b(Skip to|Sign In|Subscribe|OPEN SIDE|MENU|Add to myFT|Save|Print this page|Published|Copyright|©)\\b", Pattern.CASE_INSENSITIVE)
+        fixedText = navPattern.matcher(fixedText).replaceAll(". $1")
 
         // Step 1: Currency
         var normalized = currencyNormalizer.normalize(fixedText)

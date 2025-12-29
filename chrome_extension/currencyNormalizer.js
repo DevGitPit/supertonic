@@ -108,23 +108,33 @@ class CurrencyNormalizer {
                 }
             },
             
-            // Rule 5: Parenthetical conversions (£800m ($1.08bn))
+            // Rule 5: Parenthetical conversions (£800m ($1.08bn)), (SR3mn)
             // Adds "equivalent to" for clarity
             {
-                pattern: new RegExp(`\\((${symPattern}|C\\$|CA\\$|A\\$|AU\\$|US\\$)(\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)\\)`, 'gi'),
+                pattern: new RegExp(`\\((${symPattern}|C\\$|CA\\$|A\\$|AU\\$|US\\$|SR|RMB)(\\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)\\)`, 'gi'),
                 replacement: (match, symbol, amount, suffix) => {
-                    let currencyName;
-                    if (symbol.length > 1) {
-                        // Prefixed currency like C$ or A$
-                        currencyName = this.currencyPrefixes[symbol.toUpperCase().replace('$', '$')];
-                    } else {
-                        currencyName = this.currencySymbols[symbol] || 'dollars';
-                    }
+                    let key = symbol.toUpperCase();
+                    if (key.startsWith('S') && !key.includes('$') && key !== 'SR') key = key.replace('S', 'S$');
                     
+                    const currencyName = this.currencyPrefixes[key] || this.currencySymbols[symbol] || 'dollars';
                     const magnitude = this.expandMagnitude(suffix);
                     const formattedAmount = this.formatAmount(amount);
                     
                     return `equivalent to ${formattedAmount} ${magnitude} ${currencyName}`;
+                }
+            },
+            
+            // Rule 5b: Parenthetical whole amounts ($800,000), (SR 3000)
+            {
+                pattern: new RegExp(`\\((${symPattern}|C\\$|CA\\$|A\\$|AU\\$|US\\$|SR|RMB)\\s*(\\d+(?:\\.\\d+)?)\\)`, 'gi'),
+                replacement: (match, symbol, amount) => {
+                    let key = symbol.toUpperCase();
+                    if (key.startsWith('S') && !key.includes('$') && key !== 'SR') key = key.replace('S', 'S$');
+                    
+                    const currencyName = this.currencyPrefixes[key] || this.currencySymbols[symbol] || 'dollars';
+                    const formattedAmount = this.formatAmount(amount);
+                    
+                    return `equivalent to ${formattedAmount} ${currencyName}`;
                 }
             },
             
