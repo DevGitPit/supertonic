@@ -34,7 +34,9 @@ class CurrencyNormalizer {
             'INR': 'Indian rupees',
             'JPY': 'Japanese yen',
             'CNY': 'Chinese yuan',
-            'KRW': 'South Korean won'
+            'KRW': 'South Korean won',
+            'SR': 'Saudi Riyals',
+            'RMB': 'Renminbi'
         };
         
         this.rules = this.initializeCurrencyRules();
@@ -45,20 +47,23 @@ class CurrencyNormalizer {
         const symPattern = '[£€₹¥₩$]';
         
         return [
-            // Rule 0: Remove commas from numbers (they cause "zero zero" reading in some engines)
+            // Rule 0: Remove commas from numbers
             {
-                pattern: /\b(\d{1,3}(?:,\d{3})+)\b/g,
+                pattern: /(?<!\d)(\d{1,3}(?:,\d{3})+)(?!\d)/g,
                 replacement: (match) => {
                     return match.replace(/,/g, '');
                 }
             },
             
-            // Rule 1: Prefixed currencies with magnitude (C$2.5bn, A$500m)
+            // Rule 1: Prefixed currencies with magnitude (C$2.5bn, A$500m, SR3mn, RMB2bn)
             // Must come first to catch specific currency types
             {
-                pattern: /(C\$|CA\$|A\$|AU\$|US\$|NZ\$|HK\$|S\$)(\d+(?:\.\d+)?)(bn|mn|m|b|tn|k)/gi,
+                pattern: /(C\$|CA\$|A\$|AU\$|US\$|NZ\$|HK\$|S\$|SR|RMB)(\d+(?:\.\d+)?)(bn|mn|m|b|tn|k)/gi,
                 replacement: (match, prefix, amount, suffix) => {
-                    const currencyName = this.currencyPrefixes[prefix.toUpperCase().replace('$', '$')];
+                    let key = prefix.toUpperCase();
+                    if (key.startsWith('S') && !key.includes('$') && key !== 'SR') key = key.replace('S', 'S$');
+                    
+                    const currencyName = this.currencyPrefixes[key] || 'dollars';
                     const magnitude = this.expandMagnitude(suffix);
                     const formattedAmount = this.formatAmount(amount);
                     
@@ -66,11 +71,11 @@ class CurrencyNormalizer {
                 }
             },
             
-            // Rule 2: ISO code currencies with magnitude (CAD 500m, EUR 1bn)
+            // Rule 2: ISO code currencies with magnitude (CAD 500m, EUR 1bn, SR 3mn)
             {
-                pattern: /\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW)\s*(\d+(?:\.\d+)?)(bn|mn|m|b|tn|k)/gi,
+                pattern: /\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW|SR|RMB)\s*(\d+(?:\.\d+)?)(bn|mn|m|b|tn|k)/gi,
                 replacement: (match, code, amount, suffix) => {
-                    const currencyName = this.currencyPrefixes[code.toUpperCase()];
+                    const currencyName = this.currencyPrefixes[code.toUpperCase()] || code;
                     const magnitude = this.expandMagnitude(suffix);
                     const formattedAmount = this.formatAmount(amount);
                     
@@ -78,11 +83,11 @@ class CurrencyNormalizer {
                 }
             },
             
-            // Rule 3: ISO code currencies without magnitude (CAD 500, EUR 1000)
+            // Rule 3: ISO code currencies without magnitude (CAD 500, EUR 1000, SR 3000)
             {
-                pattern: /\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW)\s*(\d+(?:\.\d+)?)\b/gi,
+                pattern: /\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW|SR|RMB)\s*(\d+(?:\.\d+)?)\b/gi,
                 replacement: (match, code, amount) => {
-                    const currencyName = this.currencyPrefixes[code.toUpperCase()];
+                    const currencyName = this.currencyPrefixes[code.toUpperCase()] || code;
                     const formattedAmount = this.formatAmount(amount);
                     
                     return `${formattedAmount} ${currencyName}`;

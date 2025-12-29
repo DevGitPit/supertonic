@@ -682,7 +682,9 @@ class TextNormalizer {
     }
     
     normalize(text) {
-        let normalizedText = text;
+        // Step 0: Fix merged sentences (e.g. "reserved.Reuse") and smushed words (e.g. "InsightGerard")
+        let normalizedText = text.replace(/([a-z])\.([A-Z])/g, '$1. $2');
+        normalizedText = normalizedText.replace(/([a-z])([A-Z][a-z])/g, '$1 $2');
         
         console.log(`${LOG_PREFIX} [NORMALIZE] BEFORE:`, text.substring(0, 100));
         

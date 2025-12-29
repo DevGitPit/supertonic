@@ -33,7 +33,9 @@ class CurrencyNormalizer {
         "INR" to "Indian rupees",
         "JPY" to "Japanese yen",
         "CNY" to "Chinese yuan",
-        "KRW" to "South Korean won"
+        "KRW" to "South Korean won",
+        "SR" to "Saudi Riyals",
+        "RMB" to "Renminbi"
     )
 
     data class Rule(val pattern: Pattern, val replacement: (java.util.regex.Matcher) -> String)
@@ -49,18 +51,19 @@ class CurrencyNormalizer {
         }
 
         // Rule 0: Remove commas from numbers
-        add("\\b(\\d{1,3}(?:,\\d{3})+)\\b") { m ->
+        // Use lookaround to avoid word boundary issues with symbols (e.g. $800,000)
+        add("(?<!\\d)(\\d{1,3}(?:,\\d{3})+)(?!\\d)") { m ->
             m.group(0)?.replace(",", "") ?: ""
         }
 
-        // Rule 1
-        add("(C\\$|CA\\$|A\\$|AU\\$|US\\$|NZ\\$|HK\\$|S\\$)(\\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)") { m ->
+        // Rule 1: Prefixed currencies with magnitude (SR3mn, RMB2bn)
+        add("(C\\$|CA\\$|A\\$|AU\\$|US\\$|NZ\\$|HK\\$|S\\$|SR|RMB)(\\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)") { m ->
             val prefix = m.group(1) ?: ""
             val amount = m.group(2) ?: ""
             val suffix = m.group(3) ?: ""
             
             var key = prefix.uppercase(Locale.ROOT)
-            if (!key.contains("$")) key = key.replace("S", "S$")
+            if (key.startsWith("S") && !key.contains("$") && key != "SR") key = key.replace("S", "S$")
             
             val currencyName = currencyPrefixes[key] ?: currencyPrefixes[key.replace("$", "")] ?: "dollars"
             val magnitude = expandMagnitude(suffix)
@@ -68,8 +71,8 @@ class CurrencyNormalizer {
             "$formattedAmount $magnitude $currencyName"
         }
 
-        // Rule 2
-        add("\\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW)\\s*(\\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)") { m ->
+        // Rule 2: ISO codes or prefixes with optional space and magnitude (SR 3mn, RMB 2bn)
+        add("\\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW|SR|RMB)\\s*(\\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)") { m ->
             val code = m.group(1)?.uppercase(Locale.ROOT) ?: ""
             val amount = m.group(2) ?: ""
             val suffix = m.group(3) ?: ""
@@ -80,8 +83,8 @@ class CurrencyNormalizer {
             "$formattedAmount $magnitude $currencyName"
         }
 
-        // Rule 3
-        add("\\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW)\\s*(\\d+(?:\\.\\d+)?)\\b") { m ->
+        // Rule 3: ISO code currencies without magnitude (CAD 500, SR 3000)
+        add("\\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW|SR|RMB)\\s*(\\d+(?:\\.\\d+)?)\\b") { m ->
             val code = m.group(1)?.uppercase(Locale.ROOT) ?: ""
             val amount = m.group(2) ?: ""
             

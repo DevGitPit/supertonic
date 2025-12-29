@@ -173,8 +173,18 @@ class TextNormalizer {
     }
 
     fun normalize(text: String): String {
+        // Step 0: Fix merged sentences and words (e.g. "reserved.Reuse", "InsightGerard")
+        // Fix merged sentences: lowercase char, period, uppercase char
+        val mergedSentencePattern = Pattern.compile("([a-z])\\.([A-Z])")
+        var fixedText = mergedSentencePattern.matcher(text).replaceAll("$1. $2")
+        
+        // Fix smushed words: lowercase char, uppercase char (like "InsightGerard")
+        // We look for lowercase followed by uppercase+lowercase to avoid breaking all-caps
+        val smushedWordPattern = Pattern.compile("([a-z])([A-Z][a-z])")
+        fixedText = smushedWordPattern.matcher(fixedText).replaceAll("$1 $2")
+
         // Step 1: Currency
-        var normalized = currencyNormalizer.normalize(text)
+        var normalized = currencyNormalizer.normalize(fixedText)
         
         // Step 2: Other rules
         for (rule in rules) {
@@ -205,9 +215,10 @@ class TextNormalizer {
             protectedText = protectedText.replace(abbr, placeholder, ignoreCase = true)
         }
         
-        // Split by punctuation followed by optional quote and space
-        // Matches logic in Chrome Extension to handle quotes better (including smart quotes)
-        val pattern = Pattern.compile("(?<=[.!?])['\"”’]?\\s+(?=['\"“‘]?[A-Z])")
+        // Split by:
+        // 1. Punctuation (.!?) followed by optional quote and space and Capital
+        // 2. Semi-colon or Em-dash followed by space
+        val pattern = Pattern.compile("(?<=[.!?])['\"”’]?\\s+(?=['\"“‘]?[A-Z])|(?<=[;—])\\s+")
         val rawSentences = protectedText.split(pattern)
         
         return rawSentences.map { sentence ->

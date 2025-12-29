@@ -212,10 +212,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
-        val text = intent?.getStringExtra(Intent.EXTRA_TEXT) ?: intent?.data?.getQueryParameter("text")
-        if (!text.isNullOrEmpty()) {
-            inputText.setText(text)
-            statusText.text = "Received text from browser"
+        if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
+            val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
+            if (!sharedText.isNullOrEmpty()) {
+                inputText.setText(sharedText)
+                statusText.text = "Received shared text"
+            }
+        } else {
+            val text = intent?.getStringExtra(Intent.EXTRA_TEXT) ?: intent?.data?.getQueryParameter("text")
+            if (!text.isNullOrEmpty()) {
+                inputText.setText(text)
+                statusText.text = "Received text from browser"
+            }
         }
     }
 

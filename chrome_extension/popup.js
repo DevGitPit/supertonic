@@ -318,10 +318,14 @@ document.addEventListener('DOMContentLoaded', function() {
   function enterPlaybackMode(text) {
       if (isPlaybackMode) return;
       
-      // Tokenize using Robust Splitter (Suggestion 5)
-      const abbreviations = ['Mr.', 'Mrs.', 'Dr.', 'Ms.', 'Prof.', 'Sr.', 'Jr.', 'etc.', 'vs.', 'e.g.', 'i.e.', 'Jan.', 'Feb.', 'Mar.', 'Apr.', 'Jun.', 'Jul.', 'Aug.', 'Sep.', 'Oct.', 'Nov.', 'Dec.'];
+      // Fix merged sentences (e.g. "reserved.Reuse") and smushed words (e.g. "InsightGerard")
+      let fixedText = text.replace(/([a-z])\.([A-Z])/g, '$1. $2');
+      fixedText = fixedText.replace(/([a-z])([A-Z][a-z])/g, '$1 $2');
       
-      let protectedText = text;
+      // Tokenize using Robust Splitter (Suggestion 5)
+      const abbreviations = ['Mr.', 'Mrs.', 'Dr.', 'Ms.', 'Prof.', 'Sr.', 'Jr.', 'etc.', 'vs.', 'e.g.', 'i.e.', 'Jan.', 'Feb.', 'Mar.', 'Apr.', 'May.', 'Jun.', 'Jul.', 'Aug.', 'Sep.', 'Oct.', 'Nov.', 'Dec.'];
+      
+      let protectedText = fixedText;
       abbreviations.forEach((abbr, index) => {
           const placeholder = `__ABBR${index}__`;
           // Use regex for global replacement
