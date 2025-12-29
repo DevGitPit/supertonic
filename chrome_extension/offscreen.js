@@ -22,6 +22,7 @@ let currentEngine = 'system';
 // Fetch state
 let fetchIndex = 0;
 let abortController = null;
+let currentUtterance = null; // Prevent GC of active utterance
 
 // Keep-alive & Clock
 let keepAliveWorklet = null;
@@ -34,21 +35,26 @@ console.log(`${LOG_PREFIX} Loaded at`, new Date().toISOString());
 
 // --- Initialization ---
 
-function initAudioContext() {
+async function initAudioContext() {
     const AudioCtor = window.AudioContext || window.webkitAudioContext;
     if (!audioContext) {
         audioContext = new AudioCtor({ sampleRate: 24000 });
     }
     if (audioContext.state === 'suspended') {
-        audioContext.resume();
+        console.log(`${LOG_PREFIX} Resuming AudioContext...`);
+        await audioContext.resume();
     }
+    console.log(`${LOG_PREFIX} AudioContext State: ${audioContext.state}`);
 }
 
 // --- Keep Alive Audio with Android Notification Support ---
 
 async function createKeepAliveAudio() {
-    if (!audioContext) initAudioContext();
+    if (!audioContext) await initAudioContext();
     if (keepAliveWorklet) return;
+
+    // Start a JS-based fallback ticker immediately to ensure we never stall
+    startFallbackTicker();
 
     try {
         console.log(`${LOG_PREFIX} Creating AudioWorklet keep-alive...`);
@@ -90,6 +96,21 @@ async function createKeepAliveAudio() {
         console.error(`${LOG_PREFIX} Worklet failed:`, e);
         setupLegacyKeepAlive();
     }
+}
+
+// Fallback ticker in case AudioContext is suspended or Worklet fails
+let fallbackInterval = null;
+function startFallbackTicker() {
+    if (fallbackInterval) return;
+    console.log(`${LOG_PREFIX} Starting fallback ticker`);
+    fallbackInterval = setInterval(() => {
+        // We trigger ticks if we haven't heard from the worklet recently
+        const now = performance.now();
+        if (now - lastTickTime > 200) { // If no tick for 200ms
+             // console.debug(`${LOG_PREFIX} Fallback tick`); // reducing verbosity
+             triggerTicks();
+        }
+    }, 200);
 }
 
 function setupLegacyKeepAlive() {
@@ -136,14 +157,15 @@ function triggerTicks() {
 function waitForTick() {
     return new Promise(resolve => {
         tickResolvers.push(resolve);
+        // Timeout reduced to 1s as we have fallback
         setTimeout(() => {
             const idx = tickResolvers.indexOf(resolve);
             if (idx > -1) {
-                console.warn(`${LOG_PREFIX} [TICK] Timeout`);
+                // console.warn(`${LOG_PREFIX} [TICK] Timeout`);
                 tickResolvers.splice(idx, 1);
                 resolve();
             }
-        }, 5000);
+        }, 1000);
     });
 }
 
@@ -183,17 +205,17 @@ async function setupMediaSession() {
 
     // Set action handlers
     navigator.mediaSession.setActionHandler('play', () => {
-        console.log(`${LOG_PREFIX} MediaSession: play action`);
+        console.log(`${LOG_PREFIX} [MEDIA_SESSION] Play triggered by OS/User`);
         if (isPaused) resumePlayback();
     });
     
     navigator.mediaSession.setActionHandler('pause', () => {
-        console.log(`${LOG_PREFIX} MediaSession: pause action`);
+        console.log(`${LOG_PREFIX} [MEDIA_SESSION] Pause triggered by OS/User`);
         pausePlayback();
     });
     
     navigator.mediaSession.setActionHandler('stop', () => {
-        console.log(`${LOG_PREFIX} MediaSession: stop action`);
+        console.log(`${LOG_PREFIX} [MEDIA_SESSION] Stop triggered by OS/User`);
         stopPlayback();
     });
     
@@ -215,7 +237,7 @@ async function setupMediaSession() {
 async function grabAudioFocus() {
     console.log(`${LOG_PREFIX} Grabbing audio focus...`);
     
-    initAudioContext();
+    await initAudioContext();
     
     if (!keepAliveWorklet) {
         await createKeepAliveAudio();
@@ -239,6 +261,7 @@ async function grabAudioFocus() {
         console.log(`${LOG_PREFIX} Media Session playback state: playing`);
     }
 }
+
 
 // --- Message Handling ---
 
@@ -283,11 +306,16 @@ async function handleStreamRequest(payload) {
     currentBufferTarget = payload.bufferTarget || 2;
     currentEngine = payload.engine || 'system';
     
-    // Use provided sentences to ensure sync with Popup, or fallback to local split
+    // Use provided sentences to ensure sync with Popup
     if (payload.sentences && Array.isArray(payload.sentences) && payload.sentences.length > 0) {
+        // Sentences from popup are usually raw. We will normalize them individually in the loop
+        // OR ideally popup sends them normalized. Assuming raw for now.
         currentSentences = payload.sentences;
     } else if (!sameText || currentSentences.length === 0) {
-        currentSentences = splitIntoSentences(currentText);
+        // Fallback: Local split
+        // Normalize FIRST, then split, to ensure clean sentence boundaries
+        const normalizedText = normalizer.normalize(currentText);
+        currentSentences = splitIntoSentences(normalizedText);
     }
     
     let startIndex = payload.index !== undefined ? payload.index : 0;
@@ -365,12 +393,14 @@ function pausePlayback() {
     isStreaming = false;
     
     stopAllAudioSources();
-    window.speechSynthesis.pause();
+    chrome.runtime.sendMessage({ type: 'CMD_TTS_STOP' });
     
     // DON'T stop the silence anchor - keep it playing for notification
     // if (silenceAudioElement) silenceAudioElement.pause();
     
-    if (audioContext.state === 'running') audioContext.suspend();
+    // DON'T suspend AudioContext on Android - it causes resume issues
+    // if (audioContext.state === 'running') audioContext.suspend();
+    
     if (abortController) abortController.abort();
     
     if ('mediaSession' in navigator) {
@@ -386,7 +416,7 @@ function stopPlayback() {
     isPaused = false;
     
     stopAllAudioSources();
-    window.speechSynthesis.cancel();
+    chrome.runtime.sendMessage({ type: 'CMD_TTS_STOP' });
     
     // Stop the silence anchor when fully stopping
     if (silenceAudioElement) silenceAudioElement.pause();
@@ -676,17 +706,31 @@ const normalizer = new TextNormalizer();
 // --- System TTS Loop ---
 
 async function processSystemLoop(signal) {
-    console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Started`);
+    console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Started from index ${fetchIndex}`);
     
-    if (window.speechSynthesis.getVoices().length === 0) {
-        await new Promise(resolve => {
-            window.speechSynthesis.onvoiceschanged = resolve;
-            setTimeout(resolve, 2000);
-        });
+    // IMPORTANT: Set keep-alive to "playing: true" to STOP noise generation
+    // This gives System TTS clean audio path
+    if (keepAliveWorklet && keepAliveWorklet.port) {
+        keepAliveWorklet.port.postMessage({ type: 'setPlaying', playing: true }); 
+    }
+    
+    // Ensure AudioContext is active but not generating competing audio
+    if (audioContext && audioContext.state === 'suspended') {
+        await audioContext.resume();
     }
 
+    let consecutiveErrors = 0;
+    const MAX_CONSECUTIVE_ERRORS = 3;
+
     while (isStreaming && fetchIndex < currentSentences.length) {
-        if (signal.aborted) break;
+        if (signal.aborted) {
+            console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Aborted by signal`);
+            break;
+        }
+        if (currentEngine !== 'system') {
+            console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Engine changed to ${currentEngine}`);
+            break;
+        }
 
         const sentenceObj = currentSentences[fetchIndex];
         lastPlayedIndex = fetchIndex;
@@ -698,12 +742,33 @@ async function processSystemLoop(signal) {
         }
 
         try {
-            // Normalize before speaking
             const textToSpeak = normalizer.normalize(sentenceObj.text);
+            console.log(`${LOG_PREFIX} [SYSTEM_TTS] [${fetchIndex}/${currentSentences.length}] Speaking: "${textToSpeak.substring(0, 50)}..."`);
+            
             await speakSystemSentence(textToSpeak, signal);
+            
+            // Reset error counter on success
+            consecutiveErrors = 0;
+            
+            // Small delay between sentences for Android TTS engine cleanup
+            await new Promise(resolve => setTimeout(resolve, 150));
+            
         } catch (e) {
-            console.error(`${LOG_PREFIX} [SYSTEM_TTS] Error:`, e);
-            await waitForTick();
+            consecutiveErrors++;
+            console.error(`${LOG_PREFIX} [SYSTEM_TTS] Error on sentence ${fetchIndex} (consecutive: ${consecutiveErrors}):`, e);
+            
+            // Force stop TTS
+            chrome.runtime.sendMessage({ type: 'CMD_TTS_STOP' });
+            
+            // If too many consecutive errors, bail out
+            if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                console.error(`${LOG_PREFIX} [SYSTEM_TTS] Too many consecutive errors, stopping`);
+                stopPlayback();
+                break;
+            }
+            
+            // Wait longer before retry
+            await new Promise(resolve => setTimeout(resolve, 1000));
         }
         
         if (!signal.aborted && isStreaming) {
@@ -711,112 +776,255 @@ async function processSystemLoop(signal) {
         }
     }
     
+    // Resume noise if we are done (but not stopped completely)
+    if (keepAliveWorklet && keepAliveWorklet.port && isStreaming) {
+        keepAliveWorklet.port.postMessage({ type: 'setPlaying', playing: false });
+    }
+    
     if (isStreaming && fetchIndex >= currentSentences.length) {
-        console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Completed all sentences`);
+        console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Completed all ${currentSentences.length} sentences`);
         stopPlayback();
+    } else {
+        console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Ended early: isStreaming=${isStreaming}, fetchIndex=${fetchIndex}`);
     }
 }
 
 function speakSystemSentence(text, signal, maxAttempts = 3) {
+
     return new Promise((resolve) => {
+
         if (signal.aborted) return resolve();
-        // ... (rest of speakSystemSentence logic remains the same, but uses 'text' arg which is now normalized)
+
+        
+
+        // Stop any previous utterance
+
+        chrome.runtime.sendMessage({ type: 'CMD_TTS_STOP' });
+
+
 
         let attempt = 0;
-        let watchdogInterval = null;
+
         let resolved = false;
-        
-        const cleanup = () => {
+
+        let watchdogTimer = null;
+
+
+
+        const cleanup = (reason) => {
+
             if (resolved) return;
+
             resolved = true;
-            if (watchdogInterval) clearInterval(watchdogInterval);
+
+            
+
+            console.log(`${LOG_PREFIX} [SYSTEM_TTS] Cleanup called: ${reason}`);
+
+            
+
+            if (watchdogTimer) {
+
+                clearTimeout(watchdogTimer);
+
+                watchdogTimer = null;
+
+            }
+
+            
+
+            chrome.runtime.onMessage.removeListener(responseListener);
+
             signal.removeEventListener('abort', abortHandler);
+
             resolve();
+
         };
+
+
 
         const abortHandler = () => {
-            window.speechSynthesis.cancel();
-            cleanup();
+
+            console.log(`${LOG_PREFIX} [SYSTEM_TTS] Aborted by signal`);
+
+            chrome.runtime.sendMessage({ type: 'CMD_TTS_STOP' });
+
+            cleanup('aborted');
+
         };
+
         
+
+        const responseListener = (msg) => {
+
+            if (msg.type === 'ACT_TTS_DONE') {
+
+                console.log(`${LOG_PREFIX} [SYSTEM_TTS] Received ACT_TTS_DONE: ${msg.eventType}`);
+
+                
+
+                if (watchdogTimer) {
+
+                    clearTimeout(watchdogTimer);
+
+                    watchdogTimer = null;
+
+                }
+
+                
+
+                if (msg.eventType === 'end') {
+
+                    console.log(`${LOG_PREFIX} [SYSTEM_TTS] Speech completed successfully`);
+
+                    cleanup('completed');
+
+                } else {
+
+                    // Error, interrupted, or cancelled
+
+                    console.warn(`${LOG_PREFIX} [SYSTEM_TTS] Speech failed: ${msg.eventType}${msg.errorMessage ? ` - ${msg.errorMessage}` : ''}`);
+
+                    
+
+                    if (attempt < maxAttempts) {
+
+                        const delay = 500 + (500 * attempt);
+
+                        console.log(`${LOG_PREFIX} [SYSTEM_TTS] Will retry in ${delay}ms (attempt ${attempt + 1}/${maxAttempts})...`);
+
+                        setTimeout(trySpeak, delay);
+
+                    } else {
+
+                        console.error(`${LOG_PREFIX} [SYSTEM_TTS] Max attempts (${maxAttempts}) reached, giving up`);
+
+                        cleanup('max_attempts');
+
+                    }
+
+                }
+
+            }
+
+        };
+
+
+
         signal.addEventListener('abort', abortHandler);
 
+        chrome.runtime.onMessage.addListener(responseListener);
+
+
+
         const trySpeak = () => {
-            if (signal.aborted || resolved) return;
+
+            if (signal.aborted || resolved) {
+
+                console.log(`${LOG_PREFIX} [SYSTEM_TTS] Skipping trySpeak (aborted=${signal.aborted}, resolved=${resolved})`);
+
+                return;
+
+            }
+
             
+
             attempt++;
-            console.log(`${LOG_PREFIX} [SYSTEM_TTS] Attempt ${attempt}/${maxAttempts}: ${text.substring(0, 30)}...`);
-            
-            const u = new SpeechSynthesisUtterance(text);
-            u.rate = currentSpeed;
-            
-            const voices = window.speechSynthesis.getVoices();
-            u.voice = voices.find(vo => vo.name === currentVoice) || null;
 
-            u.onend = () => {
-                console.log(`${LOG_PREFIX} [SYSTEM_TTS] Completed`);
-                cleanup();
-            };
-            
-            u.onerror = (e) => {
-                console.warn(`${LOG_PREFIX} [SYSTEM_TTS] Error on attempt ${attempt}:`, e.error);
-                
-                if (watchdogInterval) {
-                    clearInterval(watchdogInterval);
-                    watchdogInterval = null;
-                }
-                
-                // Retry on synthesis-failed
-                if (e.error === 'synthesis-failed' && attempt < maxAttempts) {
-                    console.warn(`${LOG_PREFIX} [SYSTEM_TTS] Retrying after synthesis-failed...`);
-                    window.speechSynthesis.cancel();
-                    const delay = 50 * attempt;
-                    setTimeout(() => {
-                        if (!resolved && !signal.aborted) {
-                            trySpeak();
-                        }
-                    }, delay);
-                    return;
-                }
-                
-                // Give up
-                if (e.error !== 'interrupted' && e.error !== 'canceled') {
-                    console.error(`${LOG_PREFIX} [SYSTEM_TTS] Failed after ${attempt} attempts`);
-                }
-                cleanup();
+            console.log(`${LOG_PREFIX} [SYSTEM_TTS] === Attempt ${attempt}/${maxAttempts} ===`);
+
+            console.log(`${LOG_PREFIX} [SYSTEM_TTS] Text length: ${text.length} chars`);
+
+            console.log(`${LOG_PREFIX} [SYSTEM_TTS] Text preview: "${text.substring(0, 100)}..."`);
+
+
+
+            const ttsMessage = {
+
+                type: 'CMD_TTS_SPEAK',
+
+                text: text,
+
+                rate: currentSpeed
+
             };
 
-            // Watchdog
+            
+
+            if (currentVoice && currentVoice.trim() !== '') {
+
+                ttsMessage.voiceName = currentVoice;
+
+                console.log(`${LOG_PREFIX} [SYSTEM_TTS] Using voice: ${currentVoice}`);
+
+            }
+
+            
+
+            console.log(`${LOG_PREFIX} [SYSTEM_TTS] Sending CMD_TTS_SPEAK to background...`);
+
+            chrome.runtime.sendMessage(ttsMessage);
+
+
+
+            // Watchdog with more generous timeout for Android
+
             const words = text.split(/\s+/).length;
-            const estimatedSeconds = Math.max(3, (words / 2.5) * (1 / currentSpeed));
-            const maxMs = (estimatedSeconds + 10) * 1000;
-            
-            let elapsed = 0;
-            watchdogInterval = setInterval(() => {
-                elapsed += 100;
-                if (elapsed > maxMs) {
-                    console.warn(`${LOG_PREFIX} [SYSTEM_TTS] Watchdog timeout after ${(elapsed/1000).toFixed(1)}s`);
-                    window.speechSynthesis.cancel();
-                    
-                    if (attempt < maxAttempts) {
-                        clearInterval(watchdogInterval);
-                        watchdogInterval = null;
-                        setTimeout(() => {
-                            if (!resolved && !signal.aborted) {
-                                trySpeak();
-                            }
-                        }, 100);
-                    } else {
-                        cleanup();
-                    }
-                }
-            }, 100);
 
-            window.speechSynthesis.speak(u);
+            const expectedDuration = (words / 2.5) * (1.0 / currentSpeed) * 1000;
+
+            const timeout = Math.max(10000, expectedDuration * 1.8 + 8000); // More generous
+
+
+
+            console.log(`${LOG_PREFIX} [SYSTEM_TTS] Words: ${words}, Expected duration: ${(expectedDuration/1000).toFixed(1)}s, Watchdog: ${(timeout/1000).toFixed(1)}s`);
+
+
+
+            if (watchdogTimer) clearTimeout(watchdogTimer);
+
+            watchdogTimer = setTimeout(() => {
+
+                console.error(`${LOG_PREFIX} [SYSTEM_TTS] ⚠️ WATCHDOG TIMEOUT after ${(timeout/1000).toFixed(1)}s`);
+
+                console.error(`${LOG_PREFIX} [SYSTEM_TTS] This means ACT_TTS_DONE was never received from background.js`);
+
+                
+
+                // Force stop
+
+                chrome.runtime.sendMessage({ type: 'CMD_TTS_STOP' });
+
+                
+
+                if (attempt < maxAttempts) {
+
+                    console.log(`${LOG_PREFIX} [SYSTEM_TTS] Will retry after timeout...`);
+
+                    setTimeout(trySpeak, 1000);
+
+                } else {
+
+                    console.error(`${LOG_PREFIX} [SYSTEM_TTS] Max attempts reached after timeout, giving up on this sentence`);
+
+                    cleanup('watchdog_timeout');
+
+                }
+
+            }, timeout);
+
         };
 
+
+
+        // Start first attempt
+
+        console.log(`${LOG_PREFIX} [SYSTEM_TTS] Starting speech synthesis...`);
+
         trySpeak();
+
     });
+
 }
 
 // --- Server TTS Loop ---
@@ -835,8 +1043,8 @@ async function processFetchLoop(signal) {
 
         const sentenceObj = currentSentences[fetchIndex];
         const currentIndex = fetchIndex;
-        fetchIndex++;
-
+        // Don't increment fetchIndex yet, only on success or permanent failure
+        
         let retries = 0;
         let success = false;
         
@@ -859,9 +1067,15 @@ async function processFetchLoop(signal) {
                     success = true;
                 } else {
                     console.warn(`${LOG_PREFIX} [FETCH] No audio in response`);
-                    success = true;
+                    success = true; // Treat as success to skip
                 }
             } catch (e) {
+                // Ignore AbortErrors (user paused/stopped)
+                if (e.name === 'AbortError' || signal.aborted) {
+                    console.log(`${LOG_PREFIX} [FETCH] Aborted by signal`);
+                    break;
+                }
+
                 console.error(`${LOG_PREFIX} [FETCH] Attempt ${retries + 1} failed:`, e.message);
                 retries++;
                 
@@ -873,8 +1087,13 @@ async function processFetchLoop(signal) {
             }
         }
         
-        if (!success) {
+        if (signal.aborted) break;
+
+        if (success) {
+            fetchIndex++;
+        } else {
             console.error(`${LOG_PREFIX} [FETCH] Skipping sentence ${currentIndex} after ${MAX_RETRIES} failures`);
+            fetchIndex++; // Skip bad sentence
         }
         
         await waitForTick();
@@ -955,12 +1174,13 @@ async function sendSynthesizeRequest(text) {
         clearTimeout(timeoutId);
         
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+            throw new Error(`HTTP ${response.status} - ${response.statusText}`);
         }
         
         return await response.json();
     } catch (e) {
         clearTimeout(timeoutId);
+        console.error(`${LOG_PREFIX} [FETCH_ERROR] Details:`, e.name, e.message);
         throw e;
     }
 }
@@ -990,22 +1210,40 @@ function decodeAudio(base64, sampleRate) {
 }
 
 function splitIntoSentences(text) {
-    const abbreviations = ['Mr.', 'Mrs.', 'Dr.', 'Ms.', 'Prof.', 'Sr.', 'Jr.', 'etc.', 'vs.', 'e.g.', 'i.e.', 'Jan.', 'Feb.', 'Mar.', 'Apr.', 'Jun.', 'Jul.', 'Aug.', 'Sep.', 'Oct.', 'Nov.', 'Dec.'];
+    const abbreviations = [
+        'Mr.', 'Mrs.', 'Dr.', 'Ms.', 'Prof.', 'Sr.', 'Jr.', 
+        'etc.', 'vs.', 'e.g.', 'i.e.',
+        'Jan.', 'Feb.', 'Mar.', 'Apr.', 'May.', 'Jun.', 
+        'Jul.', 'Aug.', 'Sep.', 'Oct.', 'Nov.', 'Dec.',
+        'U.S.', 'U.K.', 'E.U.'
+    ];
     
     let protectedText = text;
+    const placeholders = [];
+    
+    // Protect abbreviations
     abbreviations.forEach((abbr, index) => {
         const placeholder = `__ABBR${index}__`;
         const safeAbbr = abbr.replace(/\./g, '\\.');
-        protectedText = protectedText.replace(new RegExp(safeAbbr, 'g'), placeholder);
+        const regex = new RegExp(safeAbbr, 'gi');
+        if (protectedText.match(regex)) {
+            protectedText = protectedText.replace(regex, placeholder);
+            placeholders.push({ placeholder, abbr });
+        }
     });
     
-    const rawSentences = protectedText.split(/(?<=[.!?])\s+(?=[A-Z"])/);
+    // Split on sentence boundaries
+    // More robust: handle quotes and multiple punctuation
+    const rawSentences = protectedText.split(/(?<=[.!?]["']?)\s+(?=[A-Z""'])/);
     
     return rawSentences.map((sentence, i) => {
-        let restored = sentence;
-        abbreviations.forEach((abbr, index) => {
-            restored = restored.replace(new RegExp(`__ABBR${index}__`, 'g'), abbr);
+        let restored = sentence.trim();
+        
+        // Restore abbreviations
+        placeholders.forEach(({ placeholder, abbr }) => {
+            restored = restored.replace(new RegExp(placeholder, 'g'), abbr);
         });
-        return { text: restored.trim(), index: i };
+        
+        return { text: restored, index: i };
     }).filter(s => s.text.length > 0);
 }
