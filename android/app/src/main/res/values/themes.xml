@@ -1,5 +1,6 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.Supertonic" parent="Theme.Material3.DayNight.NoActionBar">
         <!-- Primary brand color. -->
+        <item name="android:windowBackground">@drawable/splash_background</item>
     </style>
 </resources>

@@ -714,6 +714,18 @@ class TextNormalizer {
                 console.log(`${LOG_PREFIX} [NORMALIZE] Rule ${index} changed text`);
             }
         });
+
+        // STEP 3: Convert remaining numbers to words (FINAL STEP)
+        // This catches any numbers not handled by specific rules above (measurements, dates, etc.)
+        if (typeof NumberUtils !== 'undefined') {
+            const beforeNums = normalizedText;
+            normalizedText = normalizedText.replace(/\b\d+(?:\.\d+)?\b/g, (match) => {
+                return NumberUtils.convertDouble(match);
+            });
+            if (beforeNums !== normalizedText) {
+                console.log(`${LOG_PREFIX} [NORMALIZE] Converted general numbers to words`);
+            }
+        }
         
         console.log(`${LOG_PREFIX} [NORMALIZE] AFTER:`, normalizedText.substring(0, 100));
         

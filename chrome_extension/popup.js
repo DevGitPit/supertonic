@@ -285,30 +285,66 @@ document.addEventListener('DOMContentLoaded', function() {
   
   refreshServerBtn.addEventListener('click', checkServerStatus);
   
-  sendToAppBtn.addEventListener('click', () => {
-      const text = textInput.innerText.trim();
-      if (!text) {
+  sendToAppBtn.addEventListener('click', async () => {
+      statusBadge.textContent = "Processing...";
+      
+      // Get text first (either from selection or input)
+      let textToSend = textInput.innerText.trim();
+      
+      // If empty, try fetching from page first
+      if (!textToSend) {
+          try {
+              const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+              const result = await chrome.scripting.executeScript({
+                  target: { tabId: tab.id },
+                  func: () => document.body.innerText
+              });
+              if (result && result[0] && result[0].result) {
+                  textToSend = result[0].result.trim();
+                  // Optional: Update local UI
+                  textInput.innerText = textToSend; 
+              }
+          } catch (e) {
+              console.error("Fetch failed:", e);
+          }
+      }
+
+      if (!textToSend) {
           statusBadge.textContent = "No text";
           return;
       }
       
       statusBadge.textContent = "Sending...";
-      const encodedText = encodeURIComponent(text);
-      // Intent URI for Android with Fallback
-      // scheme=supertonic (matches intent-filter)
-      // package=com.brahmadeo.supertonic.tts (matches applicationId)
-      // S.android.intent.extra.TEXT (standard extra)
-      // S.browser_fallback_url (redirect if app not installed)
-      const intentUri = `intent://send?text=${encodedText}#Intent;scheme=supertonic;package=com.brahmadeo.supertonic.tts;S.android.intent.extra.TEXT=${encodedText};S.browser_fallback_url=https%3A%2F%2Fgithub.com%2F;end`;
+      const encodedText = encodeURIComponent(textToSend);
       
+      // Intent URI: Method 2 (Scheme-based Intent without Package constraint)
+      // This was confirmed to work from the HTML test page.
+      // Running it via scripting ensures it runs in the Page Context, avoiding Popup restrictions.
+      const intentUri = `intent://send?text=${encodedText}#Intent;scheme=supertonic;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;S.android.intent.extra.TEXT=${encodedText};S.browser_fallback_url=https%3A%2F%2Fgithub.com%2F;end`;
+
       try {
-          chrome.tabs.update({ url: intentUri });
+          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          
+          await chrome.scripting.executeScript({
+              target: { tabId: tab.id },
+              func: (uri) => {
+                  // Create and click link within the page context
+                  const link = document.createElement('a');
+                  link.href = uri;
+                  link.style.display = 'none';
+                  document.body.appendChild(link);
+                  link.click();
+                  setTimeout(() => document.body.removeChild(link), 100);
+              },
+              args: [intentUri]
+          });
+
           statusBadge.textContent = "Sent";
           setTimeout(() => {
               statusBadge.textContent = isPlaybackMode ? "🎧 Ready" : "✏️ Ready";
           }, 2000);
       } catch (e) {
-          console.error("Navigation failed:", e);
+          console.error("Send failed:", e);
           statusBadge.textContent = "Error";
       }
   });

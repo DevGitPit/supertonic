@@ -26,7 +26,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="supertonic" />
+                <data android:scheme="supertonic" android:host="send" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />

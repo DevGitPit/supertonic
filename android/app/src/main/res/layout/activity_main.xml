@@ -2,6 +2,7 @@
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/app_background"
     android:padding="16dp">
 
     <!-- History Button -->
@@ -13,22 +14,9 @@
         android:layout_alignParentTop="true"
         android:layout_alignParentEnd="true"
         android:minHeight="48dp"
+        android:backgroundTint="@color/accent_gold"
+        android:textColor="@android:color/white"
         android:padding="8dp"/>
-
-    <!-- Status Text (Top Level, Always Visible) -->
-    <TextView
-        android:id="@+id/statusText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Status: Idle"
-        android:textSize="16sp"
-        android:textStyle="bold"
-        android:paddingBottom="16dp"
-        android:layout_alignParentTop="true"
-        android:layout_toStartOf="@id/historyBtn"
-        android:layout_centerVertical="false"
-        android:gravity="center_vertical"
-        android:minHeight="48dp"/>
 
     <!-- Input Container -->
     <LinearLayout
@@ -36,7 +24,8 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_below="@id/historyBtn"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:paddingTop="16dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -48,6 +37,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Voice: "
+                android:textColor="@color/text_primary"
                 android:layout_gravity="center_vertical"/>
 
             <Spinner
@@ -61,6 +51,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="40dp"
                 android:text="+"
+                android:backgroundTint="@color/accent_gold"
+                android:textColor="@android:color/white"
                 android:layout_marginStart="4dp"
                 android:padding="0dp"
                 android:minWidth="40dp"
@@ -77,6 +69,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Speed: "
+                android:textColor="@color/text_primary"
                 android:layout_gravity="center_vertical"/>
 
             <SeekBar
@@ -92,6 +85,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="1.05x"
+                android:textColor="@color/text_primary"
                 android:minWidth="40dp"
                 android:gravity="end"
                 android:layout_gravity="center_vertical"/>
@@ -107,6 +101,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Quality: "
+                android:textColor="@color/text_primary"
                 android:layout_gravity="center_vertical"/>
 
             <SeekBar
@@ -122,6 +117,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="5 steps"
+                android:textColor="@color/text_primary"
                 android:minWidth="60dp"
                 android:gravity="end"
                 android:layout_gravity="center_vertical"/>
@@ -135,103 +131,27 @@
             android:gravity="top|start"
             android:scrollbars="vertical"
             android:hint="Enter text to synthesize"
+            android:textColor="@color/text_primary"
+            android:textColorHint="@color/text_secondary"
+            android:background="@android:color/transparent"
             android:inputType="textMultiLine|textLongMessage"
             android:text="Hello world, this is Supertonic TTS on Android. Select a voice and speed above!" />
+
+        <!-- Placeholder for Status Text since logic refers to it -->
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:visibility="gone"/>
 
         <Button
             android:id="@+id/synthButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Synthesize"
+            android:backgroundTint="@color/accent_gold"
+            android:textColor="@android:color/white"
             android:layout_marginTop="16dp"/>
-    </LinearLayout>
-
-    <!-- Playback Controls Overlay -->
-    <LinearLayout
-        android:id="@+id/playbackControls"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_centerInParent="true"
-        android:orientation="vertical"
-        android:background="#DDFFFFFF"
-        android:padding="24dp"
-        android:elevation="10dp"
-        android:visibility="gone"
-        android:gravity="center"
-        android:clickable="true"
-        android:focusable="true">
-
-        <TextView
-            android:id="@+id/nowPlayingText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Playing Audio..."
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:paddingBottom="16dp"/>
-
-        <ProgressBar
-            android:id="@+id/synthesisProgressBar"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            android:visibility="gone"/>
-
-        <TextView
-            android:id="@+id/synthesisProgressText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="0 / 0"
-            android:paddingBottom="16dp"
-            android:visibility="gone"/>
-
-        <LinearLayout
-            android:id="@+id/mediaButtons"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center">
-
-            <Button
-                android:id="@+id/btnRewind"
-                android:layout_width="80dp"
-                android:layout_height="60dp"
-                android:text="-10s"
-                android:textSize="12sp"/>
-
-            <Button
-                android:id="@+id/btnPlayPause"
-                android:layout_width="wrap_content"
-                android:layout_height="60dp"
-                android:text="Pause"
-                android:layout_marginHorizontal="16dp"/>
-
-            <Button
-                android:id="@+id/btnForward"
-                android:layout_width="80dp"
-                android:layout_height="60dp"
-                android:text="+10s"
-                android:textSize="12sp"/>
-        </LinearLayout>
-
-        <Button
-            android:id="@+id/btnStop"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Stop &amp; Edit"
-            android:backgroundTint="#FF5252"
-            android:layout_marginTop="24dp"/>
-
-        <Button
-            android:id="@+id/btnCancel"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Cancel Synthesis"
-            android:backgroundTint="#FF5252"
-            android:layout_marginTop="8dp"
-            android:visibility="gone"/>
-
     </LinearLayout>
 
 </RelativeLayout>

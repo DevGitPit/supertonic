@@ -133,8 +133,6 @@ class MainActivity : AppCompatActivity() {
         qualityValue = findViewById(R.id.qualityValue)
         inputText = findViewById(R.id.inputText)
         synthButton = findViewById(R.id.synthButton)
-        
-        findViewById<View>(R.id.playbackControls)?.visibility = View.GONE
 
         val placeholderText = "Hello world, this is Supertonic TTS on Android. Select a voice and speed above!"
         inputText.setOnFocusChangeListener { _, hasFocus ->
@@ -212,17 +210,38 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
-        if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
+        if (intent == null) {
+            android.util.Log.d("SupertonicDebug", "handleIntent: Intent is null")
+            return
+        }
+
+        android.util.Log.d("SupertonicDebug", "handleIntent: Action=${intent.action}")
+        android.util.Log.d("SupertonicDebug", "handleIntent: Data=${intent.data}")
+        android.util.Log.d("SupertonicDebug", "handleIntent: DataStr=${intent.dataString}")
+        android.util.Log.d("SupertonicDebug", "handleIntent: Scheme=${intent.scheme}")
+        android.util.Log.d("SupertonicDebug", "handleIntent: Host=${intent.data?.host}")
+
+        val extraText = intent.getStringExtra(Intent.EXTRA_TEXT)
+        val paramText = intent.data?.getQueryParameter("text")
+        
+        android.util.Log.d("SupertonicDebug", "handleIntent: EXTRA_TEXT=$extraText")
+        android.util.Log.d("SupertonicDebug", "handleIntent: QueryParam 'text'=$paramText")
+
+        if (intent.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
             if (!sharedText.isNullOrEmpty()) {
                 inputText.setText(sharedText)
                 statusText.text = "Received shared text"
             }
         } else {
-            val text = intent?.getStringExtra(Intent.EXTRA_TEXT) ?: intent?.data?.getQueryParameter("text")
+            // Check both standard extra and query param
+            val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: intent.data?.getQueryParameter("text")
+            
             if (!text.isNullOrEmpty()) {
                 inputText.setText(text)
                 statusText.text = "Received text from browser"
+            } else {
+                android.util.Log.d("SupertonicDebug", "handleIntent: No text found in intent")
             }
         }
     }

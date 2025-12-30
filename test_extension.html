@@ -1,38 +1,40 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Extension Test</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supertonic Intent Test</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; text-align: center; }
+        .btn {
+            display: inline-block;
+            background: #6200EE;
+            color: white;
+            padding: 15px 30px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-size: 18px;
+            margin: 10px;
+        }
+    </style>
 </head>
 <body>
-    <h1>Browser Fetch Test</h1>
-    <button id="testBtn">Test Connection to 127.0.0.1:8080</button>
-    <div id="result"></div>
+    <h1>Deep Link Tester</h1>
+    
+    <p>1. Test with Scheme + Host + Package (Most Specific)</p>
+    <a class="btn" href="intent://send?text=Test_Message_1#Intent;scheme=supertonic;package=com.brahmadeo.supertonic.tts;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;S.android.intent.extra.TEXT=Test_Message_1;S.browser_fallback_url=https%3A%2F%2Fgithub.com%2F;end">
+        Launch App (Method 1)
+    </a>
 
-    <script>
-        document.getElementById('testBtn').addEventListener('click', () => {
-            const resultDiv = document.getElementById('result');
-            resultDiv.innerHTML = "Testing...";
-            
-            fetch('http://127.0.0.1:8080/synthesize', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    command: "ping", 
-                    text: "test", 
-                    voice_style_path: "assets/voice_styles/M1.json"
-                })
-            })
-            .then(response => {
-                resultDiv.innerHTML += "<br>Fetch Success! Status: " + response.status;
-                return response.json();
-            })
-            .then(data => {
-                resultDiv.innerHTML += "<br>Data: " + JSON.stringify(data);
-            })
-            .catch(error => {
-                resultDiv.innerHTML += "<br>Fetch Failed: " + error.message;
-            });
-        });
-    </script>
+    <p>2. Test with Scheme Only (Broad)</p>
+    <a class="btn" href="intent://send?text=Test_Message_2#Intent;scheme=supertonic;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;S.android.intent.extra.TEXT=Test_Message_2;S.browser_fallback_url=https%3A%2F%2Fgithub.com%2F;end">
+        Launch App (Method 2)
+    </a>
+
+    <p>3. Direct URI (No Intent Wrapper)</p>
+    <a class="btn" href="supertonic://send?text=Test_Message_3">
+        Launch App (Method 3)
+    </a>
+
 </body>
 </html>

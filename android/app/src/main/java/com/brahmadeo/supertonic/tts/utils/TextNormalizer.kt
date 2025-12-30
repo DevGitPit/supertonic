@@ -209,6 +209,30 @@ class TextNormalizer {
             matcher.appendTail(sb)
             normalized = sb.toString()
         }
+
+        // Step 3: Convert remaining numbers to words (CRITICAL for C++ Engine)
+        // Matches integers and decimals (e.g. "300000" -> "three hundred thousand")
+        val numberPattern = Pattern.compile("\\b(\\d+(?:\\.\\d+)?)\\b")
+        val matcher = numberPattern.matcher(normalized)
+        val sb = StringBuffer()
+        while (matcher.find()) {
+            val numStr = matcher.group(1) ?: ""
+            try {
+                val replacement = if (numStr.contains(".")) {
+                    NumberUtils.convertDouble(numStr.toDouble())
+                } else {
+                    NumberUtils.convert(numStr.toLong())
+                }
+                matcher.appendReplacement(sb, replacement)
+            } catch (e: Exception) {
+                // If number is too large for Long, keep it as digits (or implement BigInt logic if needed)
+                // For TTS, massive numbers usually read digit-by-digit anyway
+                matcher.appendReplacement(sb, numStr)
+            }
+        }
+        matcher.appendTail(sb)
+        normalized = sb.toString()
+
         return normalized
     }
 

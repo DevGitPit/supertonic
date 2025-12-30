@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.Bundle
+import android.os.Environment
 import android.os.IBinder
 import android.view.LayoutInflater
 import android.view.View
@@ -12,14 +13,13 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.brahmadeo.supertonic.tts.service.PlaybackService
 import com.brahmadeo.supertonic.tts.utils.TextNormalizer
-
-import android.os.Environment
-import android.widget.Toast
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -31,8 +31,33 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
     private lateinit var playStopButton: Button
     private lateinit var exportButton: Button
     private lateinit var progressBar: ProgressBar
-    
-    // ... (existing members)
+
+    private var playbackService: PlaybackService? = null
+    private var isBound = false
+    private lateinit var adapter: SentenceAdapter
+    private var currentSentenceIndex = -1
+
+    companion object {
+        const val EXTRA_TEXT = "extra_text"
+        const val EXTRA_VOICE_PATH = "extra_voice_path"
+        const val EXTRA_SPEED = "extra_speed"
+        const val EXTRA_STEPS = "extra_steps"
+    }
+
+    private val connection = object : ServiceConnection {
+        override fun onServiceConnected(className: ComponentName, service: IBinder) {
+            val binder = service as PlaybackService.LocalBinder
+            playbackService = binder.getService()
+            playbackService?.setListener(this@PlaybackActivity)
+            isBound = true
+            startPlaybackFromIntent()
+        }
+
+        override fun onServiceDisconnected(arg0: ComponentName) {
+            isBound = false
+            playbackService = null
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,10 +69,26 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
         progressBar = findViewById(R.id.progressBar)
 
         val text = intent.getStringExtra(EXTRA_TEXT) ?: ""
-        // ... (rest of onCreate)
+        
+        val normalizer = TextNormalizer()
+        val sentences = normalizer.splitIntoSentences(text)
+        
+        adapter = SentenceAdapter(sentences) { index ->
+            playFromIndex(index)
+        }
+        sentencesList.layoutManager = LinearLayoutManager(this)
+        sentencesList.adapter = adapter
 
         playStopButton.setOnClickListener {
-            // ... (existing logic)
+            if (playbackService?.isServiceActive() == true) {
+                playbackService?.stop()
+            } else {
+                if (currentSentenceIndex >= 0) {
+                    playFromIndex(currentSentenceIndex)
+                } else {
+                    startPlaybackFromIntent()
+                }
+            }
         }
 
         exportButton.setOnClickListener {
@@ -77,10 +118,8 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
         }
 
         val intent = Intent(this, PlaybackService::class.java)
-        // ...
+        bindService(intent, connection, Context.BIND_AUTO_CREATE)
     }
-    // ...
-
 
     private fun startPlaybackFromIntent() {
         val text = intent.getStringExtra(EXTRA_TEXT) ?: return
@@ -161,12 +200,15 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
             holder.textView.text = sentences[position]
             holder.textView.setOnClickListener { onClick(position) }
             
+            val context = holder.itemView.context
             if (position == currentIndex) {
-                holder.textView.setBackgroundColor(0xFFE0E0E0.toInt()) // Light Gray Highlight
-                holder.textView.setTextColor(0xFF6200EE.toInt()) // Purple Text
+                holder.textView.setBackgroundColor(0x33C5A059.toInt())
+                holder.textView.setTextColor(ContextCompat.getColor(context, R.color.accent_gold))
+                holder.textView.setTypeface(null, android.graphics.Typeface.BOLD)
             } else {
                 holder.textView.background = null
-                holder.textView.setTextColor(0xFF000000.toInt())
+                holder.textView.setTextColor(ContextCompat.getColor(context, R.color.text_primary))
+                holder.textView.setTypeface(null, android.graphics.Typeface.NORMAL)
             }
         }
 
