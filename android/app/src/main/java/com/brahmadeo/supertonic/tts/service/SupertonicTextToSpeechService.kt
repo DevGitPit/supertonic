@@ -132,13 +132,15 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
 
     private var silenceTrack: android.media.AudioTrack? = null
 
+    private val textNormalizer = com.brahmadeo.supertonic.tts.utils.TextNormalizer()
+
     override fun onSynthesizeText(request: SynthesisRequest?, callback: SynthesisCallback?) {
         if (request == null || callback == null) return
 
         // HACK: Play silence locally to keep app "active" in audio focus
         playSilence()
 
-        val text = request.charSequenceText?.toString() ?: return
+        val rawText = request.charSequenceText?.toString() ?: return
         
         // Speed
         val effectiveSpeed = (request.speechRate / 100.0f).coerceIn(0.5f, 2.5f)
@@ -171,12 +173,31 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
         }
         val stylePath = File(filesDir, "voice_styles/$voiceFile").absolutePath
         
-        val audioData = SupertonicTTS.generateAudio(text, stylePath, effectiveSpeed, 0.0f, 5)
+        // PROCESSING: Split into sentences to prevent timeouts on long text
+        val sentences = textNormalizer.splitIntoSentences(rawText)
+        var success = true
+        
+        for (sentence in sentences) {
+            // Check cancellation
+            if (SupertonicTTS.isCancelled()) {
+                success = false
+                break
+            }
+
+            val normalizedText = textNormalizer.normalize(sentence)
+            // Use 0 buffer for system TTS to reduce latency
+            val audioData = SupertonicTTS.generateAudio(normalizedText, stylePath, effectiveSpeed, 0.0f, 5)
+            
+            if (audioData == null) {
+                Log.w("SupertonicTTS", "Failed to generate audio for segment: $sentence")
+                // We continue to next sentence instead of failing hard
+            }
+        }
         
         SupertonicTTS.setProgressListener(null) // Cleanup
         stopSilence()
         
-        if (audioData != null) {
+        if (success) {
             callback.done()
         } else {
             callback.error()

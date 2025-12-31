@@ -23,6 +23,7 @@ let currentEngine = 'system';
 let fetchIndex = 0;
 let abortController = null;
 let currentUtterance = null; // Prevent GC of active utterance
+let activeTTSListener = null;
 
 // Keep-alive & Clock
 let keepAliveWorklet = null;
@@ -743,15 +744,14 @@ const normalizer = new TextNormalizer();
 // --- System TTS Loop ---
 
 async function processSystemLoop(signal) {
-    console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Started from index ${fetchIndex}`);
+    console.log(`${LOG_PREFIX} [SYSTEM_LOOP] ========================================`);
+    console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Starting from sentence ${fetchIndex + 1}/${currentSentences.length}`);
+    console.log(`${LOG_PREFIX} [SYSTEM_LOOP] ========================================`);
     
-    // IMPORTANT: Set keep-alive to "playing: true" to STOP noise generation
-    // This gives System TTS clean audio path
     if (keepAliveWorklet && keepAliveWorklet.port) {
         keepAliveWorklet.port.postMessage({ type: 'setPlaying', playing: true }); 
     }
     
-    // Ensure AudioContext is active but not generating competing audio
     if (audioContext && audioContext.state === 'suspended') {
         await audioContext.resume();
     }
@@ -772,296 +772,206 @@ async function processSystemLoop(signal) {
         const sentenceObj = currentSentences[fetchIndex];
         lastPlayedIndex = fetchIndex;
         
+        console.log(`${LOG_PREFIX} [SYSTEM_LOOP] ----------------------------------------`);
+        console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Sentence ${fetchIndex + 1}/${currentSentences.length}`);
+        console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Length: ${sentenceObj.text.length} chars`);
+        console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Text: "${sentenceObj.text.substring(0, 100)}..."`);
+        console.log(`${LOG_PREFIX} [SYSTEM_LOOP] ----------------------------------------`);
+        
         chrome.runtime.sendMessage({ type: 'UPDATE_PROGRESS', index: lastPlayedIndex });
         
         if ('mediaSession' in navigator && navigator.mediaSession.metadata) {
             navigator.mediaSession.metadata.album = `${lastPlayedIndex + 1}/${currentSentences.length}`;
         }
 
+        const beforeIndex = fetchIndex;
+        let sentenceSuccess = false;
+        
         try {
             const textToSpeak = normalizer.normalize(sentenceObj.text);
-            console.log(`${LOG_PREFIX} [SYSTEM_TTS] [${fetchIndex}/${currentSentences.length}] Speaking: "${textToSpeak.substring(0, 50)}..."`);
             
             await speakSystemSentence(textToSpeak, signal);
             
-            // Reset error counter on success
+            console.log(`${LOG_PREFIX} [SYSTEM_LOOP] ✓✓✓ Sentence ${beforeIndex + 1} SUCCESS ✓✓✓`);
+            
+            sentenceSuccess = true;
             consecutiveErrors = 0;
             
-            // Small delay between sentences for Android TTS engine cleanup
             await new Promise(resolve => setTimeout(resolve, 150));
             
         } catch (e) {
             consecutiveErrors++;
-            console.error(`${LOG_PREFIX} [SYSTEM_TTS] Error on sentence ${fetchIndex} (consecutive: ${consecutiveErrors}):`, e);
+            console.error(`${LOG_PREFIX} [SYSTEM_LOOP] ✗✗✗ Sentence ${beforeIndex + 1} ERROR (consecutive: ${consecutiveErrors}) ✗✗✗`);
+            console.error(`${LOG_PREFIX} [SYSTEM_LOOP] Error:`, e);
             
-            // Force stop TTS
             chrome.runtime.sendMessage({ type: 'CMD_TTS_STOP' });
             
-            // If too many consecutive errors, bail out
             if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-                console.error(`${LOG_PREFIX} [SYSTEM_TTS] Too many consecutive errors, stopping`);
+                console.error(`${LOG_PREFIX} [SYSTEM_LOOP] Too many errors, stopping playback`);
                 stopPlayback();
                 break;
             }
             
-            // Wait longer before retry
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
         
+        // ALWAYS increment
         if (!signal.aborted && isStreaming) {
             fetchIndex++;
+            console.log(`${LOG_PREFIX} [SYSTEM_LOOP] ►►► Moving from ${beforeIndex + 1} to ${fetchIndex + 1} ►►►`);
+            
+            // Safety check
+            if (fetchIndex === beforeIndex) {
+                console.error(`${LOG_PREFIX} [SYSTEM_LOOP] ⚠️⚠️⚠️ INDEX NOT INCREMENTED! Force increment ⚠️⚠️⚠️`);
+                fetchIndex = beforeIndex + 1;
+            }
         }
     }
     
-    // Resume noise if we are done (but not stopped completely)
     if (keepAliveWorklet && keepAliveWorklet.port && isStreaming) {
         keepAliveWorklet.port.postMessage({ type: 'setPlaying', playing: false });
     }
     
+    console.log(`${LOG_PREFIX} [SYSTEM_LOOP] ========================================`);
     if (isStreaming && fetchIndex >= currentSentences.length) {
-        console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Completed all ${currentSentences.length} sentences`);
+        console.log(`${LOG_PREFIX} [SYSTEM_LOOP] ✓ COMPLETED ALL ${currentSentences.length} SENTENCES`);
         stopPlayback();
     } else {
-        console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Ended early: isStreaming=${isStreaming}, fetchIndex=${fetchIndex}`);
+        console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Loop ended: isStreaming=${isStreaming}, at sentence ${fetchIndex}/${currentSentences.length}`);
     }
+    console.log(`${LOG_PREFIX} [SYSTEM_LOOP] ========================================`);
 }
 
-function speakSystemSentence(text, signal, maxAttempts = 3) {
-
+function speakSystemSentence(text, signal, maxAttempts = 2) {
     return new Promise((resolve) => {
-
         if (signal.aborted) return resolve();
-
         
-
-        // Stop any previous utterance
-
+        const sentenceId = `s${fetchIndex}_${Date.now().toString(36)}`;
+        console.log(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} Starting (${text.length} chars)`);
+        
+        // CRITICAL: Cancel any previous TTS and remove old listeners
         chrome.runtime.sendMessage({ type: 'CMD_TTS_STOP' });
-
-
+        
+        // Remove previous listener if exists
+        if (activeTTSListener) {
+            console.log(`${LOG_PREFIX} [SYSTEM_TTS] Removing previous listener`);
+            chrome.runtime.onMessage.removeListener(activeTTSListener);
+            activeTTSListener = null;
+        }
 
         let attempt = 0;
-
         let resolved = false;
-
         let watchdogTimer = null;
 
-
-
         const cleanup = (reason) => {
-
             if (resolved) return;
-
             resolved = true;
-
             
-
-            console.log(`${LOG_PREFIX} [SYSTEM_TTS] Cleanup called: ${reason}`);
-
+            console.log(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} cleanup: ${reason}`);
             
-
             if (watchdogTimer) {
-
                 clearTimeout(watchdogTimer);
-
                 watchdogTimer = null;
-
             }
-
             
-
-            chrome.runtime.onMessage.removeListener(responseListener);
-
+            // Remove this listener from registry
+            if (activeTTSListener === responseListener) {
+                chrome.runtime.onMessage.removeListener(responseListener);
+                activeTTSListener = null;
+            }
+            
             signal.removeEventListener('abort', abortHandler);
-
             resolve();
-
         };
-
-
 
         const abortHandler = () => {
-
-            console.log(`${LOG_PREFIX} [SYSTEM_TTS] Aborted by signal`);
-
+            console.log(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} Aborted`);
             chrome.runtime.sendMessage({ type: 'CMD_TTS_STOP' });
-
             cleanup('aborted');
-
         };
-
         
-
         const responseListener = (msg) => {
-
             if (msg.type === 'ACT_TTS_DONE') {
-
-                console.log(`${LOG_PREFIX} [SYSTEM_TTS] Received ACT_TTS_DONE: ${msg.eventType}`);
-
+                console.log(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} Got ACT_TTS_DONE: ${msg.eventType}`);
                 
-
                 if (watchdogTimer) {
-
                     clearTimeout(watchdogTimer);
-
                     watchdogTimer = null;
-
                 }
-
                 
-
                 if (msg.eventType === 'end') {
-
-                    console.log(`${LOG_PREFIX} [SYSTEM_TTS] Speech completed successfully`);
-
+                    console.log(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} ✓ Success`);
                     cleanup('completed');
-
                 } else {
-
-                    // Error, interrupted, or cancelled
-
-                    console.warn(`${LOG_PREFIX} [SYSTEM_TTS] Speech failed: ${msg.eventType}${msg.errorMessage ? ` - ${msg.errorMessage}` : ''}`);
-
+                    console.warn(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} ✗ Failed: ${msg.eventType}`);
                     
-
                     if (attempt < maxAttempts) {
-
-                        const delay = 500 + (500 * attempt);
-
-                        console.log(`${LOG_PREFIX} [SYSTEM_TTS] Will retry in ${delay}ms (attempt ${attempt + 1}/${maxAttempts})...`);
-
+                        const delay = 1000;
+                        console.log(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} Retry in ${delay}ms`);
                         setTimeout(trySpeak, delay);
-
                     } else {
-
-                        console.error(`${LOG_PREFIX} [SYSTEM_TTS] Max attempts (${maxAttempts}) reached, giving up`);
-
+                        console.error(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} Giving up after ${maxAttempts} attempts`);
                         cleanup('max_attempts');
-
                     }
-
                 }
-
             }
-
         };
-
-
 
         signal.addEventListener('abort', abortHandler);
-
+        
+        // Register as the active listener
         chrome.runtime.onMessage.addListener(responseListener);
-
-
+        activeTTSListener = responseListener;
 
         const trySpeak = () => {
-
             if (signal.aborted || resolved) {
-
-                console.log(`${LOG_PREFIX} [SYSTEM_TTS] Skipping trySpeak (aborted=${signal.aborted}, resolved=${resolved})`);
-
+                console.log(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} Skipping speak (aborted or resolved)`);
                 return;
-
             }
-
             
-
             attempt++;
-
-            console.log(`${LOG_PREFIX} [SYSTEM_TTS] === Attempt ${attempt}/${maxAttempts} ===`);
-
-            console.log(`${LOG_PREFIX} [SYSTEM_TTS] Text length: ${text.length} chars`);
-
-            console.log(`${LOG_PREFIX} [SYSTEM_TTS] Text preview: "${text.substring(0, 100)}..."`);
-
-
+            console.log(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} >>> Attempt ${attempt}/${maxAttempts}`);
 
             const ttsMessage = {
-
                 type: 'CMD_TTS_SPEAK',
-
                 text: text,
-
                 rate: currentSpeed
-
             };
-
             
-
             if (currentVoice && currentVoice.trim() !== '') {
-
                 ttsMessage.voiceName = currentVoice;
-
-                console.log(`${LOG_PREFIX} [SYSTEM_TTS] Using voice: ${currentVoice}`);
-
             }
-
             
-
-            console.log(`${LOG_PREFIX} [SYSTEM_TTS] Sending CMD_TTS_SPEAK to background...`);
-
+            console.log(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} Sending to background...`);
             chrome.runtime.sendMessage(ttsMessage);
 
-
-
-            // Watchdog with more generous timeout for Android
-
+            // Watchdog
             const words = text.split(/\s+/).length;
-
             const expectedDuration = (words / 2.5) * (1.0 / currentSpeed) * 1000;
+            const timeout = Math.max(15000, expectedDuration * 2 + 10000);
 
-            const timeout = Math.max(10000, expectedDuration * 1.8 + 8000); // More generous
-
-
-
-            console.log(`${LOG_PREFIX} [SYSTEM_TTS] Words: ${words}, Expected duration: ${(expectedDuration/1000).toFixed(1)}s, Watchdog: ${(timeout/1000).toFixed(1)}s`);
-
-
+            console.log(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} Words: ${words}, Timeout: ${(timeout/1000).toFixed(1)}s`);
 
             if (watchdogTimer) clearTimeout(watchdogTimer);
-
             watchdogTimer = setTimeout(() => {
-
-                console.error(`${LOG_PREFIX} [SYSTEM_TTS] ⚠️ WATCHDOG TIMEOUT after ${(timeout/1000).toFixed(1)}s`);
-
-                console.error(`${LOG_PREFIX} [SYSTEM_TTS] This means ACT_TTS_DONE was never received from background.js`);
-
+                console.error(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} ⏰ WATCHDOG TIMEOUT after ${(timeout/1000).toFixed(1)}s`);
+                console.error(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} ACT_TTS_DONE was never received`);
                 
-
-                // Force stop
-
                 chrome.runtime.sendMessage({ type: 'CMD_TTS_STOP' });
-
                 
-
                 if (attempt < maxAttempts) {
-
-                    console.log(`${LOG_PREFIX} [SYSTEM_TTS] Will retry after timeout...`);
-
-                    setTimeout(trySpeak, 1000);
-
+                    console.log(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} Will retry...`);
+                    setTimeout(trySpeak, 2000);
                 } else {
-
-                    console.error(`${LOG_PREFIX} [SYSTEM_TTS] Max attempts reached after timeout, giving up on this sentence`);
-
+                    console.error(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} Exhausted retries`);
                     cleanup('watchdog_timeout');
-
                 }
-
             }, timeout);
-
         };
 
-
-
-        // Start first attempt
-
-        console.log(`${LOG_PREFIX} [SYSTEM_TTS] Starting speech synthesis...`);
-
+        console.log(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} Initial speak call`);
         trySpeak();
-
     });
-
 }
 
 // --- Server TTS Loop ---
@@ -1269,11 +1179,12 @@ function splitIntoSentences(text) {
         }
     });
     
-    // IMPROVED: Better handling of quotes
+    // IMPROVED: Better handling of quotes and brackets
     // Split on: 
-    // 1. period/!/? optionally followed by quote, then space, then capital/quote
-    // 2. semicolon or em-dash followed by space
-    const sentenceRegex = /(?<=[.!?])['"”’]?\s+(?=['"“‘]?[A-Z])|(?<=[;—])\s+/;
+    // 1. Punctuation (.!?) followed by optional closing quotes/brackets, then space, then optional opening quotes/brackets and Capital letter
+    // 2. Semicolon or em-dash followed by space
+    // Note: V8/Chrome supports variable length lookbehind, enabling robust pattern matching
+    const sentenceRegex = /(?<=[.!?]['"”’)\}\]]*)\s+(?=['"“‘\(\{\[]*[A-Z])|(?<=[;—])\s+/;
     const rawSentences = protectedText.split(sentenceRegex);
     
     // Filter out empty and restore

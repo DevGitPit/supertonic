@@ -378,9 +378,9 @@ document.addEventListener('DOMContentLoaded', function() {
       });
       
       // Split on sentence boundaries: 
-      // 1. Punctuation (.!?) followed by space and capital letter
-      // 2. Semi-colons (;) or Em-dashes (—) followed by space (regardless of next letter case)
-      const sentenceRegex = /(?<=[.!?])['"”’]?\s+(?=['"“‘]?[A-Z])|(?<=[;—])\s+/;
+      // 1. Punctuation (.!?) followed by optional closing quotes/brackets, then space, then optional opening quotes/brackets and Capital letter
+      // 2. Semi-colons (;) or Em-dashes (—) followed by space
+      const sentenceRegex = /(?<=[.!?]['"”’)\}\]]*)\s+(?=['"“‘\(\{\[]*[A-Z])|(?<=[;—])\s+/;
       const rawSentences = protectedText.split(sentenceRegex);
       
       sentences = rawSentences.map((sentence, i) => {
