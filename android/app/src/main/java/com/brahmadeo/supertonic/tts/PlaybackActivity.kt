@@ -10,10 +10,7 @@ import android.os.IBinder
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
-import android.widget.ProgressBar
-import android.widget.TextView
-import android.widget.Toast
+import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -24,6 +21,8 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import android.graphics.PorterDuff
+import android.content.res.Configuration
 
 class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
 
@@ -31,6 +30,7 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
     private lateinit var playStopButton: Button
     private lateinit var exportButton: Button
     private lateinit var progressBar: ProgressBar
+    private lateinit var birdImage: ImageView
 
     private var playbackService: PlaybackService? = null
     private var isBound = false
@@ -67,6 +67,9 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
         playStopButton = findViewById(R.id.playStopButton)
         exportButton = findViewById(R.id.exportButton)
         progressBar = findViewById(R.id.progressBar)
+        birdImage = findViewById(R.id.birdImage)
+
+        setupBirdTheming()
 
         val text = intent.getStringExtra(EXTRA_TEXT) ?: ""
         
@@ -119,6 +122,19 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
 
         val intent = Intent(this, PlaybackService::class.java)
         bindService(intent, connection, Context.BIND_AUTO_CREATE)
+    }
+
+    private fun setupBirdTheming() {
+        val isDarkMode = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val goldColor = ContextCompat.getColor(this, R.color.accent_gold)
+        
+        if (isDarkMode) {
+            // Screen mode makes checkerboard disappear in dark mode
+            birdImage.setColorFilter(goldColor, PorterDuff.Mode.SCREEN)
+        } else {
+            // Multiply mode makes checkerboard disappear in light mode
+            birdImage.setColorFilter(goldColor, PorterDuff.Mode.MULTIPLY)
+        }
     }
 
     private fun startPlaybackFromIntent() {

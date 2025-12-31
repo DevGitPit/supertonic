@@ -5,16 +5,18 @@
     android:layout_height="match_parent"
     android:background="@color/app_background">
 
-    <!-- Bird Image at Bottom Left -->
+    <!-- Bird Image above the controls -->
     <ImageView
         android:id="@+id/birdImage"
         android:layout_width="wrap_content"
-        android:layout_height="300dp"
+        android:layout_height="280dp"
         android:adjustViewBounds="true"
         android:src="@drawable/bird"
         android:scaleType="fitStart"
-        android:alpha="0.8"
-        app:layout_constraintBottom_toBottomOf="parent"
+        android:alpha="0.9"
+        android:background="@android:color/transparent"
+        android:layout_marginBottom="8dp"
+        app:layout_constraintBottom_toTopOf="@id/controlsContainer"
         app:layout_constraintStart_toStartOf="parent" />
 
     <!-- Controls at the bottom -->
@@ -24,7 +26,7 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="16dp"
-        android:background="#80FFFFFF"
+        android:background="@android:color/transparent"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">

@@ -42,17 +42,37 @@ document.addEventListener('DOMContentLoaded', function() {
   let currentEngine = 'system'; 
   let serverAvailable = false;
   
-  // System Engine State
-  // let isSystemPlaying = false; // Removed as part of migration to offscreen
-  
+  // --- Slider Fill Helper ---
+  function updateSliderFill(el) {
+      if (!el) return;
+      const min = el.min || 0;
+      const max = el.max || 100;
+      const val = el.value;
+      const percentage = (val - min) / (max - min) * 100;
+      el.style.backgroundSize = percentage + '% 100%';
+      el.classList.add('slider-fill');
+  }
+
   // --- Initialization ---
   
   // 1. Restore preferences
   chrome.storage.local.get(['savedText', 'savedSpeed', 'savedStep', 'savedBuffer', 'savedVoice', 'savedEngine'], (result) => {
       if (result.savedText) textInput.innerText = result.savedText;
-      if (result.savedSpeed) { speedRange.value = result.savedSpeed; speedValue.textContent = result.savedSpeed; }
-      if (result.savedStep) { stepRange.value = result.savedStep; stepValue.textContent = result.savedStep; }
-      if (result.savedBuffer) { bufferRange.value = result.savedBuffer; bufferValue.textContent = result.savedBuffer; }
+      if (result.savedSpeed) { 
+          speedRange.value = result.savedSpeed; 
+          speedValue.textContent = result.savedSpeed;
+          updateSliderFill(speedRange);
+      }
+      if (result.savedStep) { 
+          stepRange.value = result.savedStep; 
+          stepValue.textContent = result.savedStep;
+          updateSliderFill(stepRange);
+      }
+      if (result.savedBuffer) { 
+          bufferRange.value = result.savedBuffer; 
+          bufferValue.textContent = result.savedBuffer;
+          updateSliderFill(bufferRange);
+      }
       
       if (result.savedEngine) {
           currentEngine = result.savedEngine;
@@ -241,16 +261,19 @@ document.addEventListener('DOMContentLoaded', function() {
   
   speedRange.addEventListener('input', () => {
       speedValue.textContent = speedRange.value;
+      updateSliderFill(speedRange);
       chrome.storage.local.set({ savedSpeed: speedRange.value });
   });
   
   stepRange.addEventListener('input', () => {
       stepValue.textContent = stepRange.value;
+      updateSliderFill(stepRange);
       chrome.storage.local.set({ savedStep: stepRange.value });
   });
   
   bufferRange.addEventListener('input', () => {
       bufferValue.textContent = bufferRange.value;
+      updateSliderFill(bufferRange);
       chrome.storage.local.set({ savedBuffer: bufferRange.value });
   });
   
@@ -586,19 +609,18 @@ document.addEventListener('DOMContentLoaded', function() {
           playPauseBtn.classList.add('playing');
           statusBadge.textContent = "🎧 Playing";
           fetchBtn.style.display = 'none';
+          playbackProgress.style.display = 'flex';
       } else {
           playIcon.style.display = 'block';
           stopIcon.style.display = 'none';
           playPauseBtn.classList.remove('playing');
           fetchBtn.style.display = 'flex';
+          // Keep progress visible if we are in playback mode
+          playbackProgress.style.display = isPlaybackMode ? 'flex' : 'none';
       }
       
-      // Always show progress if in playback mode and we have sentences
       if (isPlaybackMode && sentences.length > 0) {
-          playbackProgress.style.display = 'flex';
           progressTotal.textContent = sentences.length;
-      } else {
-          playbackProgress.style.display = 'none';
       }
   }
 
@@ -609,8 +631,15 @@ document.addEventListener('DOMContentLoaded', function() {
       const next = textInput.querySelector(`.sentence[data-index="${index}"]`);
       if (next) {
           next.classList.add('active');
-          const top = next.offsetTop - textInput.offsetTop;
-          textInput.scrollTop = top - 40;
+          // Smooth scroll within the container
+          const containerRect = textInput.getBoundingClientRect();
+          const nextRect = next.getBoundingClientRect();
+          const relativeTop = next.offsetTop - textInput.offsetTop;
+          
+          textInput.scrollTo({
+              top: relativeTop - (containerRect.height / 3),
+              behavior: 'smooth'
+          });
       }
   }
 
@@ -664,10 +693,10 @@ document.addEventListener('DOMContentLoaded', function() {
       applyTheme(theme) {
           document.documentElement.setAttribute('data-theme', theme);
           
-          // Update meta theme-color for Android
+          // Update meta theme-color for Android (M3 Teal palette)
           const metaThemeColor = document.querySelector('meta[name="theme-color"]');
           if (metaThemeColor) {
-              metaThemeColor.content = theme === 'dark' ? '#1a1a2e' : '#ffffff';
+              metaThemeColor.content = theme === 'dark' ? '#0E1414' : '#F4FBFA';
           }
       }
 

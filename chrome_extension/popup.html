@@ -9,46 +9,68 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        /* Root variables for theming */
+        /* Material Design 3 Tokens - Teal Palette */
         :root {
-            --bg-primary: #ffffff;
-            --bg-secondary: #f5f5f5;
-            --bg-tertiary: #e8e8e8;
-            --text-primary: #000000;
-            --text-secondary: #666666;
-            --text-tertiary: #999999;
-            --border-color: #dddddd;
-            --highlight-bg: rgba(0, 188, 212, 0.3);
-            --highlight-text: #000000;
-            --button-bg: #00bcd4;
-            --button-text: #ffffff;
-            --button-hover: #00acc1;
-            --input-bg: #ffffff;
-            --input-border: #cccccc;
-            --shadow: rgba(0, 0, 0, 0.1);
-            --glass-background: rgba(255, 255, 255, 0.8);
-            --glass-border: rgba(0, 0, 0, 0.05);
+            --md-sys-color-primary: #006A6A;
+            --md-sys-color-on-primary: #ffffff;
+            --md-sys-color-primary-container: #6FF5F5;
+            --md-sys-color-on-primary-container: #002020;
+            --md-sys-color-secondary: #4A6363;
+            --md-sys-color-on-secondary: #ffffff;
+            --md-sys-color-surface: #F4FBFA;
+            --md-sys-color-on-surface: #191C1C;
+            --md-sys-color-surface-container-low: #EFF5F4;
+            --md-sys-color-surface-container: #E9EFEE;
+            --md-sys-color-surface-container-high: #E3E9E8;
+            --md-sys-color-outline: #6F7979;
+            --md-sys-color-outline-variant: #BEC9C8;
+            --md-sys-color-error: #BA1A1A;
+            
+            --bg-primary: var(--md-sys-color-surface);
+            --bg-secondary: var(--md-sys-color-surface-container-low);
+            --bg-tertiary: var(--md-sys-color-surface-container);
+            --text-primary: var(--md-sys-color-on-surface);
+            --text-secondary: var(--md-sys-color-secondary);
+            --text-tertiary: var(--md-sys-color-outline);
+            --border-color: var(--md-sys-color-outline-variant);
+            --highlight-bg: var(--md-sys-color-primary-container);
+            --highlight-text: var(--md-sys-color-on-primary-container);
+            --button-bg: var(--md-sys-color-primary);
+            --button-text: var(--md-sys-color-on-primary);
+            --radius-xl: 28px;
+            --radius-l: 20px;
+            --radius-m: 16px;
+            --radius-s: 12px;
+            --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        /* Dark mode variables */
         [data-theme="dark"] {
-            --bg-primary: #1a1a2e;
-            --bg-secondary: #16213e;
-            --bg-tertiary: #0f1419;
-            --text-primary: #e4e4e4;
-            --text-secondary: #b0b0b0;
-            --text-tertiary: #808080;
-            --border-color: #2d3748;
-            --highlight-bg: rgba(0, 212, 255, 0.4);
-            --highlight-text: #ffffff;
-            --button-bg: #00bcd4;
-            --button-text: #ffffff;
-            --button-hover: #00acc1;
-            --input-bg: #2d3748;
-            --input-border: #4a5568;
-            --shadow: rgba(0, 0, 0, 0.3);
-            --glass-background: rgba(40, 42, 60, 0.5);
-            --glass-border: rgba(255, 255, 255, 0.1);
+            --md-sys-color-primary: #4ED8D8;
+            --md-sys-color-on-primary: #003737;
+            --md-sys-color-primary-container: #004F4F;
+            --md-sys-color-on-primary-container: #6FF5F5;
+            --md-sys-color-secondary: #B1CCCC;
+            --md-sys-color-on-secondary: #1C3535;
+            --md-sys-color-surface: #0E1414;
+            --md-sys-color-on-surface: #E0E3E2;
+            --md-sys-color-surface-container-low: #161C1C;
+            --md-sys-color-surface-container: #1A1C1C;
+            --md-sys-color-surface-container-high: #242626;
+            --md-sys-color-outline: #889392;
+            --md-sys-color-outline-variant: #3F4948;
+            --md-sys-color-error: #FFB4AB;
+
+            --bg-primary: var(--md-sys-color-surface);
+            --bg-secondary: var(--md-sys-color-surface-container-low);
+            --bg-tertiary: var(--md-sys-color-surface-container);
+            --text-primary: var(--md-sys-color-on-surface);
+            --text-secondary: var(--md-sys-color-secondary);
+            --text-tertiary: var(--md-sys-color-outline);
+            --border-color: var(--md-sys-color-outline-variant);
+            --highlight-bg: var(--md-sys-color-primary-container);
+            --highlight-text: var(--md-sys-color-on-primary-container);
+            --button-bg: var(--md-sys-color-primary);
+            --button-text: var(--md-sys-color-on-primary);
         }
 
         html, body {
@@ -57,27 +79,15 @@
             margin: 0;
             padding: 0;
             overflow-x: hidden;
+            background-color: var(--bg-primary);
         }
 
         body {
-            background-color: var(--bg-primary);
             color: var(--text-primary);
-            font-family: 'Inter', sans-serif;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
             display: flex;
             flex-direction: column;
-            transition: background-color 0.3s ease, color 0.3s ease;
-        }
-
-        /* Subtle background pattern */
-        body::before {
-            content: "";
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800"><g fill-opacity="0.03"><circle cx="400" cy="400" r="600"/><circle cx="400" cy="400" r="500"/><circle cx="400" cy="400" r="400"/><circle cx="400" cy="400" r="300"/><circle cx="400" cy="400" r="200"/><circle cx="400" cy="400" r="100"/></g></svg>');
-            opacity: 0.5;
-            pointer-events: none;
-            z-index: -1;
-            fill: var(--text-primary);
+            transition: background-color var(--transition);
         }
 
         .main-container {
@@ -86,91 +96,98 @@
             gap: 16px;
             padding: 16px;
             flex: 1;
-            min-height: 0; /* Important for flex scrolling */
+            min-height: 0;
         }
         
+        /* Top App Bar Style */
         .top-bar {
             display: flex;
             justify-content: space-between;
             align-items: center;
             flex-shrink: 0;
-            gap: 8px;
+            gap: 12px;
+            height: 64px;
         }
         
         #statusBadge {
-            font-size: 12px;
+            font-size: 14px;
             font-weight: 600;
-            padding: 6px 12px;
-            border-radius: 16px;
+            padding: 8px 16px;
+            border-radius: 20px;
             background: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
             color: var(--text-secondary);
-            margin-left: auto; /* Push to right, before toggle */
+            transition: var(--transition);
         }
 
         .segmented-control {
             display: flex;
             background: var(--bg-tertiary);
-            border-radius: 8px;
+            border-radius: 24px;
             padding: 4px;
-            border: 1px solid var(--border-color);
         }
         .segmented-control label {
             padding: 8px 16px;
-            font-size: 13px;
+            font-size: 14px;
             font-weight: 500;
             color: var(--text-secondary);
-            border-radius: 6px;
+            border-radius: 20px;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: var(--transition);
         }
         .segmented-control input[type="radio"] { display: none; }
         .segmented-control input[type="radio"]:checked + label {
-            background: var(--button-bg);
-            color: var(--button-text);
+            background: var(--md-sys-color-secondary);
+            color: var(--md-sys-color-on-secondary);
             font-weight: 600;
         }
         
         #textInput {
             width: 100%;
             flex-grow: 1;
-            min-height: 120px;
-            background: var(--input-bg);
-            border: 1px solid var(--input-border);
-            border-radius: 12px;
-            padding: 16px;
+            min-height: 140px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-xl);
+            padding: 24px;
             color: var(--text-primary);
-            font-size: 16px;
+            font-size: 18px;
             line-height: 1.6;
             overflow-y: auto;
-            transition: border-color 0.3s, background-color 0.3s, color 0.3s;
+            transition: var(--transition);
             box-sizing: border-box;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
         }
         #textInput:focus {
             outline: none;
-            border-color: var(--button-bg);
+            border-color: var(--md-sys-color-primary);
+            border-width: 2px;
+            padding: 23px;
+        }
+        #textInput[contenteditable="false"] {
+            border-color: transparent;
+            background: var(--bg-secondary);
+            box-shadow: none;
         }
         
-        /* Interactive sentences */
+        /* Sentence Highlighting */
         .sentence {
             cursor: pointer;
-            border-radius: 3px;
-            padding: 2px 0;
+            border-radius: 12px;
+            padding: 4px 6px;
+            margin: 0 -2px;
             display: inline;
-            transition: background-color 0.3s ease;
+            transition: var(--transition);
+            box-decoration-break: clone;
+            -webkit-box-decoration-break: clone;
         }
-        .sentence:active { 
-            background-color: var(--highlight-bg);
+        .sentence:hover { 
+            background-color: rgba(0, 106, 106, 0.08);
         }
         .sentence.active {
             background-color: var(--highlight-bg);
             color: var(--highlight-text) !important;
-            border-radius: 4px;
-            padding: 3px 6px;
-            margin: 0 -6px; /* Negative margin to prevent text shifting */
-            box-decoration-break: clone;
-            -webkit-box-decoration-break: clone;
-            transition: all 0.3s ease;
+            font-weight: 600;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
         }
 
         .playback-controls {
@@ -182,147 +199,185 @@
         }
         
         #playPauseBtn {
-            width: 72px;
-            height: 72px;
-            border-radius: 50%;
+            width: 84px;
+            height: 84px;
+            border-radius: 28px;
             border: none;
             cursor: pointer;
-            background: linear-gradient(135deg, var(--button-bg), var(--button-hover));
-            box-shadow: 0 6px 20px var(--shadow);
+            background: var(--button-bg);
+            color: var(--button-text);
+            box-shadow: 0 8px 24px rgba(0, 106, 106, 0.3);
             display: flex;
             justify-content: center;
             align-items: center;
+            transition: var(--transition);
+        }
+        #playPauseBtn:hover {
+            box-shadow: 0 12px 32px rgba(0, 106, 106, 0.4);
+            transform: scale(1.05);
         }
         #playPauseBtn:active { transform: scale(0.95); }
-        #playPauseBtn:disabled { background: var(--bg-tertiary); box-shadow: none; }
+        #playPauseBtn:disabled { 
+            background: var(--bg-tertiary); 
+            color: var(--text-tertiary);
+            box-shadow: none; 
+        }
         
-        .icon { fill: var(--button-text); width: 32px; height: 32px; }
+        .icon { fill: currentColor; width: 40px; height: 40px; }
         
         .card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 16px;
-            padding: 16px;
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-xl);
+            padding: 20px;
             display: flex;
             flex-direction: column;
-            gap: 16px;
+            gap: 12px;
             flex-shrink: 0;
-            transition: background-color 0.3s;
         }
         .control-group {
             display: flex;
             align-items: center;
             justify-content: space-between;
+            gap: 16px;
         }
         .control-group label {
             font-size: 14px;
-            font-weight: 500;
+            font-weight: 600;
             color: var(--text-secondary);
-        }
-        .control-group select, .control-group input[type="range"] {
-            width: 60%;
-            height: 40px;
+            flex: 1;
         }
         
-        /* Select styling */
         select {
-            background-color: var(--input-bg);
+            flex: 2;
+            background-color: var(--bg-secondary);
             color: var(--text-primary);
-            border: 1px solid var(--input-border);
-            padding: 0 8px;
-            border-radius: 8px;
-            cursor: pointer;
+            border: 1px solid var(--border-color);
+            padding: 12px 36px 12px 16px; /* Increased right padding for arrow */
+            border-radius: var(--radius-s);
+            font-size: 14px;
+            font-weight: 500;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23666666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            background-size: 18px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            overflow: hidden;
+            max-width: 200px;
         }
 
-        /* Range slider styling */
         input[type="range"] {
             -webkit-appearance: none;
             appearance: none;
-            background: transparent;
+            flex: 2;
+            height: 32px;
+            background-color: var(--md-sys-color-outline-variant); /* Track background */
+            background-image: linear-gradient(var(--md-sys-color-primary), var(--md-sys-color-primary));
+            background-repeat: no-repeat;
+            background-size: 0% 100%; /* Dynamic fill */
+            border-radius: 0px;
             cursor: pointer;
+            outline: none;
+            border: none;
         }
-        input[type="range"]::-webkit-slider-track {
-            background: var(--bg-tertiary);
+
+        /* Webkit Track (Chrome/Safari) */
+        input[type="range"]::-webkit-slider-runnable-track {
             height: 6px;
-            border-radius: 3px;
+            background: transparent;
+            border: none;
         }
+        
+        /* Webkit Thumb - 4px Wide Sharp Stick */
         input[type="range"]::-webkit-slider-thumb {
             -webkit-appearance: none;
             appearance: none;
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            background: var(--button-bg);
-            cursor: pointer;
-            margin-top: -7px;
-            box-shadow: 0 2px 4px var(--shadow);
+            width: 4px;
+            height: 24px;
+            border-radius: 0px !important;
+            background: var(--md-sys-color-primary);
+            margin-top: -9px;
+            box-shadow: none;
+            border: none;
+        }
+
+        /* Firefox Track */
+        input[type="range"]::-moz-range-track {
+            height: 6px;
+            background: transparent;
+            border: none;
+        }
+
+        /* Firefox Thumb - 4px Wide Sharp Stick */
+        input[type="range"]::-moz-range-thumb {
+            width: 4px;
+            height: 24px;
+            border-radius: 0px !important;
+            background: var(--md-sys-color-primary);
+            border: none;
+            box-shadow: none;
+        }
+
+        input[type="range"]:active::-webkit-slider-thumb { transform: scaleX(1.5); filter: brightness(1.2); }
+        input[type="range"]:active::-moz-range-thumb { transform: scaleX(1.5); filter: brightness(1.2); }
+
+        /* Slider Fill class is now integrated into the base selector */
+        .slider-fill {
+            /* Handled by background-image/size on input[type="range"] */
         }
 
         .utility-buttons {
             display: flex;
             gap: 12px;
             flex-shrink: 0;
-            padding-bottom: env(safe-area-inset-bottom);
+            padding-bottom: 8px;
         }
 
         .btn {
             flex: 1;
-            height: 54px;
+            height: 56px;
             font-size: 14px;
             font-weight: 600;
-            color: var(--text-primary);
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
+            color: var(--md-sys-color-on-secondary);
+            background: var(--md-sys-color-secondary);
+            border: none;
+            border-radius: var(--radius-m);
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 8px;
-            transition: background-color 0.2s;
+            transition: var(--transition);
         }
-        .btn:active { background: var(--bg-tertiary); }
+        .btn:active { transform: scale(0.96); }
         
         #sendToAppBtn {
-            border-color: #00e676;
-            color: #00e676;
-            background: rgba(0, 230, 118, 0.05);
-        }
-        #sendToAppBtn:active { background: rgba(0, 230, 118, 0.1); }
-
-        #serverStatusMsg {
-            text-align: center;
-            font-size: 13px;
-            color: #ff8a80;
-            padding: 12px;
-            background: rgba(255, 82, 82, 0.1);
-            border-radius: 8px;
-            border: 1px solid rgba(255, 82, 82, 0.3);
-            margin-top: 8px;
+            background: var(--md-sys-color-primary-container);
+            color: var(--md-sys-color-on-primary-container);
+            flex: 1.2;
         }
 
-        .progress-container {
+        #playbackProgress {
             flex: 1;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-xl);
             padding: 0 16px;
             display: flex;
             align-items: center;
             gap: 12px;
-            height: 54px;
+            height: 56px;
         }
         .progress-info {
             font-size: 13px;
-            font-weight: 600;
-            color: var(--text-secondary);
+            font-weight: 700;
+            color: var(--text-primary);
             min-width: 50px;
-            text-align: center;
         }
         .progress-track {
             flex: 1;
             height: 8px;
-            background: var(--bg-tertiary);
+            background: var(--md-sys-color-outline-variant);
             border-radius: 4px;
             overflow: hidden;
         }
@@ -330,109 +385,71 @@
             height: 100%;
             background: var(--button-bg);
             width: 0%;
-            transition: width 0.3s ease-out;
+            transition: width 0.4s ease-out;
+            border-radius: 4px;
         }
 
-        /* Theme Toggle */
         .theme-toggle {
             background-color: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 6px;
+            border-radius: 12px;
+            padding: 8px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: all 0.2s ease;
-            width: 36px;
-            height: 36px;
+            width: 44px;
+            height: 44px;
             flex-shrink: 0;
-        }
-        .theme-toggle:hover {
-            background-color: var(--bg-secondary);
-        }
-        .theme-toggle svg {
-            stroke: var(--text-primary);
-            fill: none;
-            stroke-width: 2;
-            stroke-linecap: round;
-            stroke-linejoin: round;
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
         }
         
-        /* Icon visibility based on mode */
         .auto-icon, .sun-icon, .moon-icon { display: none; }
-        
         [data-theme-mode="auto"] .auto-icon,
         [data-theme-mode="light"] .sun-icon,
-        [data-theme-mode="dark"] .moon-icon { 
-            display: block; 
-        }
-
-        audio { display: none; }
+        [data-theme-mode="dark"] .moon-icon { display: block; }
     </style>
 </head>
 <body>
     <div class="main-container">
-
         <div class="top-bar">
-            <!-- Mode Toggle -->
             <div class="segmented-control">
                 <input type="radio" name="mode" id="editMode" value="edit" checked>
                 <label for="editMode">Edit</label>
                 <input type="radio" name="mode" id="playbackMode" value="playback">
-                <label for="playbackMode">Playback</label>
+                <label for="playbackMode">Read</label>
             </div>
             
             <div id="statusBadge">✏️ Ready</div>
 
-            <!-- Theme Toggle -->
             <button id="theme-toggle" class="theme-toggle">
-                <!-- Auto Icon (Half-filled circle) -->
-                <svg class="auto-icon" viewBox="0 0 24 24" width="20" height="20">
-                    <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zm0-2V4a8 8 0 0 0 0 16z" fill="currentColor" stroke="none"/>
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+                <!-- Auto Icon (Stroke-based half circle) -->
+                <svg class="auto-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M12 2a10 10 0 0 1 0 20V2z" fill="currentColor" stroke="none"/>
                 </svg>
-                <!-- Sun Icon -->
-                <svg class="sun-icon" viewBox="0 0 24 24" width="20" height="20">
-                    <circle cx="12" cy="12" r="5"/>
-                    <line x1="12" y1="1" x2="12" y2="3"/>
-                    <line x1="12" y1="21" x2="12" y2="23"/>
-                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-                    <line x1="1" y1="12" x2="3" y2="12"/>
-                    <line x1="21" y1="12" x2="23" y2="12"/>
-                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-                </svg>
-                <!-- Moon Icon -->
-                <svg class="moon-icon" viewBox="0 0 24 24" width="20" height="20">
-                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-                </svg>
+                <svg class="sun-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                <svg class="moon-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
             </button>
         </div>
 
-        <!-- Main Text Area -->
-        <div id="textInput" contenteditable="true" spellcheck="false" placeholder="Enter text here..."></div>
+        <div id="textInput" contenteditable="true" spellcheck="false" placeholder="Enter or paste text here..."></div>
 
-        <!-- Playback Controls -->
         <div class="playback-controls">
             <button id="playPauseBtn" title="Play">
-                <!-- Play Icon -->
                 <svg id="playIcon" class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                <!-- Pause/Stop Icon (Stop square for now as logic stops) -->
                 <svg id="stopIcon" class="icon" viewBox="0 0 24 24" style="display: none;"><path d="M6 6h12v12H6z"/></svg>
             </button>
         </div>
 
-        <!-- Settings Card -->
         <div class="card" id="settingsCard">
             <div class="control-group">
                 <label>Engine</label>
-                <div class="segmented-control" style="width: 60%;">
+                <div class="segmented-control" style="width: auto; flex: 2;">
                     <input type="radio" name="engine" id="engineSystem" value="system" checked>
-                    <label for="engineSystem">System</label>
+                    <label for="engineSystem" style="padding: 8px 16px;">System</label>
                     <input type="radio" name="engine" id="engineServer" value="supertonic">
-                    <label for="engineServer">Server</label>
+                    <label for="engineServer" style="padding: 8px 16px;">Server</label>
                 </div>
             </div>
             <div class="control-group">
@@ -441,14 +458,13 @@
             </div>
             <div class="control-group">
                 <label for="speedRange">Speed (<span id="speedValue">1.05</span>x)</label>
-                <input type="range" id="speedRange" min="0.9" max="1.5" step="0.05" value="1.05">
+                <input type="range" id="speedRange" min="0.8" max="2.0" step="0.05" value="1.05">
             </div>
         </div>
         
-        <!-- Server Extras (Hidden by default) -->
         <div class="card" id="serverControlsCard" style="display: none;">
              <div class="control-group">
-                <label for="stepRange">Denoise (<span id="stepValue">5</span>)</label>
+                <label for="stepRange">Steps (<span id="stepValue">5</span>)</label>
                 <input type="range" id="stepRange" min="1" max="10" step="1" value="5">
             </div>
             <div class="control-group">
@@ -457,31 +473,25 @@
             </div>
         </div>
         
-        <!-- Bottom Actions -->
         <div class="utility-buttons">
-            <div id="playbackProgress" class="progress-container" style="display: none;">
+            <div id="playbackProgress" style="display: none;">
                 <div class="progress-info"><span id="progressCurrent">0</span> / <span id="progressTotal">0</span></div>
-                <div class="progress-track">
-                    <div id="progressFill" class="progress-fill"></div>
-                </div>
+                <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
             </div>
             <button id="fetchBtn" class="btn">
-                <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-                Fetch Page
+                <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                Fetch
             </button>
-            <button id="refreshServerBtn" class="btn" style="display:none; color: #FF9800; border-color: #FF9800;">
-                <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
-                Refresh
+            <button id="refreshServerBtn" class="btn" style="display:none; background: #FF9800; color: white;">
+                <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
             </button>
-            <button id="sendToAppBtn" class="btn" style="color: #00e676; border-color: #00e676;">
-                <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14zM16 13h-3V8h-2v5H8l4 4 4-4z"/></svg>
-                Send to App
+            <button id="sendToAppBtn" class="btn">
+                <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14zM16 13h-3V8h-2v5H8l4 4 4-4z"/></svg>
+                Send
             </button>
         </div>
 
         <div id="serverStatusMsg" style="display: none;"></div>
-        
-        <audio id="audioPlayer"></audio>
     </div>
     <script src="popup.js"></script>
 </body>

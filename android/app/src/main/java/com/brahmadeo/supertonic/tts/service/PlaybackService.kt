@@ -175,9 +175,9 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
             
             // 2. Setup new
             isSynthesizing = true
-            SupertonicTTS.setCancelled(false) // Crucial reset
+            SupertonicTTS.setCancelled(false) 
             
-            updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
+            updatePlaybackState(PlaybackStateCompat.STATE_BUFFERING)
             startForegroundService("Synthesizing...", false)
             notifyListenerState(false)
             
@@ -204,9 +204,11 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
                     val estimatedDuration = normalizedText.length / 15.0f
                     val audioData = SupertonicTTS.generateAudio(normalizedText, stylePath, speed, estimatedDuration, steps)
                     
-                    if (audioData != null) {
+                    if (audioData != null && audioData.isNotEmpty()) {
                         withContext(Dispatchers.Main) {
                             if (!isPlaying && isSynthesizing) {
+                                Log.i(TAG, "First audio chunk received, starting playback.")
+                                audioTrack?.play()
                                 isPlaying = true
                                 notifyListenerState(true)
                                 updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
@@ -214,7 +216,7 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
                             }
                         }
                     } else {
-                        Log.w(TAG, "Failed to generate audio for sentence $index")
+                        Log.w(TAG, "No audio data for sentence $index")
                     }
                     
                     if (SupertonicTTS.isCancelled()) break
@@ -226,6 +228,12 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
                         Log.i(TAG, "Synthesis loop complete.")
                         listener?.onProgress(totalSentences, totalSentences)
                         notifyListenerState(true)
+                        
+                        // If we finished synthesis but never started playing (e.g. all empty)
+                        if (!isPlaying) {
+                            Log.i(TAG, "Finished synthesis without audio, stopping service.")
+                            stopPlayback()
+                        }
                     }
                 }
 
@@ -236,6 +244,7 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
                     
                     val head = track.playbackHeadPosition.toLong() and 0xFFFFFFFFL
                     if (head >= totalFramesWritten && totalFramesWritten > 0) {
+                        Log.i(TAG, "Playback reached written frame count ($totalFramesWritten).")
                         withContext(Dispatchers.Main) {
                             stopPlayback()
                         }
@@ -290,20 +299,20 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
             .setBufferSizeInBytes(bufferSize)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
-
-        audioTrack?.play()
-        isPlaying = true
+        
+        // Wait for first data chunk to call play()
+        isPlaying = false
     }
 
     override fun onProgress(current: Int, total: Int) {
     }
 
     override fun onAudioChunk(data: ByteArray) {
-        if (audioTrack != null && audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING) {
-            val written = audioTrack?.write(data, 0, data.size) ?: 0
-            if (written > 0) {
-                totalFramesWritten += written / 2
-            }
+        val track = audioTrack ?: return
+        // Write data even if not playing yet; it will buffer in the AudioTrack
+        val written = track.write(data, 0, data.size)
+        if (written > 0) {
+            totalFramesWritten += written / 2
         }
     }
 
