@@ -58,7 +58,7 @@ class CurrencyNormalizer {
             // Rule 1: Prefixed currencies with magnitude (C$2.5bn, A$500m, SR3mn, RMB2bn)
             // Must come first to catch specific currency types
             {
-                pattern: /(C\$|CA\$|A\$|AU\$|US\$|NZ\$|HK\$|S\$|SR|RMB)(\d+(?:\.\d+)?)(bn|mn|m|b|tn|k)/gi,
+                pattern: /(C\$|CA\$|A\$|AU\$|US\$|NZ\$|HK\$|S\$|SR|RMB)(\d+(?:\.\d+)?)\s*(trillion|billion|million|crore|lakh|bn|mn|tn|m|b|k)/gi,
                 replacement: (match, prefix, amount, suffix) => {
                     let key = prefix.toUpperCase();
                     if (key.startsWith('S') && !key.includes('$') && key !== 'SR') key = key.replace('S', 'S$');
@@ -73,7 +73,7 @@ class CurrencyNormalizer {
             
             // Rule 2: ISO code currencies with magnitude (CAD 500m, EUR 1bn, SR 3mn)
             {
-                pattern: /\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW|SR|RMB)\s*(\d+(?:\.\d+)?)(bn|mn|m|b|tn|k)/gi,
+                pattern: /\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW|SR|RMB)\s*(\d+(?:\.\d+)?)\s*(trillion|billion|million|crore|lakh|bn|mn|tn|m|b|k)/gi,
                 replacement: (match, code, amount, suffix) => {
                     const currencyName = this.currencyPrefixes[code.toUpperCase()] || code;
                     const magnitude = this.expandMagnitude(suffix);
@@ -98,7 +98,7 @@ class CurrencyNormalizer {
             // CRITICAL: Must come before plain symbol+amount rule to prevent "m" being read as meters
             // Fixed regex construction with double backslashes
             {
-                pattern: new RegExp(`(${symPattern})(\\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)\\b`, 'gi'),
+                pattern: new RegExp(`(${symPattern})(\\d+(?:\\.\\d+)?)\\s*(trillion|billion|million|crore|lakh|bn|mn|tn|m|b|k)\\b`, 'gi'),
                 replacement: (match, symbol, amount, suffix) => {
                     const currencyName = this.currencySymbols[symbol] || 'dollars';
                     const magnitude = this.expandMagnitude(suffix);
@@ -111,7 +111,7 @@ class CurrencyNormalizer {
             // Rule 5: Parenthetical conversions (£800m ($1.08bn)), (SR3mn)
             // Adds "equivalent to" for clarity
             {
-                pattern: new RegExp(`\\((${symPattern}|C\\$|CA\\$|A\\$|AU\\$|US\\$|SR|RMB)(\\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)\\)`, 'gi'),
+                pattern: new RegExp(`\\((${symPattern}|C\\$|CA\\$|A\\$|AU\\$|US\\$|SR|RMB)(\\d+(?:\\.\\d+)?)\\s*(trillion|billion|million|crore|lakh|bn|mn|tn|m|b|k)\\)`, 'gi'),
                 replacement: (match, symbol, amount, suffix) => {
                     let key = symbol.toUpperCase();
                     if (key.startsWith('S') && !key.includes('$') && key !== 'SR') key = key.replace('S', 'S$');

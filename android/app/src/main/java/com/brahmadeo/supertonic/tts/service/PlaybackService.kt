@@ -34,55 +34,65 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
     // ... (existing members)
 
     fun exportAudio(text: String, stylePath: String, speed: Float, steps: Int, outputFile: File, onComplete: (Boolean) -> Unit) {
-        cancelSynthesis()
-        stopPlayback()
-        
-        startForegroundService("Exporting Audio...", false)
-        
-        serviceScope.launch(Dispatchers.IO) {
-            try {
-                val sentences = textNormalizer.splitIntoSentences(text)
-                val outputStream = ByteArrayOutputStream()
-                var success = true
-                
-                for (sentence in sentences) {
-                    if (!isActive) {
-                        success = false
-                        break
+        // Use a coordinator launch to ensure clean state
+        serviceScope.launch {
+            if (synthesisJob?.isActive == true) {
+                SupertonicTTS.setCancelled(true)
+                synthesisJob?.cancelAndJoin()
+            }
+            stopPlayback()
+            
+            SupertonicTTS.setCancelled(false) // Reset for export
+            
+            startForegroundService("Exporting Audio...", false)
+            
+            // Launch export on IO
+            val exportJob = launch(Dispatchers.IO) {
+                try {
+                    val sentences = textNormalizer.splitIntoSentences(text)
+                    val outputStream = ByteArrayOutputStream()
+                    var success = true
+                    
+                    for (sentence in sentences) {
+                        if (!isActive) {
+                            success = false
+                            break
+                        }
+                        val normalizedText = textNormalizer.normalize(sentence)
+                        val estimatedDuration = normalizedText.length / 15.0f
+                        
+                        // Use standard buffer/steps for high quality export
+                        val audioData = SupertonicTTS.generateAudio(normalizedText, stylePath, speed, estimatedDuration, steps)
+                        
+                        if (audioData != null) {
+                            outputStream.write(audioData)
+                        } else {
+                            Log.w(TAG, "Failed to export sentence: $sentence")
+                        }
                     }
-                    val normalizedText = textNormalizer.normalize(sentence)
-                    val estimatedDuration = normalizedText.length / 15.0f
                     
-                    // Use standard buffer/steps for high quality export
-                    val audioData = SupertonicTTS.generateAudio(normalizedText, stylePath, speed, estimatedDuration, steps)
-                    
-                    if (audioData != null) {
-                        outputStream.write(audioData)
+                    if (success && outputStream.size() > 0) {
+                        WavUtils.saveWav(outputFile, outputStream.toByteArray(), SupertonicTTS.getAudioSampleRate())
+                        withContext(Dispatchers.Main) {
+                            stopForeground(true)
+                            onComplete(true)
+                        }
                     } else {
-                        Log.w(TAG, "Failed to export sentence: $sentence")
-                        // Continue or fail? Let's continue.
+                        withContext(Dispatchers.Main) {
+                            stopForeground(true)
+                            onComplete(false)
+                        }
                     }
-                }
-                
-                if (success && outputStream.size() > 0) {
-                    WavUtils.saveWav(outputFile, outputStream.toByteArray(), SupertonicTTS.getAudioSampleRate())
-                    withContext(Dispatchers.Main) {
-                        stopForeground(true)
-                        onComplete(true)
-                    }
-                } else {
+                } catch (e: Exception) {
+                    Log.e(TAG, "Export failed", e)
                     withContext(Dispatchers.Main) {
                         stopForeground(true)
                         onComplete(false)
                     }
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Export failed", e)
-                withContext(Dispatchers.Main) {
-                    stopForeground(true)
-                    onComplete(false)
-                }
             }
+            // keep reference if we want to cancel export? 
+            // For now, simple export.
         }
     }
 
@@ -148,86 +158,104 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener {
     }
 
     fun synthesizeAndPlay(text: String, stylePath: String, speed: Float, steps: Int, startIndex: Int = 0) {
-        Log.i(TAG, "Starting synthesis: speed=$speed, steps=$steps, textLen=${text.length}, start=$startIndex")
+        Log.i(TAG, "Request synthesis: speed=$speed, start=$startIndex")
         
-        cancelSynthesis()
-        
-        isSynthesizing = true
-        updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
-        startForegroundService("Synthesizing...", false)
-        notifyListenerState(false)
-        
-        wakeLock?.acquire(10 * 60 * 1000L)
-        
-        initAudioTrack(SupertonicTTS.getAudioSampleRate())
-
-        synthesisJob = serviceScope.launch(Dispatchers.IO) {
-            val sentences = textNormalizer.splitIntoSentences(text)
-            val totalSentences = sentences.size
-            Log.i(TAG, "Split into $totalSentences sentences")
-
-            for (index in startIndex until totalSentences) {
-                val sentence = sentences[index]
-                if (!isActive || !isSynthesizing) break
-                
-                withContext(Dispatchers.Main) {
-                    listener?.onProgress(index, totalSentences)
-                }
-
-                val normalizedText = textNormalizer.normalize(sentence)
-                Log.d(TAG, "Sentence $index normalized: $normalizedText")
-                
-                val estimatedDuration = normalizedText.length / 15.0f
-                val audioData = SupertonicTTS.generateAudio(normalizedText, stylePath, speed, estimatedDuration, steps)
-                
-                if (audioData != null) {
-                    withContext(Dispatchers.Main) {
-                        if (!isPlaying && isSynthesizing) {
-                            isPlaying = true
-                            notifyListenerState(true)
-                            updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
-                            startForegroundService("Playing Audio", true)
-                        }
-                    }
-                } else {
-                    Log.w(TAG, "Failed to generate audio for sentence $index")
-                }
-                
-                if (SupertonicTTS.isCancelled()) break
+        // Launch coordinator on Main to serialize teardown/setup
+        serviceScope.launch {
+            // 1. Tear down previous
+            if (synthesisJob?.isActive == true) {
+                Log.i(TAG, "Cancelling active job...")
+                SupertonicTTS.setCancelled(true)
+                synthesisJob?.cancelAndJoin()
+                Log.i(TAG, "Previous job joined.")
             }
             
-            withContext(Dispatchers.Main) {
-                if (isSynthesizing) {
-                    isSynthesizing = false
-                    Log.i(TAG, "Synthesis loop complete.")
-                    listener?.onProgress(totalSentences, totalSentences)
-                    notifyListenerState(true)
-                }
-            }
+            // Force stop playback to clear buffers/tracks
+            stopPlayback(removeNotification = false)
+            
+            // 2. Setup new
+            isSynthesizing = true
+            SupertonicTTS.setCancelled(false) // Crucial reset
+            
+            updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
+            startForegroundService("Synthesizing...", false)
+            notifyListenerState(false)
+            
+            wakeLock?.acquire(10 * 60 * 1000L)
+            
+            initAudioTrack(SupertonicTTS.getAudioSampleRate())
 
-            while (isActive && isPlaying) {
-                val track = audioTrack
-                if (track == null || track.playState != AudioTrack.PLAYSTATE_PLAYING) break
-                
-                val head = track.playbackHeadPosition.toLong() and 0xFFFFFFFFL
-                if (head >= totalFramesWritten && totalFramesWritten > 0) {
+            // 3. Launch processing
+            synthesisJob = launch(Dispatchers.IO) {
+                val sentences = textNormalizer.splitIntoSentences(text)
+                val totalSentences = sentences.size
+                Log.i(TAG, "Processing $totalSentences sentences")
+
+                for (index in startIndex until totalSentences) {
+                    val sentence = sentences[index]
+                    if (!isActive) break
+                    
                     withContext(Dispatchers.Main) {
-                        stopPlayback()
+                        listener?.onProgress(index, totalSentences)
                     }
-                    break
+
+                    val normalizedText = textNormalizer.normalize(sentence)
+                    
+                    val estimatedDuration = normalizedText.length / 15.0f
+                    val audioData = SupertonicTTS.generateAudio(normalizedText, stylePath, speed, estimatedDuration, steps)
+                    
+                    if (audioData != null) {
+                        withContext(Dispatchers.Main) {
+                            if (!isPlaying && isSynthesizing) {
+                                isPlaying = true
+                                notifyListenerState(true)
+                                updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
+                                startForegroundService("Playing Audio", true)
+                            }
+                        }
+                    } else {
+                        Log.w(TAG, "Failed to generate audio for sentence $index")
+                    }
+                    
+                    if (SupertonicTTS.isCancelled()) break
                 }
-                delay(200)
+                
+                withContext(Dispatchers.Main) {
+                    if (isSynthesizing && isActive) {
+                        isSynthesizing = false
+                        Log.i(TAG, "Synthesis loop complete.")
+                        listener?.onProgress(totalSentences, totalSentences)
+                        notifyListenerState(true)
+                    }
+                }
+
+                // Wait for playback to finish
+                while (isActive && isPlaying) {
+                    val track = audioTrack
+                    if (track == null || track.playState != AudioTrack.PLAYSTATE_PLAYING) break
+                    
+                    val head = track.playbackHeadPosition.toLong() and 0xFFFFFFFFL
+                    if (head >= totalFramesWritten && totalFramesWritten > 0) {
+                        withContext(Dispatchers.Main) {
+                            stopPlayback()
+                        }
+                        break
+                    }
+                    delay(200)
+                }
             }
         }
     }
     
     fun cancelSynthesis() {
-        if (isSynthesizing || synthesisJob?.isActive == true) {
-            Log.i(TAG, "Cancelling synthesis...")
-            SupertonicTTS.setCancelled(true)
-            synthesisJob?.cancel()
-            isSynthesizing = false
-            stopPlayback()
+        serviceScope.launch {
+            if (isSynthesizing || synthesisJob?.isActive == true) {
+                Log.i(TAG, "Cancelling synthesis...")
+                SupertonicTTS.setCancelled(true)
+                synthesisJob?.cancelAndJoin()
+                isSynthesizing = false
+                stopPlayback()
+            }
         }
     }
 

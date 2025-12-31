@@ -68,7 +68,7 @@ object SupertonicTTS {
             Log.e("SupertonicTTS", "Engine not initialized")
             return null
         }
-        isCancelled = false // Reset flag
+        // isCancelled = false // Removed to prevent race condition. Service must reset this.
         val data = synthesize(nativePtr, text, stylePath, speed, bufferDuration, steps)
         return if (data.isNotEmpty()) data else null
     }

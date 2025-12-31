@@ -1,5 +1,7 @@
 // Offscreen management
+let creating; // A global promise to avoid concurrency issues
 async function setupOffscreenDocument(path) {
+  // Check for existing offscreen document
   const existingContexts = await chrome.runtime.getContexts({
     contextTypes: ['OFFSCREEN_DOCUMENT'],
     documentUrls: [path]
@@ -7,23 +9,49 @@ async function setupOffscreenDocument(path) {
 
   if (existingContexts.length > 0) return;
 
-  await chrome.offscreen.createDocument({
-    url: path,
-    reasons: ['AUDIO_PLAYBACK'],
-    justification: 'Background TTS playback',
-  });
+  // If creation is already in progress, wait for it
+  if (creating) {
+    await creating;
+  } else {
+    // Start creating the offscreen document
+    creating = chrome.offscreen.createDocument({
+      url: path,
+      reasons: ['AUDIO_PLAYBACK'],
+      justification: 'Background TTS playback',
+    });
+    
+    try {
+        await creating;
+    } catch (err) {
+        // If it failed because it already exists (race condition), that's fine.
+        if (!err.message.startsWith('Only a single offscreen document may be created')) {
+             throw err;
+        }
+    } finally {
+        creating = null;
+    }
+  }
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // Offscreen coordination
   if (request.type === 'CMD_START_STREAM') {
       const offscreenUrl = chrome.runtime.getURL('offscreen.html');
-      setupOffscreenDocument(offscreenUrl).then(() => {
-          chrome.runtime.sendMessage({
-              type: 'ACT_STREAM',
-              payload: request.payload
+      setupOffscreenDocument(offscreenUrl)
+          .then(() => {
+              chrome.runtime.sendMessage({
+                  type: 'ACT_STREAM',
+                  payload: request.payload
+              });
+          })
+          .catch(err => {
+              console.error('[BACKGROUND] Failed to setup offscreen document:', err);
+              chrome.runtime.sendMessage({
+                  type: 'ACT_TTS_DONE',
+                  eventType: 'error',
+                  errorMessage: 'Failed to initialize playback environment: ' + err.message
+              });
           });
-      });
   }
   
   if (request.type === 'CMD_STOP') {

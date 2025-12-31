@@ -57,7 +57,7 @@ class CurrencyNormalizer {
         }
 
         // Rule 1: Prefixed currencies with magnitude (SR3mn, RMB2bn)
-        add("(C\\$|CA\\$|A\\$|AU\\$|US\\$|NZ\\$|HK\\$|S\\$|SR|RMB)(\\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)") { m ->
+        add("(C\\$|CA\\$|A\\$|AU\\$|US\\$|NZ\\$|HK\\$|S\\$|SR|RMB)(\\d+(?:\\.\\d+)?)\\s*(trillion|billion|million|crore|lakh|bn|mn|tn|m|b|k)") { m ->
             val prefix = m.group(1) ?: ""
             val amount = m.group(2) ?: ""
             val suffix = m.group(3) ?: ""
@@ -72,7 +72,7 @@ class CurrencyNormalizer {
         }
 
         // Rule 2: ISO codes or prefixes with optional space and magnitude (SR 3mn, RMB 2bn)
-        add("\\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW|SR|RMB)\\s*(\\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)") { m ->
+        add("\\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW|SR|RMB)\\s*(\\d+(?:\\.\\d+)?)\\s*(trillion|billion|million|crore|lakh|bn|mn|tn|m|b|k)") { m ->
             val code = m.group(1)?.uppercase(Locale.ROOT) ?: ""
             val amount = m.group(2) ?: ""
             val suffix = m.group(3) ?: ""
@@ -94,7 +94,7 @@ class CurrencyNormalizer {
         }
 
         // Rule 4: Symbol + amount + magnitude (£800m, €500bn)
-        add("($symPattern)(\\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)\\b") { m ->
+        add("($symPattern)(\\d+(?:\\.\\d+)?)\\s*(trillion|billion|million|crore|lakh|bn|mn|tn|m|b|k)\\b") { m ->
             val symbol = m.group(1) ?: "$"
             val amount = m.group(2) ?: ""
             val suffix = m.group(3) ?: ""
@@ -106,7 +106,7 @@ class CurrencyNormalizer {
         }
 
         // Rule 5: Parenthetical magnitudes (£800m ($1.08bn), (SR3mn))
-        add("\\(($symPattern|C\\$|CA\\$|A\\$|AU\\$|US\\$|SR|RMB)(\\d+(?:\\.\\d+)?)(bn|mn|m|b|tn|k)\\)") { m ->
+        add("\\(($symPattern|C\\$|CA\\$|A\\$|AU\\$|US\\$|SR|RMB)(\\d+(?:\\.\\d+)?)\\s*(trillion|billion|million|crore|lakh|bn|mn|tn|m|b|k)\\)") { m ->
             val symbol = m.group(1) ?: "$"
             val amount = m.group(2) ?: ""
             val suffix = m.group(3) ?: ""
