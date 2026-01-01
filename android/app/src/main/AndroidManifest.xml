@@ -44,12 +44,14 @@
 
         <service android:name=".service.PlaybackService"
             android:foregroundServiceType="mediaPlayback"
-            android:exported="false" />
+            android:exported="false"
+            android:process=":tts_worker" />
 
         <service android:name=".service.SupertonicTextToSpeechService"
             android:exported="true"
             android:label="Supertonic TTS"
-            android:permission="android.permission.BIND_TEXT_TO_SPEECH_SERVICE">
+            android:permission="android.permission.BIND_TEXT_TO_SPEECH_SERVICE"
+            android:process=":tts_worker">
             <intent-filter>
                 <action android:name="android.intent.action.TTS_SERVICE" />
                 <category android:name="android.intent.category.DEFAULT" />

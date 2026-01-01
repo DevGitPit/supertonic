@@ -4,7 +4,7 @@ import android.util.Log
 
 object SupertonicTTS {
     private var nativePtr: Long = 0
-    private var progressListener: ProgressListener? = null
+    private val progressListener = ThreadLocal<ProgressListener>()
 
     interface ProgressListener {
         fun onProgress(current: Int, total: Int)
@@ -34,21 +34,17 @@ object SupertonicTTS {
     }
 
     fun setProgressListener(listener: ProgressListener?) {
-        this.progressListener = listener
+        this.progressListener.set(listener)
     }
 
     // Called from JNI
     fun notifyProgress(current: Int, total: Int) {
-        progressListener?.onProgress(current, total)
+        progressListener.get()?.onProgress(current, total)
     }
 
     // Called from JNI
     fun notifyAudioChunk(data: ByteArray) {
-        // Since we reverted to single listener in PlaybackService refactor (my mistake?), let's check.
-        // The singleton refactor REMOVED the list logic I tried to add.
-        // I need to add the list logic back if I want multiple listeners (App UI + Service).
-        // But for now, let's just assume one.
-        progressListener?.onAudioChunk(data)
+        progressListener.get()?.onAudioChunk(data)
     }
 
     @Volatile
@@ -63,6 +59,7 @@ object SupertonicTTS {
         return isCancelled
     }
 
+    @Synchronized
     fun generateAudio(text: String, stylePath: String, speed: Float = 1.0f, bufferDuration: Float = 0.0f, steps: Int = 5): ByteArray? {
         if (nativePtr == 0L) {
             Log.e("SupertonicTTS", "Engine not initialized")

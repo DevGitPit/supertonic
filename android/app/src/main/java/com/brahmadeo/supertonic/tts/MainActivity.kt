@@ -332,13 +332,11 @@ class MainActivity : AppCompatActivity() {
             val onnxFiles = assetManager.list("onnx") ?: return null
             for (filename in onnxFiles) {
                 val file = File(targetDir, filename)
-                if (!file.exists()) {
-                    val inFile = assetManager.open("onnx/$filename")
-                    val outStream = FileOutputStream(file)
-                    inFile.copyTo(outStream)
-                    inFile.close()
-                    outStream.close()
-                }
+                val inFile = assetManager.open("onnx/$filename")
+                val outStream = FileOutputStream(file)
+                inFile.copyTo(outStream)
+                inFile.close()
+                outStream.close()
             }
             
             val styleDir = File(filesDir, "voice_styles")
@@ -346,13 +344,11 @@ class MainActivity : AppCompatActivity() {
             val styleFiles = assetManager.list("voice_styles") ?: emptyArray()
              for (filename in styleFiles) {
                 val file = File(styleDir, filename)
-                if (!file.exists()) {
-                    val inFile = assetManager.open("voice_styles/$filename")
-                    val outStream = FileOutputStream(file)
-                    inFile.copyTo(outStream)
-                    inFile.close()
-                    outStream.close()
-                }
+                val inFile = assetManager.open("voice_styles/$filename")
+                val outStream = FileOutputStream(file)
+                inFile.copyTo(outStream)
+                inFile.close()
+                outStream.close()
             }
             return targetDir.absolutePath
         } catch (e: IOException) {

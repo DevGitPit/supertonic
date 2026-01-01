@@ -1,5 +1,7 @@
 package com.brahmadeo.supertonic.tts.service
 
+import android.app.Service
+import android.content.Context
 import android.speech.tts.SynthesisCallback
 import android.speech.tts.SynthesisRequest
 import android.speech.tts.TextToSpeech
@@ -147,22 +149,6 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
 
         callback.start(SupertonicTTS.getAudioSampleRate(), android.media.AudioFormat.ENCODING_PCM_16BIT, 1)
         
-        SupertonicTTS.setProgressListener(object : SupertonicTTS.ProgressListener {
-            override fun onProgress(current: Int, total: Int) {
-                // Ignore chunk progress for system TTS
-            }
-
-            override fun onAudioChunk(data: ByteArray) {
-                // Write streaming audio to callback
-                var offset = 0
-                while (offset < data.size) {
-                    val length = Math.min(4096, data.size - offset)
-                    callback.audioAvailable(data, offset, length)
-                    offset += length
-                }
-            }
-        })
-        
         // Load requested voice if possible, else fallback to preference
         val requestedVoice = request.voiceName
         val voiceFile = if (requestedVoice != null && requestedVoice.startsWith("en-us-supertonic-")) {
@@ -188,13 +174,20 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
             // Use 0 buffer for system TTS to reduce latency
             val audioData = SupertonicTTS.generateAudio(normalizedText, stylePath, effectiveSpeed, 0.0f, 5)
             
-            if (audioData == null) {
+            if (audioData != null) {
+                // Write streaming audio to callback directly
+                var offset = 0
+                while (offset < audioData.size) {
+                    val length = Math.min(4096, audioData.size - offset)
+                    callback.audioAvailable(audioData, offset, length)
+                    offset += length
+                }
+            } else {
                 Log.w("SupertonicTTS", "Failed to generate audio for segment: $sentence")
                 // We continue to next sentence instead of failing hard
             }
         }
         
-        SupertonicTTS.setProgressListener(null) // Cleanup
         stopSilence()
         
         if (success) {
@@ -251,38 +244,46 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
     private fun copyAssets(): String? {
         val filesDir = filesDir
         val targetDir = File(filesDir, "onnx")
-        if (!targetDir.exists()) {
-            if (!targetDir.mkdirs()) return null
-        }
+        val styleDir = File(filesDir, "voice_styles")
         
-        // Similar copy logic as MainActivity but simplified/robust
+        // Version Check
+        val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
+        val lastVersion = prefs.getInt("assets_version", 0)
+        val currentVersion = try {
+            packageManager.getPackageInfo(packageName, 0).versionCode
+        } catch (e: Exception) { 1 }
+
+        val needsUpdate = lastVersion < currentVersion
+        
+        if (!targetDir.exists()) targetDir.mkdirs()
+        if (!styleDir.exists()) styleDir.mkdirs()
+        
         try {
             val assetManager = assets
             val onnxFiles = assetManager.list("onnx") ?: return null
             for (filename in onnxFiles) {
                 val file = File(targetDir, filename)
-                if (!file.exists()) {
-                    val inFile = assetManager.open("onnx/$filename")
-                    val outStream = FileOutputStream(file)
-                    inFile.copyTo(outStream)
-                    inFile.close()
-                    outStream.close()
+                if (needsUpdate || !file.exists()) {
+                    assetManager.open("onnx/$filename").use { input ->
+                        FileOutputStream(file).use { output -> input.copyTo(output) }
+                    }
                 }
             }
             
-            val styleDir = File(filesDir, "voice_styles")
-            if (!styleDir.exists()) styleDir.mkdirs()
             val styleFiles = assetManager.list("voice_styles") ?: emptyArray()
              for (filename in styleFiles) {
                 val file = File(styleDir, filename)
-                if (!file.exists()) {
-                    val inFile = assetManager.open("voice_styles/$filename")
-                    val outStream = FileOutputStream(file)
-                    inFile.copyTo(outStream)
-                    inFile.close()
-                    outStream.close()
+                if (needsUpdate || !file.exists()) {
+                    assetManager.open("voice_styles/$filename").use { input ->
+                        FileOutputStream(file).use { output -> input.copyTo(output) }
+                    }
                 }
             }
+            
+            if (needsUpdate) {
+                prefs.edit().putInt("assets_version", currentVersion).apply()
+            }
+            
             return targetDir.absolutePath
         } catch (e: IOException) {
             return null
