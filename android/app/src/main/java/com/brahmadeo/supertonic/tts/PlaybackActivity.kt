@@ -45,6 +45,10 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
     private var currentVoicePath = ""
     private var currentSpeed = 1.0f
     private var currentSteps = 5
+    
+    // UI State tracking
+    private var isPlaying = false
+    private var isServiceActive = false
 
     companion object {
         const val EXTRA_TEXT = "extra_text"
@@ -105,8 +109,10 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
         setupList(currentText)
 
         playStopButton.setOnClickListener {
-            if (playbackService?.isServiceActive() == true) {
+            if (isPlaying) {
                 playbackService?.pause()
+            } else if (isServiceActive) {
+                playbackService?.play()
             } else {
                 if (currentSentenceIndex >= 0) {
                     playFromIndex(currentSentenceIndex)
@@ -233,12 +239,22 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
 
     override fun onStateChanged(isPlaying: Boolean, hasContent: Boolean, isSynthesizing: Boolean) {
         runOnUiThread {
-            if (isPlaying || isSynthesizing) {
+            this.isPlaying = isPlaying
+            this.isServiceActive = isPlaying || isSynthesizing
+            
+            if (isPlaying) {
                 playStopButton.text = "Pause"
                 stopButton.visibility = View.GONE
                 exportButton.visibility = View.GONE
-            } else {
+            } else if (isServiceActive) {
+                // Paused state
                 playStopButton.text = "Resume"
+                stopButton.visibility = View.VISIBLE
+                exportButton.visibility = View.VISIBLE
+                exportButton.isEnabled = true
+            } else {
+                // Stopped state
+                playStopButton.text = "Play"
                 stopButton.visibility = View.VISIBLE
                 exportButton.visibility = View.VISIBLE
                 exportButton.isEnabled = true
@@ -261,6 +277,8 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
 
     override fun onPlaybackStopped() {
         runOnUiThread {
+            isPlaying = false
+            isServiceActive = false
             playStopButton.text = "Play"
             stopButton.visibility = View.VISIBLE
             exportButton.visibility = View.VISIBLE
