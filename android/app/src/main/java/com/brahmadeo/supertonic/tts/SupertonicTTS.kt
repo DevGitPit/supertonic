@@ -4,12 +4,6 @@ import android.util.Log
 
 object SupertonicTTS {
     private var nativePtr: Long = 0
-    private var progressListener: ProgressListener? = null
-
-    interface ProgressListener {
-        fun onProgress(current: Int, total: Int)
-        fun onAudioChunk(data: ByteArray)
-    }
 
     init {
         try {
@@ -28,27 +22,55 @@ object SupertonicTTS {
 
     @Synchronized
     fun initialize(modelPath: String, libPath: String): Boolean {
-        if (nativePtr != 0L) return true // Already initialized
+        if (nativePtr != 0L) {
+            // Health check: Can we still talk to the engine?
+            if (getSocClass(nativePtr) != -1) {
+                Log.i("SupertonicTTS", "Engine already initialized and healthy")
+                return true
+            } else {
+                Log.w("SupertonicTTS", "Engine pointer exists but is unhealthy. Re-initializing...")
+                release()
+            }
+        }
+        
         nativePtr = init(modelPath, libPath)
-        return nativePtr != 0L
+        val success = nativePtr != 0L
+        if (success) {
+            Log.i("SupertonicTTS", "Engine initialized successfully: $nativePtr")
+        } else {
+            Log.e("SupertonicTTS", "Engine initialization FAILED")
+        }
+        return success
     }
 
-    fun setProgressListener(listener: ProgressListener?) {
-        this.progressListener = listener
+    private var listeners = java.util.concurrent.CopyOnWriteArrayList<ProgressListener>()
+    
+    @Volatile
+    private var currentSessionId: Long = 0
+
+    interface ProgressListener {
+        fun onProgress(sessionId: Long, current: Int, total: Int)
+        fun onAudioChunk(sessionId: Long, data: ByteArray)
+    }
+
+    fun addProgressListener(listener: ProgressListener) {
+        if (!listeners.contains(listener)) listeners.add(listener)
+    }
+
+    fun removeProgressListener(listener: ProgressListener) {
+        listeners.remove(listener)
     }
 
     // Called from JNI
     fun notifyProgress(current: Int, total: Int) {
-        progressListener?.onProgress(current, total)
+        val sid = currentSessionId
+        for (l in listeners) l.onProgress(sid, current, total)
     }
 
     // Called from JNI
     fun notifyAudioChunk(data: ByteArray) {
-        // Since we reverted to single listener in PlaybackService refactor (my mistake?), let's check.
-        // The singleton refactor REMOVED the list logic I tried to add.
-        // I need to add the list logic back if I want multiple listeners (App UI + Service).
-        // But for now, let's just assume one.
-        progressListener?.onAudioChunk(data)
+        val sid = currentSessionId
+        for (l in listeners) l.onAudioChunk(sid, data)
     }
 
     @Volatile
@@ -63,28 +85,40 @@ object SupertonicTTS {
         return isCancelled
     }
 
+    @Synchronized
     fun generateAudio(text: String, stylePath: String, speed: Float = 1.0f, bufferDuration: Float = 0.0f, steps: Int = 5): ByteArray? {
         if (nativePtr == 0L) {
             Log.e("SupertonicTTS", "Engine not initialized")
             return null
         }
-        // isCancelled = false // Removed to prevent race condition. Service must reset this.
-        val data = synthesize(nativePtr, text, stylePath, speed, bufferDuration, steps)
-        return if (data.isNotEmpty()) data else null
+        
+        currentSessionId++ // New session for every sentence
+        
+        try {
+            val data = synthesize(nativePtr, text, stylePath, speed, bufferDuration, steps)
+            return if (data.isNotEmpty()) data else null
+        } catch (e: Exception) {
+            Log.e("SupertonicTTS", "Native synthesis exception: ${e.message}")
+            return null
+        }
     }
 
+    @Synchronized
     fun getSoC(): Int {
         if (nativePtr == 0L) return -1
         return getSocClass(nativePtr)
     }
 
+    @Synchronized
     fun getAudioSampleRate(): Int {
         if (nativePtr == 0L) return 24000
         return getSampleRate(nativePtr)
     }
 
+    @Synchronized
     fun release() {
         if (nativePtr != 0L) {
+            Log.i("SupertonicTTS", "Releasing engine: $nativePtr")
             close(nativePtr)
             nativePtr = 0
         }

@@ -117,7 +117,7 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
         }
         
         stopButton.setOnClickListener {
-            playbackService?.stop()
+            playbackService?.stopPlayback()
             clearState()
             finish()
         }
@@ -128,7 +128,7 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
         }
         
         cancelExportBtn.setOnClickListener {
-            playbackService?.stop() // Cancels export
+            playbackService?.stopPlayback() // Cancels export
             hideExportOverlay()
         }
 
@@ -254,15 +254,8 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
             progressBar.max = total
             progressBar.progress = current
             
-            // Smooth centering scroll
-            val smoothScroller = object : androidx.recyclerview.widget.LinearSmoothScroller(this) {
-                override fun getVerticalSnapPreference(): Int = SNAP_TO_START
-                override fun calculateDtToFit(viewStart: Int, viewEnd: Int, boxStart: Int, boxEnd: Int, snapPreference: Int): Int {
-                    return (boxStart + (boxEnd - boxStart) / 2) - (viewStart + (viewEnd - viewStart) / 2)
-                }
-            }
-            smoothScroller.targetPosition = current
-            sentencesList.layoutManager?.startSmoothScroll(smoothScroller)
+            // Simple scroll to keep active sentence visible
+            sentencesList.smoothScrollToPosition(current)
         }
     }
 

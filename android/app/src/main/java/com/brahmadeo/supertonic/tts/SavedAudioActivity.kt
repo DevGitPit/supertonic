@@ -103,7 +103,7 @@ class SavedAudioActivity : AppCompatActivity() {
             holder.filename.text = file.name
             
             val date = Date(file.lastModified())
-            holder.audioDate.text = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault()).format(date)
+            holder.date.text = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault()).format(date)
             
             holder.playBtn.setOnClickListener { onPlay(file) }
             holder.deleteBtn.setOnClickListener { onDelete(file) }

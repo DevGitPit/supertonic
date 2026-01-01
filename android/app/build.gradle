@@ -1,17 +1,18 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
 }
 
 android {
     namespace 'com.brahmadeo.supertonic.tts'
-    compileSdk 34
+    compileSdk 35
     ndkVersion "26.1.10909125"
 
     defaultConfig {
         applicationId "com.brahmadeo.supertonic.tts"
         minSdk 24
-        targetSdk 34
+        targetSdk 35
         versionCode 2
         versionName "1.1"
         
@@ -35,9 +36,6 @@ android {
     }
     buildFeatures {
         compose true
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion '1.5.1'
     }
     packagingOptions {
         jniLibs {

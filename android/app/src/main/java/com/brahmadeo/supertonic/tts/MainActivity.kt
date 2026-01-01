@@ -1,11 +1,13 @@
 package com.brahmadeo.supertonic.tts
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
@@ -61,11 +63,6 @@ class MainActivity : AppCompatActivity() {
                     .setTitle("Play Selected Text?")
                     .setMessage("Would you like to start synthesis for this text immediately?")
                     .setPositiveButton("Yes") { _, _ ->
-                        // Stop current if any
-                        val stopIntent = Intent(this, PlaybackService::class.java)
-                        stopIntent.action = "STOP_PLAYBACK"
-                        startService(stopIntent)
-                        
                         generateAndPlay(selectedText)
                     }
                     .setNegativeButton("No", null)
@@ -182,11 +179,6 @@ class MainActivity : AppCompatActivity() {
         synthButton.setOnClickListener {
             val text = inputText.text.toString()
             if (text.isNotEmpty()) {
-                // Ensure service is stopped/ready before starting new
-                val stopIntent = Intent(this, PlaybackService::class.java)
-                stopIntent.action = "STOP_PLAYBACK"
-                startService(stopIntent)
-                
                 generateAndPlay(text)
             }
         }
