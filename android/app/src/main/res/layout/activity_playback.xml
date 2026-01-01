@@ -5,7 +5,21 @@
     android:layout_height="match_parent"
     android:background="@color/app_background">
 
-    <!-- Bird Image above the controls -->
+    <!-- Stop Button (Top Left, Hidden by default) -->
+    <Button
+        android:id="@+id/stopButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Stop"
+        android:backgroundTint="#FF5252"
+        android:textColor="@android:color/white"
+        android:visibility="gone"
+        android:layout_margin="16dp"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        android:elevation="4dp"/>
+
+    <!-- Bird Image -->
     <ImageView
         android:id="@+id/birdImage"
         android:layout_width="wrap_content"
@@ -53,14 +67,15 @@
                 android:text="Save WAV"
                 android:backgroundTint="@color/accent_gold"
                 android:textColor="@android:color/white"
-                android:textSize="16sp" />
+                android:textSize="16sp"
+                android:visibility="gone"/>
 
             <Button
                 android:id="@+id/playStopButton"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Stop"
+                android:text="Pause"
                 android:backgroundTint="@color/accent_gold"
                 android:textColor="@android:color/white"
                 android:textSize="16sp" />
@@ -69,7 +84,7 @@
             
     </LinearLayout>
 
-    <!-- Sentences List taking remaining space -->
+    <!-- Sentences List -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/sentencesList"
         android:layout_width="match_parent"
@@ -77,9 +92,54 @@
         android:scrollbars="vertical"
         android:padding="8dp"
         android:clipToPadding="false"
-        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/stopButton"
         app:layout_constraintBottom_toTopOf="@id/controlsContainer"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Export Progress Overlay (Hidden by default) -->
+    <RelativeLayout
+        android:id="@+id/exportOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#AA000000"
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true"
+        android:elevation="10dp">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:background="@android:color/white"
+            android:padding="24dp"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:minWidth="250dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Saving Audio..."
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="16dp"/>
+
+            <ProgressBar
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:indeterminate="true"/>
+
+            <Button
+                android:id="@+id/cancelExportBtn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Cancel"
+                android:layout_marginTop="16dp"
+                android:backgroundTint="#FF5252"
+                android:textColor="@android:color/white"/>
+        </LinearLayout>
+    </RelativeLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

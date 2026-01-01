@@ -29,7 +29,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var statusText: TextView
     private lateinit var voiceSpinner: Spinner
-    private lateinit var importVoiceBtn: Button
+    private lateinit var savedAudioBtn: Button
+    private lateinit var resetBtn: Button
     private lateinit var historyBtn: Button
     private lateinit var speedSeekBar: SeekBar
     private lateinit var speedValue: TextView
@@ -48,50 +49,6 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.RequestPermission()
     ) { }
 
-    private val importVoiceLauncher = registerForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            scope.launch(Dispatchers.IO) {
-                try {
-                    val contentResolver = applicationContext.contentResolver
-                    val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    contentResolver.takePersistableUriPermission(uri, takeFlags)
-                } catch (e: Exception) {
-                    // Ignore if unable to take persistable permission
-                }
-
-                try {
-                    val inputStream = contentResolver.openInputStream(uri)
-                    var filename = uri.lastPathSegment ?: "imported_voice.json"
-                    if (!filename.endsWith(".json")) filename += ".json"
-                    filename = filename.replace(Regex("[^a-zA-Z0-9._-]"), "_")
-                    
-                    val voiceDir = File(filesDir, "voice_styles")
-                    if (!voiceDir.exists()) voiceDir.mkdirs()
-                    
-                    val outFile = File(voiceDir, filename)
-                    val outputStream = FileOutputStream(outFile)
-                    
-                    inputStream?.use { input ->
-                        outputStream.use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "Imported $filename", Toast.LENGTH_SHORT).show()
-                        setupVoiceSpinner()
-                    }
-                } catch (e: Exception) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "Import Failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        }
-    }
-
     private val historyLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -99,7 +56,20 @@ class MainActivity : AppCompatActivity() {
             val selectedText = result.data?.getStringExtra("selected_text")
             if (!selectedText.isNullOrEmpty()) {
                 inputText.setText(selectedText)
-                Toast.makeText(this, "Loaded from History", Toast.LENGTH_SHORT).show()
+                
+                AlertDialog.Builder(this)
+                    .setTitle("Play Selected Text?")
+                    .setMessage("Would you like to start synthesis for this text immediately?")
+                    .setPositiveButton("Yes") { _, _ ->
+                        // Stop current if any
+                        val stopIntent = Intent(this, PlaybackService::class.java)
+                        stopIntent.action = "STOP_PLAYBACK"
+                        startService(stopIntent)
+                        
+                        generateAndPlay(selectedText)
+                    }
+                    .setNegativeButton("No", null)
+                    .show()
             }
         }
     }
@@ -125,7 +95,8 @@ class MainActivity : AppCompatActivity() {
 
         statusText = findViewById(R.id.statusText)
         voiceSpinner = findViewById(R.id.voiceSpinner)
-        importVoiceBtn = findViewById(R.id.importVoiceBtn)
+        savedAudioBtn = findViewById(R.id.savedAudioBtn)
+        resetBtn = findViewById(R.id.resetBtn)
         historyBtn = findViewById(R.id.historyBtn)
         speedSeekBar = findViewById(R.id.speedSeekBar)
         speedValue = findViewById(R.id.speedValue)
@@ -141,8 +112,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
         
-        importVoiceBtn.setOnClickListener {
-            importVoiceLauncher.launch("application/json")
+        savedAudioBtn.setOnClickListener {
+            startActivity(Intent(this, SavedAudioActivity::class.java))
+        }
+        
+        resetBtn.setOnClickListener {
+            inputText.setText("")
+            // Stop and reset
+            val stopIntent = Intent(this, PlaybackService::class.java)
+            stopIntent.action = "STOP_PLAYBACK"
+            startService(stopIntent)
+            Toast.makeText(this, "Reset", Toast.LENGTH_SHORT).show()
         }
 
         historyBtn.setOnClickListener {
@@ -153,8 +133,11 @@ class MainActivity : AppCompatActivity() {
         setupQualityControl()
         checkNotificationPermission()
 
+        // Explicitly disable and show loading state
         synthButton.isEnabled = false
+        synthButton.text = "Loading Engine..."
         statusText.text = "Initializing..."
+        statusText.visibility = View.VISIBLE
 
         startService(Intent(this, PlaybackService::class.java))
 
@@ -178,17 +161,20 @@ class MainActivity : AppCompatActivity() {
                     }
                     
                     withContext(Dispatchers.Main) {
-                        statusText.text = "Initialized (SoC: $socName)"
+                        statusText.text = "Ready (SoC: $socName)"
+                        synthButton.text = "Synthesize"
                         synthButton.isEnabled = true
                     }
                 } else {
                     withContext(Dispatchers.Main) {
                         statusText.text = "Initialization Failed"
+                        synthButton.text = "Engine Error"
                     }
                 }
             } else {
                 withContext(Dispatchers.Main) {
                     statusText.text = "Failed to copy assets"
+                    synthButton.text = "Asset Error"
                 }
             }
         }
@@ -196,11 +182,57 @@ class MainActivity : AppCompatActivity() {
         synthButton.setOnClickListener {
             val text = inputText.text.toString()
             if (text.isNotEmpty()) {
+                // Ensure service is stopped/ready before starting new
+                val stopIntent = Intent(this, PlaybackService::class.java)
+                stopIntent.action = "STOP_PLAYBACK"
+                startService(stopIntent)
+                
                 generateAndPlay(text)
             }
         }
         
         handleIntent(intent)
+        updateSavedAudioButtonVisibility()
+        checkResumeState()
+    }
+
+    private fun updateSavedAudioButtonVisibility() {
+        val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
+        val appDir = File(musicDir, "Supertonic Audio")
+        val hasFiles = appDir.exists() && (appDir.listFiles { _, name -> name.endsWith(".wav") }?.isNotEmpty() == true)
+        savedAudioBtn.visibility = if (hasFiles) View.VISIBLE else View.GONE
+    }
+
+    private fun checkResumeState() {
+        val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
+        val lastText = prefs.getString("last_text", null)
+        val isPlaying = prefs.getBoolean("is_playing", false)
+        
+        if (!lastText.isNullOrEmpty() && isPlaying) {
+            AlertDialog.Builder(this)
+                .setTitle("Resume Playback?")
+                .setMessage("Would you like to continue reading from where you left off?")
+                .setPositiveButton("Yes") { _, _ ->
+                    val intent = Intent(this, PlaybackActivity::class.java)
+                    intent.putExtra("is_resume", true)
+                    startActivity(intent)
+                }
+                .setNegativeButton("No") { _, _ ->
+                    getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).edit()
+                        .putBoolean("is_playing", false)
+                        .apply()
+                    // Housekeeping stop
+                    val stopIntent = Intent(this, PlaybackService::class.java)
+                    stopIntent.action = "STOP_PLAYBACK"
+                    startService(stopIntent)
+                }
+                .show()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateSavedAudioButtonVisibility()
     }
 
     override fun onNewIntent(intent: Intent?) {
@@ -210,23 +242,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
-        if (intent == null) {
-            android.util.Log.d("SupertonicDebug", "handleIntent: Intent is null")
-            return
-        }
-
-        android.util.Log.d("SupertonicDebug", "handleIntent: Action=${intent.action}")
-        android.util.Log.d("SupertonicDebug", "handleIntent: Data=${intent.data}")
-        android.util.Log.d("SupertonicDebug", "handleIntent: DataStr=${intent.dataString}")
-        android.util.Log.d("SupertonicDebug", "handleIntent: Scheme=${intent.scheme}")
-        android.util.Log.d("SupertonicDebug", "handleIntent: Host=${intent.data?.host}")
+        if (intent == null) return
 
         val extraText = intent.getStringExtra(Intent.EXTRA_TEXT)
         val paramText = intent.data?.getQueryParameter("text")
         
-        android.util.Log.d("SupertonicDebug", "handleIntent: EXTRA_TEXT=$extraText")
-        android.util.Log.d("SupertonicDebug", "handleIntent: QueryParam 'text'=$paramText")
-
         if (intent.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
             if (!sharedText.isNullOrEmpty()) {
@@ -234,14 +254,11 @@ class MainActivity : AppCompatActivity() {
                 statusText.text = "Received shared text"
             }
         } else {
-            // Check both standard extra and query param
             val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: intent.data?.getQueryParameter("text")
             
             if (!text.isNullOrEmpty()) {
                 inputText.setText(text)
                 statusText.text = "Received text from browser"
-            } else {
-                android.util.Log.d("SupertonicDebug", "handleIntent: No text found in intent")
             }
         }
     }
@@ -298,9 +315,18 @@ class MainActivity : AppCompatActivity() {
         voiceSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val name = voiceNames[position]
-                selectedVoiceFile = voiceFiles[name] ?: "M1.json"
-                getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
-                    .edit().putString("selected_voice", selectedVoiceFile).apply()
+                val newVoice = voiceFiles[name] ?: "M1.json"
+                
+                if (selectedVoiceFile != newVoice) {
+                    selectedVoiceFile = newVoice
+                    getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
+                        .edit().putString("selected_voice", selectedVoiceFile).apply()
+                    
+                    // Reset engine on voice change
+                    val resetIntent = Intent(this@MainActivity, PlaybackService::class.java)
+                    resetIntent.action = "RESET_ENGINE"
+                    startService(resetIntent)
+                }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
@@ -368,7 +394,6 @@ class MainActivity : AppCompatActivity() {
              return
         }
 
-        // Save to History
         val voiceName = voiceSpinner.selectedItem.toString()
         HistoryManager.saveItem(this, text, voiceName)
 

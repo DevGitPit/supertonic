@@ -4,6 +4,8 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.res.Configuration
+import android.graphics.PorterDuff
 import android.os.Bundle
 import android.os.Environment
 import android.os.IBinder
@@ -21,21 +23,28 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import android.graphics.PorterDuff
-import android.content.res.Configuration
 
 class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
 
     private lateinit var sentencesList: RecyclerView
     private lateinit var playStopButton: Button
+    private lateinit var stopButton: Button
     private lateinit var exportButton: Button
     private lateinit var progressBar: ProgressBar
     private lateinit var birdImage: ImageView
+    private lateinit var exportOverlay: RelativeLayout
+    private lateinit var cancelExportBtn: Button
 
     private var playbackService: PlaybackService? = null
     private var isBound = false
     private lateinit var adapter: SentenceAdapter
     private var currentSentenceIndex = -1
+    
+    // State persistence
+    private var currentText = ""
+    private var currentVoicePath = ""
+    private var currentSpeed = 1.0f
+    private var currentSteps = 5
 
     companion object {
         const val EXTRA_TEXT = "extra_text"
@@ -50,7 +59,12 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
             playbackService = binder.getService()
             playbackService?.setListener(this@PlaybackActivity)
             isBound = true
-            startPlaybackFromIntent()
+            
+            if (intent.getBooleanExtra("is_resume", false)) {
+                restoreState()
+            } else {
+                startPlaybackFromIntent()
+            }
         }
 
         override fun onServiceDisconnected(arg0: ComponentName) {
@@ -65,26 +79,34 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
 
         sentencesList = findViewById(R.id.sentencesList)
         playStopButton = findViewById(R.id.playStopButton)
+        stopButton = findViewById(R.id.stopButton)
         exportButton = findViewById(R.id.exportButton)
         progressBar = findViewById(R.id.progressBar)
         birdImage = findViewById(R.id.birdImage)
+        exportOverlay = findViewById(R.id.exportOverlay)
+        cancelExportBtn = findViewById(R.id.cancelExportBtn)
 
         setupBirdTheming()
 
-        val text = intent.getStringExtra(EXTRA_TEXT) ?: ""
+        currentText = intent.getStringExtra(EXTRA_TEXT) ?: ""
+        currentVoicePath = intent.getStringExtra(EXTRA_VOICE_PATH) ?: ""
+        currentSpeed = intent.getFloatExtra(EXTRA_SPEED, 1.0f)
+        currentSteps = intent.getIntExtra(EXTRA_STEPS, 5)
         
-        val normalizer = TextNormalizer()
-        val sentences = normalizer.splitIntoSentences(text)
-        
-        adapter = SentenceAdapter(sentences) { index ->
-            playFromIndex(index)
+        if (intent.getBooleanExtra("is_resume", false) && currentText.isEmpty()) {
+             val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
+             currentText = prefs.getString("last_text", "") ?: ""
+             currentVoicePath = prefs.getString("last_voice_path", "") ?: ""
+             currentSpeed = prefs.getFloat("last_speed", 1.0f)
+             currentSteps = prefs.getInt("last_steps", 5)
+             currentSentenceIndex = prefs.getInt("last_index", 0)
         }
-        sentencesList.layoutManager = LinearLayoutManager(this)
-        sentencesList.adapter = adapter
+
+        setupList(currentText)
 
         playStopButton.setOnClickListener {
             if (playbackService?.isServiceActive() == true) {
-                playbackService?.stop()
+                playbackService?.pause()
             } else {
                 if (currentSentenceIndex >= 0) {
                     playFromIndex(currentSentenceIndex)
@@ -93,74 +115,133 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
                 }
             }
         }
+        
+        stopButton.setOnClickListener {
+            playbackService?.stop()
+            clearState()
+            finish()
+        }
 
         exportButton.setOnClickListener {
-            val textToExport = intent.getStringExtra(EXTRA_TEXT) ?: return@setOnClickListener
-            val voicePath = intent.getStringExtra(EXTRA_VOICE_PATH) ?: return@setOnClickListener
-            val speed = intent.getFloatExtra(EXTRA_SPEED, 1.0f)
-            val steps = intent.getIntExtra(EXTRA_STEPS, 5)
-            
-            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-            val filename = "Supertonic_TTS_$timestamp.wav"
-            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val file = File(downloadsDir, filename)
-            
-            Toast.makeText(this, "Exporting to Downloads...", Toast.LENGTH_SHORT).show()
-            exportButton.isEnabled = false
-            
-            playbackService?.exportAudio(textToExport, voicePath, speed, steps, file) { success ->
-                runOnUiThread {
-                    exportButton.isEnabled = true
-                    if (success) {
-                        Toast.makeText(this, "Saved to ${file.absolutePath}", Toast.LENGTH_LONG).show()
-                    } else {
-                        Toast.makeText(this, "Export Failed", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
+            showExportOverlay()
+            startExport()
+        }
+        
+        cancelExportBtn.setOnClickListener {
+            playbackService?.stop() // Cancels export
+            hideExportOverlay()
         }
 
         val intent = Intent(this, PlaybackService::class.java)
         bindService(intent, connection, Context.BIND_AUTO_CREATE)
     }
+    
+    private fun setupList(text: String) {
+        val normalizer = TextNormalizer()
+        val sentences = normalizer.splitIntoSentences(text)
+        adapter = SentenceAdapter(sentences) { index ->
+            playFromIndex(index)
+        }
+        sentencesList.layoutManager = LinearLayoutManager(this)
+        sentencesList.adapter = adapter
+        
+        if (currentSentenceIndex >= 0 && currentSentenceIndex < sentences.size) {
+            adapter.setCurrentIndex(currentSentenceIndex)
+            sentencesList.scrollToPosition(currentSentenceIndex)
+        }
+    }
 
     private fun setupBirdTheming() {
         val isDarkMode = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         val goldColor = ContextCompat.getColor(this, R.color.accent_gold)
-        
         if (isDarkMode) {
-            // Screen mode makes checkerboard disappear in dark mode
             birdImage.setColorFilter(goldColor, PorterDuff.Mode.SCREEN)
         } else {
-            // Multiply mode makes checkerboard disappear in light mode
             birdImage.setColorFilter(goldColor, PorterDuff.Mode.MULTIPLY)
         }
     }
 
     private fun startPlaybackFromIntent() {
-        val text = intent.getStringExtra(EXTRA_TEXT) ?: return
-        val voicePath = intent.getStringExtra(EXTRA_VOICE_PATH) ?: return
-        val speed = intent.getFloatExtra(EXTRA_SPEED, 1.0f)
-        val steps = intent.getIntExtra(EXTRA_STEPS, 5)
-        
-        playbackService?.synthesizeAndPlay(text, voicePath, speed, steps)
+        if (currentText.isEmpty()) return
+        saveState()
+        playbackService?.synthesizeAndPlay(currentText, currentVoicePath, currentSpeed, currentSteps)
     }
 
     private fun playFromIndex(index: Int) {
-        val text = intent.getStringExtra(EXTRA_TEXT) ?: return
-        val voicePath = intent.getStringExtra(EXTRA_VOICE_PATH) ?: return
-        val speed = intent.getFloatExtra(EXTRA_SPEED, 1.0f)
-        val steps = intent.getIntExtra(EXTRA_STEPS, 5)
+        if (currentText.isEmpty()) return
+        saveState()
+        playbackService?.synthesizeAndPlay(currentText, currentVoicePath, currentSpeed, currentSteps, index)
+    }
+    
+    private fun saveState() {
+        getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).edit()
+            .putString("last_text", currentText)
+            .putString("last_voice_path", currentVoicePath)
+            .putFloat("last_speed", currentSpeed)
+            .putInt("last_steps", currentSteps)
+            .putBoolean("is_playing", true)
+            .apply()
+    }
+    
+    private fun updateIndexState(index: Int) {
+        getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).edit()
+            .putInt("last_index", index)
+            .apply()
+    }
+    
+    private fun clearState() {
+        getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).edit()
+            .putBoolean("is_playing", false)
+            .apply()
+    }
+    
+    private fun restoreState() {
+        if (playbackService?.isServiceActive() == false) {
+             onStateChanged(false, true, false)
+        }
+    }
+
+    private fun startExport() {
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val filename = "Supertonic_TTS_$timestamp.wav"
         
-        playbackService?.synthesizeAndPlay(text, voicePath, speed, steps, index)
+        val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
+        val appDir = File(musicDir, "Supertonic Audio")
+        if (!appDir.exists()) appDir.mkdirs()
+        
+        val file = File(appDir, filename)
+        
+        playbackService?.exportAudio(currentText, currentVoicePath, currentSpeed, currentSteps, file) { success ->
+            runOnUiThread {
+                hideExportOverlay()
+                if (success) {
+                    Toast.makeText(this, "Saved to Music/Supertonic Audio", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this, "Export Cancelled or Failed", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+    
+    private fun showExportOverlay() {
+        exportOverlay.visibility = View.VISIBLE
+    }
+    
+    private fun hideExportOverlay() {
+        exportOverlay.visibility = View.GONE
     }
 
     override fun onStateChanged(isPlaying: Boolean, hasContent: Boolean, isSynthesizing: Boolean) {
         runOnUiThread {
             if (isPlaying || isSynthesizing) {
-                playStopButton.text = "Stop"
+                playStopButton.text = "Pause"
+                stopButton.visibility = View.GONE
+                exportButton.visibility = View.GONE
             } else {
-                playStopButton.text = "Play"
+                playStopButton.text = "Resume"
+                stopButton.visibility = View.VISIBLE
+                exportButton.visibility = View.VISIBLE
+                exportButton.isEnabled = true
             }
         }
     }
@@ -168,16 +249,28 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
     override fun onProgress(current: Int, total: Int) {
         runOnUiThread {
             currentSentenceIndex = current
+            updateIndexState(current)
             adapter.setCurrentIndex(current)
             progressBar.max = total
             progressBar.progress = current
-            sentencesList.smoothScrollToPosition(current)
+            
+            // Smooth centering scroll
+            val smoothScroller = object : androidx.recyclerview.widget.LinearSmoothScroller(this) {
+                override fun getVerticalSnapPreference(): Int = SNAP_TO_START
+                override fun calculateDtToFit(viewStart: Int, viewEnd: Int, boxStart: Int, boxEnd: Int, snapPreference: Int): Int {
+                    return (boxStart + (boxEnd - boxStart) / 2) - (viewStart + (viewEnd - viewStart) / 2)
+                }
+            }
+            smoothScroller.targetPosition = current
+            sentencesList.layoutManager?.startSmoothScroll(smoothScroller)
         }
     }
 
     override fun onPlaybackStopped() {
         runOnUiThread {
             playStopButton.text = "Play"
+            stopButton.visibility = View.VISIBLE
+            exportButton.visibility = View.VISIBLE
         }
     }
     

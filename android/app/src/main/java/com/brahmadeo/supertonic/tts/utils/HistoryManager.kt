@@ -17,7 +17,7 @@ data class HistoryItem(
 
 object HistoryManager {
     private const val FILE_NAME = "synthesis_history.json"
-    private const val MAX_ITEMS = 50
+    private const val MAX_ITEMS = 10
 
     fun saveItem(context: Context, text: String, voiceName: String) {
         val list = loadHistory(context).toMutableList()

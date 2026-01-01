@@ -173,6 +173,11 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
         }
         val stylePath = File(filesDir, "voice_styles/$voiceFile").absolutePath
         
+        // Defensive Re-init
+        val modelPath = File(filesDir, "onnx").absolutePath
+        val libPath = applicationInfo.nativeLibraryDir + "/libonnxruntime.so"
+        SupertonicTTS.initialize(modelPath, libPath)
+        
         // PROCESSING: Split into sentences to prevent timeouts on long text
         val sentences = textNormalizer.splitIntoSentences(rawText)
         var success = true
