@@ -603,6 +603,22 @@ class TextNormalizer {
             },
             
             // YEARS
+            // Rule 12b: 2000-2009 (Priority over general split)
+            {
+                pattern: /\b200(\d)\b/g,
+                replacement: (match, digit) => {
+                    return digit === '0' ? 'two thousand' : `two thousand ${digit}`;
+                }
+            },
+            
+            // Rule 12c: 1900-1909
+            {
+                pattern: /\b190(\d)\b/g,
+                replacement: (match, digit) => {
+                     return digit === '0' ? 'nineteen hundred' : `nineteen oh ${digit}`;
+                }
+            },
+
             // Rule 13: Four-digit years (1998, 2025) - split for natural reading
             {
                 pattern: /\b(19|20)(\d{2})\b(?!s)/g,

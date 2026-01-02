@@ -109,6 +109,19 @@ class TextNormalizer {
             numberToOrdinal(num)
         }
 
+        // YEARS
+        // Rule: 2000-2009 (Priority over general split)
+        addLambda("\\b200(\\d)\\b") { m ->
+            val digit = m.group(1) ?: "0"
+            if (digit == "0") "two thousand" else "two thousand $digit"
+        }
+
+        // Rule: 1900-1909
+        addLambda("\\b190(\\d)\\b") { m ->
+            val digit = m.group(1) ?: "0"
+            if (digit == "0") "nineteen hundred" else "nineteen oh $digit"
+        }
+
         // YEARS (Split 4 digit years starting with 19 or 20)
         addLambda("\\b(19|20)(\\d{2})\\b(?!s)") { m ->
             "${m.group(1)} ${m.group(2)}"
