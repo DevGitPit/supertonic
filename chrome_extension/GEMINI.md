@@ -19,6 +19,10 @@ This directory contains the source code for the **Supertonic Chrome Extension**,
     *   `currencyNormalizer.js`: A dedicated class for converting complex currency formats (e.g., "$1.5bn", "€500m", "₹10k") into speakable text ("1 point 5 billion dollars").
     *   `numberUtils.js`: (Likely) handles general number formatting, phone numbers, and measurements.
 *   **Playback**: Uses the `chrome.tts` API, delegating actual synthesis to the local backend.
+*   **Communication & Stability**:
+    *   **OFFSCREEN_READY Handshake**: Implements an explicit handshake between the background service worker and offscreen document to ensure reliable initialization.
+    *   **Retry Mechanism**: `safeRuntimeMessage` include automated retries to handle extension suspension and cold-boot race conditions.
+    *   **Asynchronous Cleanup**: Stop commands are fully asynchronous to prevent race conditions during playback interruption.
 
 ## Development & Usage
 
@@ -28,8 +32,9 @@ This directory contains the source code for the **Supertonic Chrome Extension**,
 3.  **Local Server (Optional/Alternative)**: The extension also requests host permissions for `http://127.0.0.1:8080`, allowing it to fetch audio from the Python/C++ server.
 
 ### Key Files
-*   `background.js`: Main event loop and message coordinator.
-*   `offscreen.html` / `offscreen.js`: Handles audio context creation (workaround for Service Worker limitations).
+*   `background.js`: Main event loop, message coordinator, and lifecycle manager.
+*   `offscreen.html` / `offscreen.js`: Handles audio context creation and playback loops (fetch-decode-play).
+*   `popup.js`: Manages UI state, including setting locks during active playback and intent-based communication with the Android app.
 *   `tests/normalization_tests.txt`: Contains test cases and expected outputs for the text normalization logic (Currency, Numbers, Dates).
 
 ### Testing
