@@ -445,11 +445,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
   function seekTo(index) {
       currentSentenceIndex = index;
-      // We need to restart streaming from index, for both engines now
-      startServerPlayback(index); // This function delegates to CMD_START_STREAM
-      // Note: startServerPlayback is poorly named now, effectively it is "startPlayback"
-      // but we will keep the name or could refactor. 
-      // Actually, startServerPlayback sets engine: 'supertonic'.
       
       if (currentEngine === 'system') {
           startSystemPlayback(index);

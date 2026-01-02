@@ -998,6 +998,10 @@ async function processFetchLoop(signal) {
 
     while (isStreaming && fetchIndex < currentSentences.length) {
         if (signal.aborted) break;
+        if (currentEngine !== 'supertonic') {
+            console.log(`${LOG_PREFIX} [FETCH_LOOP] Engine changed to ${currentEngine}`);
+            break;
+        }
         
         if (audioQueue.length > 10) {
             await waitForTick();
