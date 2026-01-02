@@ -10,6 +10,16 @@ PORT = 8080
 HOST_PATH = "./cpp/build/start_host.sh"
 
 class TTSHandler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/health':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok"}).encode('utf-8'))
+        else:
+            self.send_error(404)
+
     def do_POST(self):
         if self.path == '/synthesize':
             content_length = int(self.headers['Content-Length'])

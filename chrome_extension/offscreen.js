@@ -791,7 +791,7 @@ async function processSystemLoop(signal) {
         console.log(`${LOG_PREFIX} [SYSTEM_LOOP] ----------------------------------------`);
         console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Sentence ${fetchIndex + 1}/${currentSentences.length}`);
         console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Length: ${sentenceObj.text.length} chars`);
-        console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Text: "${sentenceObj.text.substring(0, 100)}..."`);
+        console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Text: "${sentenceObj.text.substring(0, 100)}"...`);
         console.log(`${LOG_PREFIX} [SYSTEM_LOOP] ----------------------------------------`);
         
         chrome.runtime.sendMessage({ type: 'UPDATE_PROGRESS', index: lastPlayedIndex });
@@ -808,6 +808,11 @@ async function processSystemLoop(signal) {
             
             await speakSystemSentence(textToSpeak, signal);
             
+            if (signal.aborted) {
+                console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Signal aborted after sentence, exiting loop`);
+                break;
+            }
+
             console.log(`${LOG_PREFIX} [SYSTEM_LOOP] ✓✓✓ Sentence ${beforeIndex + 1} SUCCESS ✓✓✓`);
             
             sentenceSuccess = true;
@@ -816,6 +821,11 @@ async function processSystemLoop(signal) {
             await new Promise(resolve => setTimeout(resolve, 150));
             
         } catch (e) {
+            if (e.message === 'Aborted' || signal.aborted) {
+                console.log(`${LOG_PREFIX} [SYSTEM_LOOP] Loop caught abort, exiting`);
+                break;
+            }
+
             consecutiveErrors++;
             console.error(`${LOG_PREFIX} [SYSTEM_LOOP] ✗✗✗ Sentence ${beforeIndex + 1} ERROR (consecutive: ${consecutiveErrors}) ✗✗✗`);
             console.error(`${LOG_PREFIX} [SYSTEM_LOOP] Error:`, e);
@@ -831,16 +841,10 @@ async function processSystemLoop(signal) {
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
         
-        // ALWAYS increment
+        // ALWAYS increment if not aborted
         if (!signal.aborted && isStreaming) {
             fetchIndex++;
             console.log(`${LOG_PREFIX} [SYSTEM_LOOP] ►►► Moving from ${beforeIndex + 1} to ${fetchIndex + 1} ►►►`);
-            
-            // Safety check
-            if (fetchIndex === beforeIndex) {
-                console.error(`${LOG_PREFIX} [SYSTEM_LOOP] ⚠️⚠️⚠️ INDEX NOT INCREMENTED! Force increment ⚠️⚠️⚠️`);
-                fetchIndex = beforeIndex + 1;
-            }
         }
     }
     
@@ -859,8 +863,8 @@ async function processSystemLoop(signal) {
 }
 
 function speakSystemSentence(text, signal, maxAttempts = 2) {
-    return new Promise((resolve) => {
-        if (signal.aborted) return resolve();
+    return new Promise((resolve, reject) => {
+        if (signal.aborted) return reject(new Error('Aborted'));
         
         const sentenceId = `s${fetchIndex}_${Date.now().toString(36)}`;
         console.log(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} Starting (${text.length} chars)`);
@@ -879,7 +883,7 @@ function speakSystemSentence(text, signal, maxAttempts = 2) {
         let resolved = false;
         let watchdogTimer = null;
 
-        const cleanup = (reason) => {
+        const cleanup = (reason, error = null) => {
             if (resolved) return;
             resolved = true;
             
@@ -897,17 +901,24 @@ function speakSystemSentence(text, signal, maxAttempts = 2) {
             }
             
             signal.removeEventListener('abort', abortHandler);
-            resolve();
+            
+            if (error) reject(error);
+            else resolve();
         };
 
         const abortHandler = () => {
             console.log(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} Aborted`);
             chrome.runtime.sendMessage({ type: 'CMD_TTS_STOP' });
-            cleanup('aborted');
+            cleanup('aborted', new Error('Aborted'));
         };
         
         const responseListener = (msg) => {
             if (msg.type === 'ACT_TTS_DONE') {
+                // Ignore events for other sentences (cross-talk prevention)
+                if (msg.requestId && msg.requestId !== sentenceId) {
+                    return;
+                }
+
                 console.log(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} Got ACT_TTS_DONE: ${msg.eventType}`);
                 
                 if (watchdogTimer) {
@@ -921,13 +932,19 @@ function speakSystemSentence(text, signal, maxAttempts = 2) {
                 } else {
                     console.warn(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} ✗ Failed: ${msg.eventType}`);
                     
+                    // DON'T retry if it was an intentional stop or if signal was aborted
+                    if (msg.eventType === 'interrupted' || msg.eventType === 'cancelled' || signal.aborted) {
+                        cleanup('interrupted', new Error('Aborted'));
+                        return;
+                    }
+
                     if (attempt < maxAttempts) {
                         const delay = 1000;
                         console.log(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} Retry in ${delay}ms`);
                         setTimeout(trySpeak, delay);
                     } else {
                         console.error(`${LOG_PREFIX} [SYSTEM_TTS] ${sentenceId} Giving up after ${maxAttempts} attempts`);
-                        cleanup('max_attempts');
+                        cleanup('max_attempts', new Error('Failed after retries'));
                     }
                 }
             }
@@ -950,6 +967,7 @@ function speakSystemSentence(text, signal, maxAttempts = 2) {
 
             const ttsMessage = {
                 type: 'CMD_TTS_SPEAK',
+                requestId: sentenceId,
                 text: text,
                 rate: currentSpeed
             };
@@ -1224,7 +1242,7 @@ function splitIntoSentences(text) {
     
     console.log(`${LOG_PREFIX} Split into ${sentences.length} sentences`);
     sentences.slice(0, 3).forEach((s, i) => {
-        console.log(`${LOG_PREFIX} Sentence ${i}: "${s.text.substring(0, 60)}..."`);
+        console.log(`${LOG_PREFIX} Sentence ${i}: "${s.text.substring(0, 60)}"...`);
     });
     
     return sentences;

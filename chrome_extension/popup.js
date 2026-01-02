@@ -598,6 +598,8 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   function updateUIState(playing) {
+      const settingsCard = document.getElementById('settingsCard');
+      
       if (playing) {
           playIcon.style.display = 'none';
           stopIcon.style.display = 'block';
@@ -605,6 +607,14 @@ document.addEventListener('DOMContentLoaded', function() {
           statusBadge.textContent = "🎧 Playing";
           fetchBtn.style.display = 'none';
           playbackProgress.style.display = 'flex';
+          
+          // Lock settings
+          settingsCard.style.opacity = '0.6';
+          settingsCard.style.pointerEvents = 'none';
+          if (serverControlsCard) {
+              serverControlsCard.style.opacity = '0.6';
+              serverControlsCard.style.pointerEvents = 'none';
+          }
       } else {
           playIcon.style.display = 'block';
           stopIcon.style.display = 'none';
@@ -612,7 +622,23 @@ document.addEventListener('DOMContentLoaded', function() {
           fetchBtn.style.display = 'flex';
           // Keep progress visible if we are in playback mode
           playbackProgress.style.display = isPlaybackMode ? 'flex' : 'none';
+          
+          // Unlock settings
+          settingsCard.style.opacity = '1';
+          settingsCard.style.pointerEvents = 'auto';
+          if (serverControlsCard) {
+              serverControlsCard.style.opacity = '1';
+              serverControlsCard.style.pointerEvents = 'auto';
+          }
       }
+      
+      // Explicitly disable inputs for accessibility/keyboard
+      voiceSelect.disabled = playing;
+      speedRange.disabled = playing;
+      stepRange.disabled = playing;
+      bufferRange.disabled = playing;
+      engineSystemRadio.disabled = playing;
+      engineServerRadio.disabled = playing;
       
       if (isPlaybackMode && sentences.length > 0) {
           progressTotal.textContent = sentences.length;
