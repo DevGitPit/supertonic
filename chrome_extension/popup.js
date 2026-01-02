@@ -155,18 +155,16 @@ document.addEventListener('DOMContentLoaded', function() {
               if (state.voice) {
                    setTimeout(() => { voiceSelect.value = state.voice; }, 500); 
               }
-              if (state.speed) { speedRange.value = state.speed; speedValue.textContent = state.speed; }
+              if (state.speed) { 
+                  speedRange.value = state.speed; 
+                  speedValue.textContent = state.speed;
+                  updateSliderFill(speedRange);
+              }
               
-              if (state.isStreaming) {
-                  playIcon.style.display = 'none';
-                  stopIcon.style.display = 'block';
-                  playPauseBtn.classList.add('playing');
-                  statusBadge.textContent = "🎧 Playing";
-                  fetchBtn.style.display = 'none';
+              updateUIState(state.isStreaming, state.isPaused);
+              if (state.isStreaming || state.isPaused) {
                   playbackProgress.style.display = 'flex';
                   progressTotal.textContent = sentences.length;
-              } else if (state.isPaused) {
-                   statusBadge.textContent = "⏸️ Paused";
               }
           }
       });
@@ -287,6 +285,7 @@ document.addEventListener('DOMContentLoaded', function() {
               link.href = uri; link.click();
           }, args: [intentUri] });
           statusBadge.textContent = "Sent";
+          stopPlayback();
       } catch (e) { statusBadge.textContent = "Error"; }
   });
 
@@ -342,13 +341,22 @@ document.addEventListener('DOMContentLoaded', function() {
 
   function checkServerStatus() {
       if (currentEngine !== 'supertonic') return;
+      playPauseBtn.disabled = true; // Disable until we confirm status
       fetch('http://127.0.0.1:8080/synthesize', { method: 'OPTIONS' })
       .then(resp => {
           if (resp.ok) {
               serverAvailable = true;
               voiceSelect.innerHTML = "";
               ["F1", "F2", "F3", "F4", "F5", "M1", "M2", "M3", "M4", "M5"].forEach(v => voiceSelect.add(new Option(v, v + ".json")));
-              playPauseBtn.disabled = false;
+              
+              // Restore saved voice if it exists in the new list
+              chrome.storage.local.get(['savedVoice'], (result) => {
+                  if (result.savedVoice) voiceSelect.value = result.savedVoice;
+                  if (!voiceSelect.value && voiceSelect.options.length > 0) {
+                      voiceSelect.selectedIndex = 0;
+                  }
+                  playPauseBtn.disabled = false;
+              });
           }
       }).catch(() => {
           serverAvailable = false;
@@ -404,16 +412,21 @@ document.addEventListener('DOMContentLoaded', function() {
       }
   }
   
-  function updateUIState(playing) {
+  function updateUIState(playing, paused = false) {
       const settingsCard = document.getElementById('settingsCard');
-      if (playing) {
+      const serverControlsCard = document.getElementById('serverControlsCard');
+      const active = playing || paused;
+
+      if (active) {
           playIcon.style.display = 'none';
           stopIcon.style.display = 'block';
           playPauseBtn.classList.add('playing');
-          statusBadge.textContent = "🎧 Playing";
+          statusBadge.textContent = paused ? "⏸️ Paused" : "🎧 Playing";
           fetchBtn.style.display = 'none';
           settingsCard.style.opacity = '0.6';
           settingsCard.style.pointerEvents = 'none';
+          serverControlsCard.style.opacity = '0.6';
+          serverControlsCard.style.pointerEvents = 'none';
       } else {
           playIcon.style.display = 'block';
           stopIcon.style.display = 'none';
@@ -421,6 +434,8 @@ document.addEventListener('DOMContentLoaded', function() {
           fetchBtn.style.display = 'flex';
           settingsCard.style.opacity = '1';
           settingsCard.style.pointerEvents = 'auto';
+          serverControlsCard.style.opacity = '1';
+          serverControlsCard.style.pointerEvents = 'auto';
       }
   }
 

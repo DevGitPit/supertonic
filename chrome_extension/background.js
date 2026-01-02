@@ -21,21 +21,28 @@ const SERVER_CHECK_INTERVAL = 30000;
 // 2. UTILS
 // ==========================================
 
-async function safeRuntimeMessage(message) {
-  try {
-    // Check if getContexts is available (Chrome 116+)
-    if (chrome.runtime.getContexts) {
-      const contexts = await chrome.runtime.getContexts({});
-      if (contexts.length === 0) return null;
+async function safeRuntimeMessage(message, retries = 3, delay = 100) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await chrome.runtime.sendMessage(message);
+    } catch (error) {
+      const errorMsg = error.message || '';
+      const isRetryable = errorMsg.includes('Could not establish connection') || 
+                         errorMsg.includes('Receiving end does not exist');
+      
+      if (isRetryable && i < retries - 1) {
+        console.log(`[BACKGROUND] Message retry ${i + 1}/${retries} for ${message.type}...`);
+        await new Promise(resolve => setTimeout(resolve, delay * (i + 1)));
+        continue;
+      }
+      
+      if (!isRetryable && !errorMsg.includes('Receiving end does not exist')) {
+        console.warn('[BACKGROUND] Non-retryable message error:', error.message);
+      }
+      return null;
     }
-    return await chrome.runtime.sendMessage(message);
-  } catch (error) {
-    if (!error.message.includes('Could not establish connection') &&
-        !error.message.includes('Receiving end does not exist')) {
-      console.warn('[BACKGROUND] Message error:', error.message);
-    }
-    return null;
   }
+  return null;
 }
 
 function resetIdleTimer() {
@@ -63,6 +70,11 @@ async function closeOffscreen() {
     } catch (e) {
         // Already closed or API not available
     }
+}
+
+function clearAllIntervals() {
+  activePollIntervals.forEach(interval => clearInterval(interval));
+  activePollIntervals.clear();
 }
 
 // ==========================================
@@ -94,6 +106,8 @@ async function checkServerConnection() {
 // 4. OFFSCREEN DOCUMENT MANAGEMENT
 // ==========================================
 
+let offscreenReadyResolve = null;
+
 async function setupOffscreenDocument(path) {
   const offscreenUrl = chrome.runtime.getURL(path);
   try {
@@ -106,12 +120,19 @@ async function setupOffscreenDocument(path) {
     }
 
     if (creatingPromise) {
-      await Promise.race([
-        creatingPromise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000))
-      ]);
+      await creatingPromise;
       return;
     }
+
+    const readyPromise = new Promise(resolve => {
+        offscreenReadyResolve = resolve;
+        setTimeout(() => { 
+          if (offscreenReadyResolve === resolve) {
+            offscreenReadyResolve = null; 
+            resolve(); 
+          }
+        }, 3000); // 3 seconds timeout for ready signal
+    });
 
     creatingPromise = chrome.offscreen.createDocument({
       url: path,
@@ -119,19 +140,14 @@ async function setupOffscreenDocument(path) {
       justification: 'Background TTS playback',
     });
     
-    creationTimeout = setTimeout(() => { creatingPromise = null; }, 5000);
     await creatingPromise;
-    clearTimeout(creationTimeout);
+    await readyPromise;
   } catch (err) {
     if (!err.message.includes('already exists')) throw err;
   } finally {
     creatingPromise = null;
+    offscreenReadyResolve = null;
   }
-}
-
-function clearAllIntervals() {
-  activePollIntervals.forEach(interval => clearInterval(interval));
-  activePollIntervals.clear();
 }
 
 // ==========================================
@@ -139,6 +155,16 @@ function clearAllIntervals() {
 // ==========================================
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // --- HANDLER: OFFSCREEN READY ---
+  if (request.type === 'OFFSCREEN_READY') {
+      if (offscreenReadyResolve) {
+          offscreenReadyResolve();
+          offscreenReadyResolve = null;
+      }
+      sendResponse({ status: 'ok' });
+      return false;
+  }
+
   // --- HANDLER: START STREAMING ---
   if (request.type === 'CMD_START_STREAM') {
     (async () => {
@@ -170,13 +196,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   // --- HANDLER: STOP ---
   if (request.type === 'CMD_STOP' || request.type === 'CMD_FORCE_CLEANUP') {
-    clearAllIntervals();
-    chrome.tts.stop();
-    safeRuntimeMessage({ type: 'ACT_STOP' });
-    resetIdleTimer();
-    if (request.type === 'CMD_FORCE_CLEANUP') closeOffscreen();
-    sendResponse({ status: 'stopped' });
-    return false;
+    (async () => {
+      clearAllIntervals();
+      chrome.tts.stop();
+      await safeRuntimeMessage({ type: 'ACT_STOP' });
+      resetIdleTimer();
+      if (request.type === 'CMD_FORCE_CLEANUP') await closeOffscreen();
+      sendResponse({ status: 'stopped' });
+    })();
+    return true;
   }
 
   // --- HANDLER: PROGRESS TRACKING ---

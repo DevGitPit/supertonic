@@ -33,7 +33,8 @@ let silenceAudioElement = null;
 let tickResolvers = [];
 let lastTickTime = 0;
 
-const LOG_PREFIX = '[OFFSCREEN]';
+// Notify background that we are ready
+chrome.runtime.sendMessage({ type: 'OFFSCREEN_READY' }).catch(() => {});
 
 // ==========================================
 // 1. CLEANUP LOGIC
@@ -500,6 +501,10 @@ function scheduleAudio() {
 }
 
 async function sendSynthesizeRequest(text, signal) {
+    if (!currentVoice || currentVoice.trim() === '') {
+        console.warn(`${LOG_PREFIX} No voice selected for synthesis`);
+        return { error: 'No voice selected' };
+    }
     const controller = new AbortController();
     activeConnections.add(controller);
     const combinedSignal = signal ? signal : controller.signal;
