@@ -34,8 +34,8 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
     private val binder = LocalBinder()
     private lateinit var mediaSession: MediaSessionCompat
     private var audioTrack: AudioTrack? = null
-    private var isPlaying = false
-    private var isSynthesizing = false
+    @Volatile private var isPlaying = false
+    @Volatile private var isSynthesizing = false
     private var sampleRate = 24000
     private val textNormalizer = TextNormalizer()
     private var totalFramesWritten = 0L
@@ -46,6 +46,8 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
     
     private lateinit var audioManager: AudioManager
     private var focusRequest: AudioFocusRequest? = null
+
+    private data class PlaybackItem(val index: Int, val data: ByteArray)
 
     companion object {
         const val CHANNEL_ID = "supertonic_playback"
@@ -193,33 +195,43 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
             synthesisJob = launch(Dispatchers.IO) {
                 val sentences = textNormalizer.splitIntoSentences(text)
                 val totalSentences = sentences.size
+                
+                // Pipeline buffer: Keeps 2 sentences ahead
+                val channel = kotlinx.coroutines.channels.Channel<PlaybackItem>(2)
 
-                for (index in startIndex until totalSentences) {
-                    if (SupertonicTTS.isCancelled() || !isActive) break
+                // Producer: Synthesis Loop
+                val producer = launch {
+                    for (index in startIndex until totalSentences) {
+                        if (SupertonicTTS.isCancelled() || !isActive) break
 
-                    // Pause logic: Wait if paused (isPlaying is false)
-                    while (!isPlaying && isSynthesizing && isActive) {
-                        delay(100)
+                        // Pause logic for producer
+                        while (!isPlaying && isSynthesizing && isActive) {
+                            delay(100)
+                        }
+                        if (SupertonicTTS.isCancelled() || !isActive || !isSynthesizing) break
+
+                        val sentence = sentences[index]
+                        val normalizedText = textNormalizer.normalize(sentence)
+                        val estimatedDuration = normalizedText.length / 15.0f
+                        
+                        val audioData = SupertonicTTS.generateAudio(normalizedText, stylePath, speed, estimatedDuration, steps)
+                        
+                        if (audioData != null && audioData.isNotEmpty()) {
+                            channel.send(PlaybackItem(index, audioData))
+                        }
                     }
+                    channel.close()
+                }
+
+                // Consumer: Playback Loop
+                for (item in channel) {
                     if (SupertonicTTS.isCancelled() || !isActive || !isSynthesizing) break
 
-                    val sentence = sentences[index]
-                    
                     withContext(Dispatchers.Main) {
-                        listener?.onProgress(index, totalSentences)
+                        listener?.onProgress(item.index, totalSentences)
                     }
 
-                    val normalizedText = textNormalizer.normalize(sentence)
-                    val estimatedDuration = normalizedText.length / 15.0f
-                    
-                    val audioData = SupertonicTTS.generateAudio(normalizedText, stylePath, speed, estimatedDuration, steps)
-                    
-                    if (audioData != null && audioData.isNotEmpty()) {
-                        // Play synchronously (blocks this loop until audio finishes or is stopped)
-                        playAudioDataBlocking(audioData)
-                    }
-                    
-                    delay(50)
+                    playAudioDataBlocking(item.data)
                 }
                 
                 withContext(Dispatchers.Main) {

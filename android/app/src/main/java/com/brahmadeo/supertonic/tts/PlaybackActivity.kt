@@ -9,6 +9,7 @@ import android.graphics.PorterDuff
 import android.os.Bundle
 import android.os.Environment
 import android.os.IBinder
+import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -27,11 +28,10 @@ import java.util.Locale
 class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
 
     private lateinit var sentencesList: RecyclerView
-    private lateinit var playStopButton: Button
+    private lateinit var playStopButton: com.google.android.material.floatingactionbutton.FloatingActionButton
     private lateinit var stopButton: Button
     private lateinit var exportButton: Button
-    private lateinit var progressBar: ProgressBar
-    private lateinit var birdImage: ImageView
+    private lateinit var progressBar: com.google.android.material.progressindicator.LinearProgressIndicator
     private lateinit var exportOverlay: RelativeLayout
     private lateinit var cancelExportBtn: Button
 
@@ -86,11 +86,11 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
         stopButton = findViewById(R.id.stopButton)
         exportButton = findViewById(R.id.exportButton)
         progressBar = findViewById(R.id.progressBar)
-        birdImage = findViewById(R.id.birdImage)
         exportOverlay = findViewById(R.id.exportOverlay)
         cancelExportBtn = findViewById(R.id.cancelExportBtn)
 
-        setupBirdTheming()
+        val toolbar = findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.playbackToolbar)
+        toolbar.setNavigationOnClickListener { finish() }
 
         currentText = intent.getStringExtra(EXTRA_TEXT) ?: ""
         currentVoicePath = intent.getStringExtra(EXTRA_VOICE_PATH) ?: ""
@@ -154,16 +154,6 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
         if (currentSentenceIndex >= 0 && currentSentenceIndex < sentences.size) {
             adapter.setCurrentIndex(currentSentenceIndex)
             sentencesList.scrollToPosition(currentSentenceIndex)
-        }
-    }
-
-    private fun setupBirdTheming() {
-        val isDarkMode = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        val goldColor = ContextCompat.getColor(this, R.color.accent_gold)
-        if (isDarkMode) {
-            birdImage.setColorFilter(goldColor, PorterDuff.Mode.SCREEN)
-        } else {
-            birdImage.setColorFilter(goldColor, PorterDuff.Mode.MULTIPLY)
         }
     }
 
@@ -243,18 +233,18 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
             this.isServiceActive = isPlaying || isSynthesizing
             
             if (isPlaying) {
-                playStopButton.text = "Pause"
+                playStopButton.setImageResource(android.R.drawable.ic_media_pause)
                 stopButton.visibility = View.GONE
                 exportButton.visibility = View.GONE
             } else if (isServiceActive) {
                 // Paused state
-                playStopButton.text = "Resume"
+                playStopButton.setImageResource(android.R.drawable.ic_media_play)
                 stopButton.visibility = View.VISIBLE
                 exportButton.visibility = View.VISIBLE
                 exportButton.isEnabled = true
             } else {
                 // Stopped state
-                playStopButton.text = "Play"
+                playStopButton.setImageResource(android.R.drawable.ic_media_play)
                 stopButton.visibility = View.VISIBLE
                 exportButton.visibility = View.VISIBLE
                 exportButton.isEnabled = true
@@ -279,7 +269,7 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
         runOnUiThread {
             isPlaying = false
             isServiceActive = false
-            playStopButton.text = "Play"
+            playStopButton.setImageResource(android.R.drawable.ic_media_play)
             stopButton.visibility = View.VISIBLE
             exportButton.visibility = View.VISIBLE
         }
@@ -308,6 +298,7 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
         }
 
         inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+            val cardView: com.google.android.material.card.MaterialCardView = view as com.google.android.material.card.MaterialCardView
             val textView: TextView = view.findViewById(R.id.sentenceText)
         }
 
@@ -322,12 +313,24 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
             
             val context = holder.itemView.context
             if (position == currentIndex) {
-                holder.textView.setBackgroundColor(0x33C5A059.toInt())
-                holder.textView.setTextColor(ContextCompat.getColor(context, R.color.accent_gold))
+                val bgColor = com.google.android.material.color.MaterialColors.getColor(context, com.google.android.material.R.attr.colorPrimaryContainer, android.graphics.Color.LTGRAY)
+                val textColor = com.google.android.material.color.MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnPrimaryContainer, android.graphics.Color.BLACK)
+                
+                holder.cardView.setCardBackgroundColor(bgColor)
+                holder.cardView.strokeWidth = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 2f, context.resources.displayMetrics).toInt()
+                holder.cardView.strokeColor = com.google.android.material.color.MaterialColors.getColor(context, com.google.android.material.R.attr.colorPrimary, bgColor)
+                
+                holder.textView.setTextColor(textColor)
                 holder.textView.setTypeface(null, android.graphics.Typeface.BOLD)
             } else {
-                holder.textView.background = null
-                holder.textView.setTextColor(ContextCompat.getColor(context, R.color.text_primary))
+                val surfaceColor = com.google.android.material.color.MaterialColors.getColor(context, com.google.android.material.R.attr.colorSurface, android.graphics.Color.WHITE)
+                val textColor = com.google.android.material.color.MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, android.graphics.Color.BLACK)
+                
+                holder.cardView.setCardBackgroundColor(surfaceColor)
+                holder.cardView.strokeWidth = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 1f, context.resources.displayMetrics).toInt()
+                holder.cardView.strokeColor = com.google.android.material.color.MaterialColors.getColor(context, com.google.android.material.R.attr.colorOutlineVariant, android.graphics.Color.TRANSPARENT)
+                
+                holder.textView.setTextColor(textColor)
                 holder.textView.setTypeface(null, android.graphics.Typeface.NORMAL)
             }
         }

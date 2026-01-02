@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/action_reset"
+        android:title="Reset"
+        android:icon="@android:drawable/ic_menu_revert"
+        app:showAsAction="ifRoom" />
+    <item
+        android:id="@+id/action_saved"
+        android:title="Saved Audio"
+        android:icon="@android:drawable/ic_menu_save"
+        app:showAsAction="ifRoom" />
+    <item
+        android:id="@+id/action_history"
+        android:title="History"
+        android:icon="@android:drawable/ic_menu_recent_history"
+        app:showAsAction="ifRoom" />
+</menu>
