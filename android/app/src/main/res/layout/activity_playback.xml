@@ -27,21 +27,6 @@
         android:layout_height="match_parent"
         app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
-        <!-- Centered Background Image (Coherent with Main) -->
-        <ImageView
-            android:id="@+id/bgImage"
-            android:layout_width="280dp"
-            android:layout_height="280dp"
-            android:src="@drawable/splash_logo"
-            android:alpha="0.08"
-            android:scaleType="fitCenter"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintVertical_bias="0.4"
-            android:importantForAccessibility="no" />
-
         <!-- Sentences List (Full Screen) -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/sentencesList"

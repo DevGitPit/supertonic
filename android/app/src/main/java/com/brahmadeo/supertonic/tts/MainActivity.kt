@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.view.MenuItem
+import android.view.MotionEvent
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
@@ -97,6 +98,14 @@ class MainActivity : AppCompatActivity() {
         qualityValue = findViewById(R.id.qualityValue)
         inputText = findViewById(R.id.inputText)
         synthButton = findViewById(R.id.synthButton)
+
+        inputText.setOnTouchListener { v, event ->
+            v.parent.requestDisallowInterceptTouchEvent(true)
+            if ((event.action and MotionEvent.ACTION_MASK) == MotionEvent.ACTION_UP) {
+                v.parent.requestDisallowInterceptTouchEvent(false)
+            }
+            false
+        }
 
         // Load saved preferences
         val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)

@@ -8,15 +8,45 @@ import android.speech.tts.Voice
 import android.util.Log
 import com.brahmadeo.supertonic.tts.SupertonicTTS
 import kotlinx.coroutines.*
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.Locale
 
 class SupertonicTextToSpeechService : TextToSpeechService() {
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
     private var initJob: Job? = null
+
+    companion object {
+        const val VOLUME_BOOST_FACTOR = 2.5f
+    }
+
+    private fun applyVolumeBoost(pcmData: ByteArray, gain: Float): ByteArray {
+        if (gain == 1.0f) return pcmData
+        
+        val size = pcmData.size
+        val boosted = ByteArray(size)
+        
+        // Wrap input and output for easy short access (16-bit PCM)
+        val inBuffer = ByteBuffer.wrap(pcmData).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+        val outBuffer = ByteBuffer.wrap(boosted).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+        
+        val count = size / 2
+        for (i in 0 until count) {
+            val sample = inBuffer.get(i)
+            // Apply gain and clamp (hard clipping)
+            var scaled = (sample * gain).toInt()
+            if (scaled > 32767) scaled = 32767
+            if (scaled < -32768) scaled = -32768
+            outBuffer.put(i, scaled.toShort())
+        }
+        
+        return boosted
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -154,11 +184,14 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
         val localListener = object : SupertonicTTS.ProgressListener {
             override fun onProgress(sessionId: Long, current: Int, total: Int) {}
             override fun onAudioChunk(sessionId: Long, data: ByteArray) {
+                // Apply volume boost before writing to system callback
+                val boostedData = applyVolumeBoost(data, VOLUME_BOOST_FACTOR)
+                
                 // Write streaming audio to system callback
                 var offset = 0
-                while (offset < data.size) {
-                    val length = Math.min(4096, data.size - offset)
-                    callback.audioAvailable(data, offset, length)
+                while (offset < boostedData.size) {
+                    val length = Math.min(4096, boostedData.size - offset)
+                    callback.audioAvailable(boostedData, offset, length)
                     offset += length
                 }
             }

@@ -28,6 +28,8 @@ import com.brahmadeo.supertonic.tts.utils.WavUtils
 import kotlinx.coroutines.*
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.OnAudioFocusChangeListener {
 
@@ -40,6 +42,7 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
     private val textNormalizer = TextNormalizer()
     private var totalFramesWritten = 0L
     private var activeSessionId: Long = -1
+    private var resumeOnFocusGain = false
     
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
     private var wakeLock: android.os.PowerManager.WakeLock? = null
@@ -53,6 +56,30 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
         const val CHANNEL_ID = "supertonic_playback"
         const val NOTIFICATION_ID = 1
         const val TAG = "PlaybackService"
+        const val VOLUME_BOOST_FACTOR = 2.5f // Boost volume by 2.5x
+    }
+
+    private fun applyVolumeBoost(pcmData: ByteArray, gain: Float): ByteArray {
+        if (gain == 1.0f) return pcmData
+        
+        val size = pcmData.size
+        val boosted = ByteArray(size)
+        
+        // Wrap input and output for easy short access (16-bit PCM)
+        val inBuffer = ByteBuffer.wrap(pcmData).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+        val outBuffer = ByteBuffer.wrap(boosted).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+        
+        val count = size / 2
+        for (i in 0 until count) {
+            val sample = inBuffer.get(i)
+            // Apply gain and clamp (hard clipping)
+            var scaled = (sample * gain).toInt()
+            if (scaled > 32767) scaled = 32767
+            if (scaled < -32768) scaled = -32768
+            outBuffer.put(i, scaled.toShort())
+        }
+        
+        return boosted
     }
 
     inner class LocalBinder : Binder() {
@@ -125,7 +152,8 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
                         val audioData = SupertonicTTS.generateAudio(normalizedText, stylePath, speed, estimatedDuration, steps)
                         
                         if (audioData != null) {
-                            outputStream.write(audioData)
+                            val boostedData = applyVolumeBoost(audioData, VOLUME_BOOST_FACTOR)
+                            outputStream.write(boostedData)
                         } else {
                             Log.w(TAG, "Failed to export sentence: $sentence")
                         }
@@ -217,7 +245,8 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
                         val audioData = SupertonicTTS.generateAudio(normalizedText, stylePath, speed, estimatedDuration, steps)
                         
                         if (audioData != null && audioData.isNotEmpty()) {
-                            channel.send(PlaybackItem(index, audioData))
+                            val boostedData = applyVolumeBoost(audioData, VOLUME_BOOST_FACTOR)
+                            channel.send(PlaybackItem(index, boostedData))
                         }
                     }
                     channel.close()
@@ -342,6 +371,7 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
     }
 
     fun play() {
+        resumeOnFocusGain = false
         if (!isPlaying) {
             if (requestAudioFocus()) {
                 isPlaying = true
@@ -354,6 +384,7 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
     }
 
     fun pause() {
+        resumeOnFocusGain = false
         if (isPlaying) {
             isPlaying = false
             audioTrack?.pause() // Might be null if generating, loop will handle it
@@ -371,6 +402,7 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
         
         audioTrack = null
         isPlaying = false
+        resumeOnFocusGain = false
         notifyListenerState(false)
         abandonAudioFocus()
         
@@ -426,8 +458,22 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
 
     override fun onAudioFocusChange(focusChange: Int) {
         when (focusChange) {
-            AudioManager.AUDIOFOCUS_LOSS -> stopPlayback()
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> pause()
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                resumeOnFocusGain = false
+                stopPlayback()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                if (isPlaying) {
+                    resumeOnFocusGain = true
+                    // We call the internal pausing logic directly to avoid clearing the resumeOnFocusGain flag
+                    // which our public pause() method does.
+                    isPlaying = false
+                    audioTrack?.pause()
+                    notifyListenerState(false)
+                    updatePlaybackState(PlaybackStateCompat.STATE_PAUSED)
+                    updateNotification("Paused (Interrupted)", true)
+                }
+            }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 if (isPlaying) {
                     audioTrack?.setVolume(0.2f)
@@ -436,7 +482,10 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
             AudioManager.AUDIOFOCUS_GAIN -> {
                 if (audioTrack != null) {
                     audioTrack?.setVolume(1.0f)
-                    if (!isPlaying) play()
+                    if (resumeOnFocusGain) {
+                        play()
+                        resumeOnFocusGain = false // Reset after consuming
+                    }
                 }
             }
         }
