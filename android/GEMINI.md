@@ -11,6 +11,9 @@ The application serves two main purposes:
 *   **Offline Inference:** Runs entirely on-device using ONNX Runtime.
 *   **Gapless Playback:** Implements a Producer-Consumer pipeline to synthesize the next sentence while the current one plays, eliminating latency between sentences.
 *   **Material Design 3 (Expressive):** Modern, coherent UI with dynamic semantic colors and dark mode support.
+*   **Edge-to-Edge Support:** Optimized for Android 15/16 system insets and curved displays.
+*   **Digital Volume Boost:** Built-in 2.5x gain with hard-clipping protection for significantly louder audio output.
+*   **Smart Audio Focus:** Intelligently handles system interruptions (notifications, calls), resuming only if the interruption was transient and not a manual user pause.
 *   **Immersive Reader:** Distraction-free playback interface with text highlighting.
 *   **Audio Export:** Save synthesized speech as WAV files to the Music directory.
 *   **Rich Media Controls:** Native Android media notification with album art, play/pause, and metadata.
@@ -40,7 +43,7 @@ The application serves two main purposes:
     *   `libsupertonic_tts.so`: Supertonic C++ core logic.
 
 ### Core Components
-*   **Audio Pipeline (`PlaybackService`)**: Uses a Kotlin Coroutine `Channel` (capacity 2) to buffer synthesized audio. The "Producer" coroutine synthesizes sentences ahead of time, while the "Consumer" loop plays them using `AudioTrack` in `MODE_STATIC` for instant starts.
+*   **Audio Pipeline (`PlaybackService`)**: Uses a Kotlin Coroutine `Channel` (capacity 2) to buffer synthesized audio. The "Producer" coroutine synthesizes sentences ahead of time and applies a **2.5x digital gain**, while the "Consumer" loop plays them using `AudioTrack` in `MODE_STATIC` for instant starts.
 *   **Native Bridge**: `SupertonicTTS.kt` exposes thread-safe methods for `initialize()` and `generateAudio()`.
 *   **Text Normalization**: A dedicated `TextNormalizer` class handles complex patterns (e.g., "$2.5bn" -> "two point five billion dollars") to ensure natural reading.
 
