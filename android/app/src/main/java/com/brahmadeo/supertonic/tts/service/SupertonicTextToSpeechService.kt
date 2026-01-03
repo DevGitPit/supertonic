@@ -175,6 +175,9 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
             prefs.getString("selected_voice", "M1.json") ?: "M1.json"
         }
         val stylePath = File(filesDir, "voice_styles/$voiceFile").absolutePath
+
+        val prefs = getSharedPreferences("SupertonicPrefs", android.content.Context.MODE_PRIVATE)
+        val steps = prefs.getInt("diffusion_steps", 5)
         
         // Defensive Re-init (double check, though runBlocking above should handle it)
         if (SupertonicTTS.getSoC() == -1) {
@@ -197,7 +200,7 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
 
                 val normalizedText = textNormalizer.normalize(sentence)
                 // Use 0 buffer for system TTS to reduce latency
-                SupertonicTTS.generateAudio(normalizedText, stylePath, effectiveSpeed, 0.0f, 5)
+                SupertonicTTS.generateAudio(normalizedText, stylePath, effectiveSpeed, 0.0f, steps)
             }
             
             if (success) {

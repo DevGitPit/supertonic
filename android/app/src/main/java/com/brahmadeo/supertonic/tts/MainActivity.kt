@@ -98,6 +98,12 @@ class MainActivity : AppCompatActivity() {
         inputText = findViewById(R.id.inputText)
         synthButton = findViewById(R.id.synthButton)
 
+        // Load saved preferences
+        val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
+        currentSteps = prefs.getInt("diffusion_steps", 5)
+        qualitySeekBar.value = currentSteps.toFloat()
+        qualityValue.text = "$currentSteps steps"
+
         toolbar.setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
                 R.id.action_reset -> {
@@ -235,6 +241,10 @@ class MainActivity : AppCompatActivity() {
         qualitySeekBar.addOnChangeListener { _, value, _ ->
             currentSteps = value.toInt()
             qualityValue.text = "$currentSteps steps"
+            getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
+                .edit()
+                .putInt("diffusion_steps", currentSteps)
+                .apply()
         }
     }
 
