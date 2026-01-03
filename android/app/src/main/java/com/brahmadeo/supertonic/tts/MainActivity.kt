@@ -130,6 +130,10 @@ class MainActivity : AppCompatActivity() {
                     historyLauncher.launch(Intent(this, HistoryActivity::class.java))
                     true
                 }
+                R.id.action_lexicon -> {
+                    startActivity(Intent(this, LexiconActivity::class.java))
+                    true
+                }
                 else -> false
             }
         }
@@ -144,6 +148,7 @@ class MainActivity : AppCompatActivity() {
         toolbar.title = "Initializing..."
 
         startService(Intent(this, PlaybackService::class.java))
+        com.brahmadeo.supertonic.tts.utils.LexiconManager.load(this)
 
         scope.launch(Dispatchers.IO) {
             val modelPath = copyAssets()

@@ -51,6 +51,7 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
     override fun onCreate() {
         super.onCreate()
         Log.i("SupertonicTTS", "Service created")
+        com.brahmadeo.supertonic.tts.utils.LexiconManager.load(this)
         
         // Initialize asynchronously to prevent binding timeouts
         initJob = serviceScope.launch(Dispatchers.IO) {

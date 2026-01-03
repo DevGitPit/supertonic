@@ -47,6 +47,10 @@
             android:parentActivityName=".MainActivity"
             android:label="Saved Audio" />
 
+        <activity android:name=".LexiconActivity"
+            android:parentActivityName=".MainActivity"
+            android:label="Pronunciation Dictionary" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
