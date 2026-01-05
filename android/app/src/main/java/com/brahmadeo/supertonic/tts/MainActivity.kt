@@ -2,12 +2,15 @@ package com.brahmadeo.supertonic.tts
 
 import android.Manifest
 import android.app.AlertDialog
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.IBinder
 import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View
@@ -21,6 +24,9 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import android.speech.tts.TextToSpeech
+import android.util.Log
+import com.brahmadeo.supertonic.tts.service.IPlaybackService
 import com.brahmadeo.supertonic.tts.service.PlaybackService
 import com.brahmadeo.supertonic.tts.utils.HistoryManager
 import com.google.android.material.appbar.MaterialToolbar
@@ -44,6 +50,21 @@ class MainActivity : AppCompatActivity() {
     private var currentSteps = 5
     private var selectedVoiceFile = "M1.json"
     private var currentSpeed = 1.05f
+
+    private var playbackService: IPlaybackService? = null
+    private var isBound = false
+
+    private val connection = object : ServiceConnection {
+        override fun onServiceConnected(className: ComponentName, service: IBinder) {
+            playbackService = IPlaybackService.Stub.asInterface(service)
+            isBound = true
+        }
+
+        override fun onServiceDisconnected(arg0: ComponentName) {
+            isBound = false
+            playbackService = null
+        }
+    }
 
     private val scope = CoroutineScope(Dispatchers.Main + Job())
 
@@ -147,7 +168,10 @@ class MainActivity : AppCompatActivity() {
         synthButton.text = "Loading Engine..."
         toolbar.title = "Initializing..."
 
-        startService(Intent(this, PlaybackService::class.java))
+        // Warm up the service process via private AIDL
+        val bindIntent = Intent(this, PlaybackService::class.java)
+        bindService(bindIntent, connection, Context.BIND_AUTO_CREATE)
+        
         com.brahmadeo.supertonic.tts.utils.LexiconManager.load(this)
 
         scope.launch(Dispatchers.IO) {
@@ -376,6 +400,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        if (isBound) {
+            unbindService(connection)
+            isBound = false
+        }
         scope.cancel()
     }
 }
