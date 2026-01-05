@@ -1,17 +1,18 @@
 package com.brahmadeo.supertonic.tts
 
-import android.content.ComponentName
-import android.content.Context
-import android.content.Intent
-import android.content.ServiceConnection
+import android.net.Uri
 import android.os.Bundle
 import android.os.IBinder
 import android.view.LayoutInflater
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.brahmadeo.supertonic.tts.service.PlaybackService
@@ -21,7 +22,11 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputEditText
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.BufferedReader
 import java.io.File
+import java.io.InputStreamReader
 
 class LexiconActivity : AppCompatActivity() {
 
@@ -47,6 +52,10 @@ class LexiconActivity : AppCompatActivity() {
         }
     }
 
+    private val importLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let { performImport(it) }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_lexicon)
@@ -68,6 +77,135 @@ class LexiconActivity : AppCompatActivity() {
 
         val intent = Intent(this, PlaybackService::class.java)
         bindService(intent, connection, Context.BIND_AUTO_CREATE)
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu?): Boolean {
+        menuInflater.inflate(R.menu.lexicon_menu, menu)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.action_export -> {
+                performExport()
+                true
+            }
+            R.id.action_import -> {
+                importLauncher.launch("application/json")
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    private fun performExport() {
+        if (rules.isEmpty()) {
+            Toast.makeText(this, "No rules to export", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        try {
+            val jsonArray = JSONArray()
+            for (item in rules) {
+                val obj = JSONObject()
+                obj.put("id", item.id)
+                obj.put("term", item.term)
+                obj.put("replacement", item.replacement)
+                obj.put("ignoreCase", item.ignoreCase)
+                jsonArray.put(obj)
+            }
+
+            val fileName = "supertonic_lexicon.json"
+            val file = File(cacheDir, fileName)
+            file.writeText(jsonArray.toString(2))
+
+            val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/json"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "Export Lexicon"))
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(this, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun performImport(uri: Uri) {
+        try {
+            val contentResolver = contentResolver
+            val inputStream = contentResolver.openInputStream(uri) ?: return
+            val reader = BufferedReader(InputStreamReader(inputStream))
+            val jsonString = reader.readText()
+            reader.close()
+            inputStream.close()
+
+            val jsonArray = JSONArray(jsonString)
+            val importedItems = mutableListOf<LexiconItem>()
+
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                // Basic validation
+                if (obj.has("term") && obj.has("replacement")) {
+                    importedItems.add(LexiconItem(
+                        id = obj.optString("id", java.util.UUID.randomUUID().toString()),
+                        term = obj.getString("term"),
+                        replacement = obj.getString("replacement"),
+                        ignoreCase = obj.optBoolean("ignoreCase", true)
+                    ))
+                }
+            }
+
+            if (importedItems.isEmpty()) {
+                Toast.makeText(this, "No valid rules found in file", Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            // Merge Logic
+            var addedCount = 0
+            var updatedCount = 0
+
+            // Reload fresh copy before merging to be safe
+            val currentRules = LexiconManager.load(this).toMutableList()
+
+            for (imported in importedItems) {
+                val existingIndex = currentRules.indexOfFirst { it.term == imported.term }
+                
+                if (existingIndex == -1) {
+                    // New rule
+                    currentRules.add(imported)
+                    addedCount++
+                } else {
+                    // Existing rule, check if different
+                    val existing = currentRules[existingIndex]
+                    if (existing.replacement != imported.replacement || existing.ignoreCase != imported.ignoreCase) {
+                        existing.replacement = imported.replacement
+                        existing.ignoreCase = imported.ignoreCase
+                        updatedCount++
+                    }
+                }
+            }
+
+            if (addedCount > 0 || updatedCount > 0) {
+                LexiconManager.save(this, currentRules)
+                LexiconManager.reload(this)
+                loadRules()
+                
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("Import Complete")
+                    .setMessage("$addedCount new terms added.\n$updatedCount terms updated.")
+                    .setPositiveButton("OK", null)
+                    .show()
+            } else {
+                Toast.makeText(this, "All terms already exist and are up to date.", Toast.LENGTH_SHORT).show()
+            }
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(this, "Import error: Invalid JSON file", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun loadRules() {
