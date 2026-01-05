@@ -13,6 +13,8 @@ The application serves two main purposes:
 *   **Material Design 3 (Expressive):** Modern, coherent UI with dynamic semantic colors and dark mode support.
 *   **Edge-to-Edge Support:** Optimized for Android 15/16 system insets and curved displays.
 *   **Digital Volume Boost:** Built-in 2.5x gain with hard-clipping protection for significantly louder audio output.
+*   **User Pronunciation Dictionary (Lexicon):** Custom rules to correct or change how specific terms are pronounced, including Import/Export support via JSON.
+*   **AIDL Architecture:** Robust inter-process communication (IPC) for both internal playback and third-party app integration (e.g., eBook readers).
 *   **Smart Audio Focus:** Intelligently handles system interruptions (notifications, calls), resuming only if the interruption was transient and not a manual user pause.
 *   **Immersive Reader:** Distraction-free playback interface with text highlighting.
 *   **Audio Export:** Save synthesized speech as WAV files to the Music directory.
@@ -22,6 +24,9 @@ The application serves two main purposes:
 ## Architecture
 
 ### Directory Structure
+*   `app/src/main/aidl/com/brahmadeo/supertonic/tts/service/`: AIDL interface definitions.
+    *   `IPlaybackService.aidl`: Main control interface for synthesis and playback.
+    *   `IPlaybackListener.aidl`: Callback interface for progress and state updates.
 *   `app/src/main/java/com/brahmadeo/supertonic/tts/`: Kotlin source code.
     *   `MainActivity.kt`: Main UI for input and configuration (Controls anchored to bottom).
     *   `PlaybackActivity.kt`: Immersive player with sentence highlighting.
