@@ -1,7 +1,5 @@
 package com.brahmadeo.supertonic.tts.service
 
-import android.app.Service
-import android.content.Context
 import android.speech.tts.SynthesisCallback
 import android.speech.tts.SynthesisRequest
 import android.speech.tts.TextToSpeech
@@ -9,34 +7,65 @@ import android.speech.tts.TextToSpeechService
 import android.speech.tts.Voice
 import android.util.Log
 import com.brahmadeo.supertonic.tts.SupertonicTTS
+import kotlinx.coroutines.*
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.Locale
 
 class SupertonicTextToSpeechService : TextToSpeechService() {
 
+    private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
+    private var initJob: Job? = null
+
+    companion object {
+        const val VOLUME_BOOST_FACTOR = 2.5f
+    }
+
+    private fun applyVolumeBoost(pcmData: ByteArray, gain: Float): ByteArray {
+        if (gain == 1.0f) return pcmData
+        val size = pcmData.size
+        val boosted = ByteArray(size)
+        val inBuffer = ByteBuffer.wrap(pcmData).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+        val outBuffer = ByteBuffer.wrap(boosted).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+        val count = size / 2
+        for (i in 0 until count) {
+            val sample = inBuffer.get(i)
+            var scaled = (sample * gain).toInt()
+            if (scaled > 32767) scaled = 32767
+            if (scaled < -32768) scaled = -32768
+            outBuffer.put(i, scaled.toShort())
+        }
+        return boosted
+    }
+
     override fun onCreate() {
         super.onCreate()
         Log.i("SupertonicTTS", "Service created")
+        com.brahmadeo.supertonic.tts.utils.LexiconManager.load(this)
         
-        // Ensure assets are copied
-        val modelPath = copyAssets()
-        val libPath = applicationInfo.nativeLibraryDir + "/libonnxruntime.so"
-        
-        if (modelPath != null) {
-            SupertonicTTS.initialize(modelPath, libPath)
-        } else {
-            Log.e("SupertonicTTS", "Failed to copy assets in Service onCreate")
+        initJob = serviceScope.launch(Dispatchers.IO) {
+            val modelPath = copyAssets()
+            val libPath = applicationInfo.nativeLibraryDir + "/libonnxruntime.so"
+            if (modelPath != null) {
+                SupertonicTTS.initialize(modelPath, libPath)
+            } else {
+                Log.e("SupertonicTTS", "Failed to copy assets in Service onCreate")
+            }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        serviceScope.cancel()
     }
 
     override fun onIsLanguageAvailable(lang: String?, country: String?, variant: String?): Int {
         val language = lang?.lowercase(Locale.ROOT) ?: return TextToSpeech.LANG_NOT_SUPPORTED
-        // Accept "eng", "en", "en-us", "en_us"
         return if (language.startsWith("en")) {
             if (country != null) {
-                // We mainly claim support for US/GB to satisfy apps looking for major English dialects
                 if (country.equals("USA", true) || country.equals("US", true) || 
                     country.equals("GBR", true) || country.equals("GB", true)) {
                     TextToSpeech.LANG_COUNTRY_AVAILABLE
@@ -59,27 +88,13 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
         return onIsLanguageAvailable(lang, country, variant)
     }
 
-    private fun isValidVoiceName(voiceName: String?): Int {
-        if (voiceName == null) return TextToSpeech.ERROR
-        if (voiceName.startsWith("en-us-supertonic-")) {
-            val styleName = voiceName.substringAfter("en-us-supertonic-")
-            val file = File(filesDir, "voice_styles/$styleName.json")
-            return if (file.exists()) TextToSpeech.SUCCESS else TextToSpeech.ERROR
-        }
-        return TextToSpeech.ERROR
-    }
-
     override fun onLoadVoice(voiceName: String?): Int {
         if (voiceName == null) return TextToSpeech.ERROR
-        
         if (voiceName.startsWith("en-us-supertonic-")) {
             val styleName = voiceName.substringAfter("en-us-supertonic-")
             val file = File(filesDir, "voice_styles/$styleName.json")
-            if (file.exists()) {
-                return TextToSpeech.SUCCESS
-            }
+            if (file.exists()) return TextToSpeech.SUCCESS
         }
-        
         return TextToSpeech.ERROR
     }
 
@@ -93,63 +108,45 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
     override fun onGetVoices(): List<Voice> {
         val voicesList = mutableListOf<Voice>()
         val locale = Locale.US
-        
-        val voiceStylesDir = File(filesDir, "voice_styles")
-        val voiceFiles = voiceStylesDir.listFiles { file -> file.extension == "json" }
-        
-        voiceFiles?.forEach { file ->
-            val voiceName = file.nameWithoutExtension
-            voicesList.add(
-                Voice(
-                    "en-us-supertonic-$voiceName",
-                    locale,
-                    Voice.QUALITY_VERY_HIGH,
-                    Voice.LATENCY_NORMAL,
-                    false,
-                    setOf()
-                )
-            )
+        val voiceNames = listOf("M1", "M2", "M3", "M4", "M5", "F1", "F2", "F3", "F4", "F5")
+        voiceNames.forEach { name ->
+            voicesList.add(Voice("en-us-supertonic-$name", locale, Voice.QUALITY_VERY_HIGH, Voice.LATENCY_NORMAL, false, setOf()))
         }
-        
-        // If no files found yet (e.g. during first start), return at least a default
-        if (voicesList.isEmpty()) {
-            voicesList.add(
-                Voice(
-                    "en-us-supertonic-M1",
-                    locale,
-                    Voice.QUALITY_VERY_HIGH,
-                    Voice.LATENCY_NORMAL,
-                    false,
-                    setOf()
-                )
-            )
-        }
-        
-        return voicesList.sortedBy { it.name }
+        return voicesList
     }
 
     override fun onStop() {
         SupertonicTTS.setCancelled(true)
     }
 
-    private var silenceTrack: android.media.AudioTrack? = null
-
     private val textNormalizer = com.brahmadeo.supertonic.tts.utils.TextNormalizer()
 
     override fun onSynthesizeText(request: SynthesisRequest?, callback: SynthesisCallback?) {
         if (request == null || callback == null) return
-
-        // HACK: Play silence locally to keep app "active" in audio focus
-        playSilence()
-
+        SupertonicTTS.setCancelled(false)
+        runBlocking {
+            withTimeoutOrNull(5000) {
+                initJob?.join()
+            }
+        }
         val rawText = request.charSequenceText?.toString() ?: return
-        
-        // Speed
         val effectiveSpeed = (request.speechRate / 100.0f).coerceIn(0.5f, 2.5f)
-
         callback.start(SupertonicTTS.getAudioSampleRate(), android.media.AudioFormat.ENCODING_PCM_16BIT, 1)
         
-        // Load requested voice if possible, else fallback to preference
+        val localListener = object : SupertonicTTS.ProgressListener {
+            override fun onProgress(sessionId: Long, current: Int, total: Int) {}
+            override fun onAudioChunk(sessionId: Long, data: ByteArray) {
+                val boostedData = applyVolumeBoost(data, VOLUME_BOOST_FACTOR)
+                var offset = 0
+                while (offset < boostedData.size) {
+                    val length = Math.min(4096, boostedData.size - offset)
+                    callback.audioAvailable(boostedData, offset, length)
+                    offset += length
+                }
+            }
+        }
+        SupertonicTTS.addProgressListener(localListener)
+        
         val requestedVoice = request.voiceName
         val voiceFile = if (requestedVoice != null && requestedVoice.startsWith("en-us-supertonic-")) {
             requestedVoice.substringAfter("en-us-supertonic-") + ".json"
@@ -158,132 +155,57 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
             prefs.getString("selected_voice", "M1.json") ?: "M1.json"
         }
         val stylePath = File(filesDir, "voice_styles/$voiceFile").absolutePath
-        
-        // PROCESSING: Split into sentences to prevent timeouts on long text
-        val sentences = textNormalizer.splitIntoSentences(rawText)
-        var success = true
-        
-        for (sentence in sentences) {
-            // Check cancellation
-            if (SupertonicTTS.isCancelled()) {
-                success = false
-                break
-            }
+        val prefs = getSharedPreferences("SupertonicPrefs", android.content.Context.MODE_PRIVATE)
+        val steps = prefs.getInt("diffusion_steps", 5)
 
-            val normalizedText = textNormalizer.normalize(sentence)
-            // Use 0 buffer for system TTS to reduce latency
-            val audioData = SupertonicTTS.generateAudio(normalizedText, stylePath, effectiveSpeed, 0.0f, 5)
-            
-            if (audioData != null) {
-                // Write streaming audio to callback directly
-                var offset = 0
-                while (offset < audioData.size) {
-                    val length = Math.min(4096, audioData.size - offset)
-                    callback.audioAvailable(audioData, offset, length)
-                    offset += length
-                }
-            } else {
-                Log.w("SupertonicTTS", "Failed to generate audio for segment: $sentence")
-                // We continue to next sentence instead of failing hard
-            }
+        if (SupertonicTTS.getSoC() == -1) {
+             val modelPath = File(filesDir, "onnx").absolutePath
+             val libPath = applicationInfo.nativeLibraryDir + "/libonnxruntime.so"
+             SupertonicTTS.initialize(modelPath, libPath)
         }
         
-        stopSilence()
-        
-        if (success) {
-            callback.done()
-        } else {
-            callback.error()
-        }
-    }
-
-    private fun playSilence() {
         try {
-            val sampleRate = 24000
-            val minBufferSize = android.media.AudioTrack.getMinBufferSize(
-                sampleRate,
-                android.media.AudioFormat.CHANNEL_OUT_MONO,
-                android.media.AudioFormat.ENCODING_PCM_16BIT
-            )
-            
-            silenceTrack = android.media.AudioTrack.Builder()
-                .setAudioAttributes(
-                    android.media.AudioAttributes.Builder()
-                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build()
-                )
-                .setAudioFormat(
-                    android.media.AudioFormat.Builder()
-                        .setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT)
-                        .setSampleRate(sampleRate)
-                        .setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO)
-                        .build()
-                )
-                .setBufferSizeInBytes(minBufferSize)
-                .setTransferMode(android.media.AudioTrack.MODE_STATIC)
-                .build()
-
-            val silentData = ByteArray(minBufferSize)
-            silenceTrack?.write(silentData, 0, silentData.size)
-            silenceTrack?.setLoopPoints(0, silentData.size / 2, -1)
-            silenceTrack?.play()
-        } catch (e: Exception) {
-            Log.e("SupertonicTTS", "Failed to play silence", e)
+            val sentences = textNormalizer.splitIntoSentences(rawText)
+            var success = true
+            for (sentence in sentences) {
+                if (SupertonicTTS.isCancelled()) { success = false; break }
+                val normalizedText = textNormalizer.normalize(sentence)
+                SupertonicTTS.generateAudio(normalizedText, stylePath, effectiveSpeed, 0.0f, steps)
+            }
+            if (success) callback.done() else callback.error()
+        } finally {
+            SupertonicTTS.removeProgressListener(localListener)
         }
     }
 
-    private fun stopSilence() {
-        try {
-            silenceTrack?.stop()
-            silenceTrack?.release()
-            silenceTrack = null
-        } catch (e: Exception) { }
-    }
-    
     private fun copyAssets(): String? {
         val filesDir = filesDir
         val targetDir = File(filesDir, "onnx")
-        val styleDir = File(filesDir, "voice_styles")
-        
-        // Version Check
-        val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
-        val lastVersion = prefs.getInt("assets_version", 0)
-        val currentVersion = try {
-            packageManager.getPackageInfo(packageName, 0).versionCode
-        } catch (e: Exception) { 1 }
-
-        val needsUpdate = lastVersion < currentVersion
-        
-        if (!targetDir.exists()) targetDir.mkdirs()
-        if (!styleDir.exists()) styleDir.mkdirs()
-        
+        if (!targetDir.exists()) {
+            if (!targetDir.mkdirs()) return null
+        }
         try {
             val assetManager = assets
             val onnxFiles = assetManager.list("onnx") ?: return null
             for (filename in onnxFiles) {
                 val file = File(targetDir, filename)
-                if (needsUpdate || !file.exists()) {
+                if (!file.exists()) {
                     assetManager.open("onnx/$filename").use { input ->
                         FileOutputStream(file).use { output -> input.copyTo(output) }
                     }
                 }
             }
-            
+            val styleDir = File(filesDir, "voice_styles")
+            if (!styleDir.exists()) styleDir.mkdirs()
             val styleFiles = assetManager.list("voice_styles") ?: emptyArray()
-             for (filename in styleFiles) {
+            for (filename in styleFiles) {
                 val file = File(styleDir, filename)
-                if (needsUpdate || !file.exists()) {
+                if (!file.exists()) {
                     assetManager.open("voice_styles/$filename").use { input ->
                         FileOutputStream(file).use { output -> input.copyTo(output) }
                     }
                 }
             }
-            
-            if (needsUpdate) {
-                prefs.edit().putInt("assets_version", currentVersion).apply()
-            }
-            
             return targetDir.absolutePath
         } catch (e: IOException) {
             return null

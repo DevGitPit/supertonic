@@ -1,18 +1,21 @@
 package com.brahmadeo.supertonic.tts
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.view.MenuItem
+import android.view.MotionEvent
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
+import android.widget.AutoCompleteTextView
 import android.widget.Button
 import android.widget.EditText
-import android.widget.SeekBar
-import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,6 +23,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.brahmadeo.supertonic.tts.service.PlaybackService
 import com.brahmadeo.supertonic.tts.utils.HistoryManager
+import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.slider.Slider
 import kotlinx.coroutines.*
 import java.io.File
 import java.io.FileOutputStream
@@ -27,13 +32,11 @@ import java.io.IOException
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var statusText: TextView
-    private lateinit var voiceSpinner: Spinner
-    private lateinit var importVoiceBtn: Button
-    private lateinit var historyBtn: Button
-    private lateinit var speedSeekBar: SeekBar
+    private lateinit var toolbar: MaterialToolbar
+    private lateinit var voiceSpinner: AutoCompleteTextView
+    private lateinit var speedSeekBar: Slider
     private lateinit var speedValue: TextView
-    private lateinit var qualitySeekBar: SeekBar
+    private lateinit var qualitySeekBar: Slider
     private lateinit var qualityValue: TextView
     private lateinit var inputText: EditText
     private lateinit var synthButton: Button
@@ -48,50 +51,6 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.RequestPermission()
     ) { }
 
-    private val importVoiceLauncher = registerForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            scope.launch(Dispatchers.IO) {
-                try {
-                    val contentResolver = applicationContext.contentResolver
-                    val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    contentResolver.takePersistableUriPermission(uri, takeFlags)
-                } catch (e: Exception) {
-                    // Ignore if unable to take persistable permission
-                }
-
-                try {
-                    val inputStream = contentResolver.openInputStream(uri)
-                    var filename = uri.lastPathSegment ?: "imported_voice.json"
-                    if (!filename.endsWith(".json")) filename += ".json"
-                    filename = filename.replace(Regex("[^a-zA-Z0-9._-]"), "_")
-                    
-                    val voiceDir = File(filesDir, "voice_styles")
-                    if (!voiceDir.exists()) voiceDir.mkdirs()
-                    
-                    val outFile = File(voiceDir, filename)
-                    val outputStream = FileOutputStream(outFile)
-                    
-                    inputStream?.use { input ->
-                        outputStream.use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "Imported $filename", Toast.LENGTH_SHORT).show()
-                        setupVoiceSpinner()
-                    }
-                } catch (e: Exception) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "Import Failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        }
-    }
-
     private val historyLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -99,7 +58,15 @@ class MainActivity : AppCompatActivity() {
             val selectedText = result.data?.getStringExtra("selected_text")
             if (!selectedText.isNullOrEmpty()) {
                 inputText.setText(selectedText)
-                Toast.makeText(this, "Loaded from History", Toast.LENGTH_SHORT).show()
+                
+                AlertDialog.Builder(this)
+                    .setTitle("Play Selected Text?")
+                    .setMessage("Would you like to start synthesis for this text immediately?")
+                    .setPositiveButton("Yes") { _, _ ->
+                        generateAndPlay(selectedText)
+                    }
+                    .setNegativeButton("No", null)
+                    .show()
             }
         }
     }
@@ -123,10 +90,8 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        statusText = findViewById(R.id.statusText)
+        toolbar = findViewById(R.id.topAppBar)
         voiceSpinner = findViewById(R.id.voiceSpinner)
-        importVoiceBtn = findViewById(R.id.importVoiceBtn)
-        historyBtn = findViewById(R.id.historyBtn)
         speedSeekBar = findViewById(R.id.speedSeekBar)
         speedValue = findViewById(R.id.speedValue)
         qualitySeekBar = findViewById(R.id.qualitySeekBar)
@@ -134,29 +99,56 @@ class MainActivity : AppCompatActivity() {
         inputText = findViewById(R.id.inputText)
         synthButton = findViewById(R.id.synthButton)
 
-        val placeholderText = "Hello world, this is Supertonic TTS on Android. Select a voice and speed above!"
-        inputText.setOnFocusChangeListener { _, hasFocus ->
-            if (hasFocus && inputText.text.toString() == placeholderText) {
-                inputText.setText("")
+        inputText.setOnTouchListener { v, event ->
+            v.parent.requestDisallowInterceptTouchEvent(true)
+            if ((event.action and MotionEvent.ACTION_MASK) == MotionEvent.ACTION_UP) {
+                v.parent.requestDisallowInterceptTouchEvent(false)
             }
-        }
-        
-        importVoiceBtn.setOnClickListener {
-            importVoiceLauncher.launch("application/json")
+            false
         }
 
-        historyBtn.setOnClickListener {
-            historyLauncher.launch(Intent(this, HistoryActivity::class.java))
+        // Load saved preferences
+        val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
+        currentSteps = prefs.getInt("diffusion_steps", 5)
+        qualitySeekBar.value = currentSteps.toFloat()
+        qualityValue.text = "$currentSteps steps"
+
+        toolbar.setOnMenuItemClickListener { menuItem ->
+            when (menuItem.itemId) {
+                R.id.action_reset -> {
+                    inputText.setText("")
+                    val stopIntent = Intent(this, PlaybackService::class.java).apply { action = "STOP_PLAYBACK" }
+                    startService(stopIntent)
+                    Toast.makeText(this, "Reset", Toast.LENGTH_SHORT).show()
+                    true
+                }
+                R.id.action_saved -> {
+                    startActivity(Intent(this, SavedAudioActivity::class.java))
+                    true
+                }
+                R.id.action_history -> {
+                    historyLauncher.launch(Intent(this, HistoryActivity::class.java))
+                    true
+                }
+                R.id.action_lexicon -> {
+                    startActivity(Intent(this, LexiconActivity::class.java))
+                    true
+                }
+                else -> false
+            }
         }
 
         setupSpeedControl()
         setupQualityControl()
         checkNotificationPermission()
 
+        // Explicitly disable and show loading state
         synthButton.isEnabled = false
-        statusText.text = "Initializing..."
+        synthButton.text = "Loading Engine..."
+        toolbar.title = "Initializing..."
 
         startService(Intent(this, PlaybackService::class.java))
+        com.brahmadeo.supertonic.tts.utils.LexiconManager.load(this)
 
         scope.launch(Dispatchers.IO) {
             val modelPath = copyAssets()
@@ -178,17 +170,20 @@ class MainActivity : AppCompatActivity() {
                     }
                     
                     withContext(Dispatchers.Main) {
-                        statusText.text = "Initialized (SoC: $socName)"
+                        toolbar.title = "Ready (SoC: $socName)"
+                        synthButton.text = "Synthesize"
                         synthButton.isEnabled = true
                     }
                 } else {
                     withContext(Dispatchers.Main) {
-                        statusText.text = "Initialization Failed"
+                        toolbar.title = "Initialization Failed"
+                        synthButton.text = "Engine Error"
                     }
                 }
             } else {
                 withContext(Dispatchers.Main) {
-                    statusText.text = "Failed to copy assets"
+                    toolbar.title = "Failed to copy assets"
+                    synthButton.text = "Asset Error"
                 }
             }
         }
@@ -201,6 +196,34 @@ class MainActivity : AppCompatActivity() {
         }
         
         handleIntent(intent)
+        checkResumeState()
+    }
+
+    private fun checkResumeState() {
+        val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
+        val lastText = prefs.getString("last_text", null)
+        val isPlaying = prefs.getBoolean("is_playing", false)
+        
+        if (!lastText.isNullOrEmpty() && isPlaying) {
+            AlertDialog.Builder(this)
+                .setTitle("Resume Playback?")
+                .setMessage("Would you like to continue reading from where you left off?")
+                .setPositiveButton("Yes") { _, _ ->
+                    val intent = Intent(this, PlaybackActivity::class.java)
+                    intent.putExtra("is_resume", true)
+                    startActivity(intent)
+                }
+                .setNegativeButton("No") { _, _ ->
+                    getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).edit()
+                        .putBoolean("is_playing", false)
+                        .apply()
+                    // Housekeeping stop
+                    val stopIntent = Intent(this, PlaybackService::class.java)
+                    stopIntent.action = "STOP_PLAYBACK"
+                    startService(stopIntent)
+                }
+                .show()
+        }
     }
 
     override fun onNewIntent(intent: Intent?) {
@@ -210,51 +233,33 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
-        if (intent == null) {
-            android.util.Log.d("SupertonicDebug", "handleIntent: Intent is null")
-            return
-        }
-
-        android.util.Log.d("SupertonicDebug", "handleIntent: Action=${intent.action}")
-        android.util.Log.d("SupertonicDebug", "handleIntent: Data=${intent.data}")
-        android.util.Log.d("SupertonicDebug", "handleIntent: DataStr=${intent.dataString}")
-        android.util.Log.d("SupertonicDebug", "handleIntent: Scheme=${intent.scheme}")
-        android.util.Log.d("SupertonicDebug", "handleIntent: Host=${intent.data?.host}")
-
-        val extraText = intent.getStringExtra(Intent.EXTRA_TEXT)
-        val paramText = intent.data?.getQueryParameter("text")
-        
-        android.util.Log.d("SupertonicDebug", "handleIntent: EXTRA_TEXT=$extraText")
-        android.util.Log.d("SupertonicDebug", "handleIntent: QueryParam 'text'=$paramText")
+        if (intent == null) return
 
         if (intent.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
             if (!sharedText.isNullOrEmpty()) {
                 inputText.setText(sharedText)
-                statusText.text = "Received shared text"
+                toolbar.title = "Shared Text"
             }
         } else {
-            // Check both standard extra and query param
             val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: intent.data?.getQueryParameter("text")
             
             if (!text.isNullOrEmpty()) {
                 inputText.setText(text)
-                statusText.text = "Received text from browser"
-            } else {
-                android.util.Log.d("SupertonicDebug", "handleIntent: No text found in intent")
+                toolbar.title = "Fetched Web Text"
             }
         }
     }
 
     private fun setupQualityControl() {
-        qualitySeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                currentSteps = progress + 2
-                qualityValue.text = "$currentSteps steps"
-            }
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-        })
+        qualitySeekBar.addOnChangeListener { _, value, _ ->
+            currentSteps = value.toInt()
+            qualityValue.text = "$currentSteps steps"
+            getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
+                .edit()
+                .putInt("diffusion_steps", currentSteps)
+                .apply()
+        }
     }
 
     private fun checkNotificationPermission() {
@@ -267,7 +272,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupVoiceSpinner() {
         voiceFiles.clear()
-        
         val voiceDir = File(filesDir, "voice_styles")
         if (voiceDir.exists()) {
             val files = voiceDir.listFiles { _, name -> name.endsWith(".json") }
@@ -282,44 +286,38 @@ class MainActivity : AppCompatActivity() {
         }
 
         val voiceNames = voiceFiles.keys.toList().sorted()
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, voiceNames)
-        voiceSpinner.adapter = adapter
+        val adapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, voiceNames)
+        voiceSpinner.setAdapter(adapter)
         
         val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
         val savedFile = prefs.getString("selected_voice", "M1.json")
+        val savedName = voiceFiles.entries.find { it.value == savedFile }?.key ?: voiceNames.firstOrNull()
         
-        val savedName = voiceFiles.entries.find { it.value == savedFile }?.key
-        val defaultIndex = if (savedName != null) voiceNames.indexOf(savedName) else 0
-        
-        if (defaultIndex >= 0 && defaultIndex < voiceNames.size) {
-            voiceSpinner.setSelection(defaultIndex)
+        if (savedName != null) {
+            voiceSpinner.setText(savedName, false)
+            selectedVoiceFile = voiceFiles[savedName] ?: "M1.json"
         }
 
-        voiceSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                val name = voiceNames[position]
-                selectedVoiceFile = voiceFiles[name] ?: "M1.json"
+        voiceSpinner.onItemClickListener = AdapterView.OnItemClickListener { _, _, position, _ ->
+            val name = voiceNames[position]
+            val newVoice = voiceFiles[name] ?: "M1.json"
+            
+            if (selectedVoiceFile != newVoice) {
+                selectedVoiceFile = newVoice
                 getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
                     .edit().putString("selected_voice", selectedVoiceFile).apply()
+                
+                val resetIntent = Intent(this, PlaybackService::class.java).apply { action = "RESET_ENGINE" }
+                startService(resetIntent)
             }
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
     }
 
     private fun setupSpeedControl() {
-        speedSeekBar.max = 12
-        speedSeekBar.progress = 3
-        currentSpeed = 1.05f
-        speedValue.text = "1.05x"
-
-        speedSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                currentSpeed = 0.9f + (progress * 0.05f)
-                speedValue.text = String.format("%.2fx", currentSpeed)
-            }
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-        })
+        speedSeekBar.addOnChangeListener { _, value, _ ->
+            currentSpeed = value
+            speedValue.text = String.format("%.2fx", currentSpeed)
+        }
     }
 
     private fun copyAssets(): String? {
@@ -360,12 +358,11 @@ class MainActivity : AppCompatActivity() {
         val stylePath = File(filesDir, "voice_styles/$selectedVoiceFile").absolutePath
         
         if (!File(stylePath).exists()) {
-             statusText.text = "Error: Voice style not found"
+             toolbar.subtitle = "Error: Voice style not found"
              return
         }
 
-        // Save to History
-        val voiceName = voiceSpinner.selectedItem.toString()
+        val voiceName = voiceSpinner.text.toString()
         HistoryManager.saveItem(this, text, voiceName)
 
         val intent = Intent(this, PlaybackActivity::class.java).apply {

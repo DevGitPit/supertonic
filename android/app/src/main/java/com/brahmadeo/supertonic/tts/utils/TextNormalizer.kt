@@ -109,6 +109,19 @@ class TextNormalizer {
             numberToOrdinal(num)
         }
 
+        // YEARS
+        // Rule: 2000-2009 (Priority over general split)
+        addLambda("\\b200(\\d)\\b") { m ->
+            val digit = m.group(1) ?: "0"
+            if (digit == "0") "two thousand" else "two thousand $digit"
+        }
+
+        // Rule: 1900-1909
+        addLambda("\\b190(\\d)\\b") { m ->
+            val digit = m.group(1) ?: "0"
+            if (digit == "0") "nineteen hundred" else "nineteen oh $digit"
+        }
+
         // YEARS (Split 4 digit years starting with 19 or 20)
         addLambda("\\b(19|20)(\\d{2})\\b(?!s)") { m ->
             "${m.group(1)} ${m.group(2)}"
@@ -173,10 +186,13 @@ class TextNormalizer {
     }
 
     fun normalize(text: String): String {
+        // Step -1: Apply User Lexicon
+        val lexText = LexiconManager.apply(text)
+
         // Step 0: Fix smushed text from webpage layouts
         // Fix smushed sentences: lowercase char, period, uppercase char (reserved.Reuse)
         val smushedSentencePattern = Pattern.compile("([a-z])\\.([A-Z])")
-        var fixedText = smushedSentencePattern.matcher(text).replaceAll("$1. $2")
+        var fixedText = smushedSentencePattern.matcher(lexText).replaceAll("$1. $2")
         
         // Fix smushed words: lowercase char, uppercase char (economyIMF)
         val smushedWordPattern1 = Pattern.compile("([a-z])([A-Z])")

@@ -1,175 +1,313 @@
-// Offscreen management
-let creating; // A global promise to avoid concurrency issues
+// ==========================================
+// 1. CONFIGURATION & STATE
+// ==========================================
+console.log('[BACKGROUND] Service worker started at', new Date().toISOString());
+
+const SERVER_URL = 'http://127.0.0.1:8080';
+const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
+const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+
+let creatingPromise = null;
+let creationTimeout = null;
+let activePollIntervals = new Set();
+let idleTimer = null;
+
+// Connection health check state
+let serverAvailable = false;
+let lastServerCheck = 0;
+const SERVER_CHECK_INTERVAL = 30000;
+
+// ==========================================
+// 2. UTILS
+// ==========================================
+
+async function safeRuntimeMessage(message, retries = 3, delay = 100) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await chrome.runtime.sendMessage(message);
+    } catch (error) {
+      const errorMsg = error.message || '';
+      const isRetryable = errorMsg.includes('Could not establish connection') || 
+                         errorMsg.includes('Receiving end does not exist');
+      
+      if (isRetryable && i < retries - 1) {
+        console.log(`[BACKGROUND] Message retry ${i + 1}/${retries} for ${message.type}...`);
+        await new Promise(resolve => setTimeout(resolve, delay * (i + 1)));
+        continue;
+      }
+      
+      if (!isRetryable && !errorMsg.includes('Receiving end does not exist')) {
+        console.warn('[BACKGROUND] Non-retryable message error:', error.message);
+      }
+      return null;
+    }
+  }
+  return null;
+}
+
+function resetIdleTimer() {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(async () => {
+        console.log('[BACKGROUND] Idle timeout reached, closing offscreen');
+        await closeOffscreen();
+    }, IDLE_TIMEOUT);
+}
+
+async function closeOffscreen() {
+    try {
+        await safeRuntimeMessage({ type: 'CLEANUP' });
+        // Small delay to allow offscreen to receive cleanup signal
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        const existingContexts = await chrome.runtime.getContexts({
+            contextTypes: ['OFFSCREEN_DOCUMENT']
+        });
+        
+        if (existingContexts.length > 0) {
+            await chrome.offscreen.closeDocument();
+            console.log('[BACKGROUND] Offscreen closed');
+        }
+    } catch (e) {
+        // Already closed or API not available
+    }
+}
+
+function clearAllIntervals() {
+  activePollIntervals.forEach(interval => clearInterval(interval));
+  activePollIntervals.clear();
+}
+
+// ==========================================
+// 3. SERVER HEALTH CHECKS
+// ==========================================
+
+async function checkServerConnection() {
+  const now = Date.now();
+  if (now - lastServerCheck < SERVER_CHECK_INTERVAL) return serverAvailable;
+  
+  lastServerCheck = now;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const response = await fetch(`${SERVER_URL}/health`, {
+      signal: controller.signal,
+      method: 'GET'
+    });
+    clearTimeout(timeout);
+    serverAvailable = response.ok;
+    return serverAvailable;
+  } catch (error) {
+    serverAvailable = false;
+    return false;
+  }
+}
+
+// ==========================================
+// 4. OFFSCREEN DOCUMENT MANAGEMENT
+// ==========================================
+
+let offscreenReadyResolve = null;
+
 async function setupOffscreenDocument(path) {
-  // Check for existing offscreen document
-  const existingContexts = await chrome.runtime.getContexts({
-    contextTypes: ['OFFSCREEN_DOCUMENT'],
-    documentUrls: [path]
-  });
+  const offscreenUrl = chrome.runtime.getURL(path);
+  try {
+    if (chrome.runtime.getContexts) {
+        const existingContexts = await chrome.runtime.getContexts({
+          contextTypes: ['OFFSCREEN_DOCUMENT'],
+          documentUrls: [offscreenUrl]
+        });
+        if (existingContexts.length > 0) return;
+    }
 
-  if (existingContexts.length > 0) return;
+    if (creatingPromise) {
+      await creatingPromise;
+      return;
+    }
 
-  // If creation is already in progress, wait for it
-  if (creating) {
-    await creating;
-  } else {
-    // Start creating the offscreen document
-    creating = chrome.offscreen.createDocument({
+    const readyPromise = new Promise(resolve => {
+        offscreenReadyResolve = resolve;
+        setTimeout(() => { 
+          if (offscreenReadyResolve === resolve) {
+            offscreenReadyResolve = null; 
+            resolve(); 
+          }
+        }, 3000); // 3 seconds timeout for ready signal
+    });
+
+    creatingPromise = chrome.offscreen.createDocument({
       url: path,
       reasons: ['AUDIO_PLAYBACK'],
       justification: 'Background TTS playback',
     });
     
-    try {
-        await creating;
-    } catch (err) {
-        // If it failed because it already exists (race condition), that's fine.
-        if (!err.message.startsWith('Only a single offscreen document may be created')) {
-             throw err;
-        }
-    } finally {
-        creating = null;
-    }
+    await creatingPromise;
+    await readyPromise;
+  } catch (err) {
+    if (!err.message.includes('already exists')) throw err;
+  } finally {
+    creatingPromise = null;
+    offscreenReadyResolve = null;
   }
 }
 
+// ==========================================
+// 5. MESSAGE HANDLER
+// ==========================================
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  // Offscreen coordination
+  // --- HANDLER: OFFSCREEN READY ---
+  if (request.type === 'OFFSCREEN_READY') {
+      if (offscreenReadyResolve) {
+          offscreenReadyResolve();
+          offscreenReadyResolve = null;
+      }
+      sendResponse({ status: 'ok' });
+      return false;
+  }
+
+  // --- HANDLER: START STREAMING ---
   if (request.type === 'CMD_START_STREAM') {
-      const offscreenUrl = chrome.runtime.getURL('offscreen.html');
-      setupOffscreenDocument(offscreenUrl)
-          .then(() => {
-              chrome.runtime.sendMessage({
-                  type: 'ACT_STREAM',
-                  payload: request.payload
-              });
-          })
-          .catch(err => {
-              console.error('[BACKGROUND] Failed to setup offscreen document:', err);
-              chrome.runtime.sendMessage({
-                  type: 'ACT_TTS_DONE',
-                  eventType: 'error',
-                  errorMessage: 'Failed to initialize playback environment: ' + err.message
-              });
+    (async () => {
+      const engine = request.payload.engine || 'system';
+      if (engine === 'supertonic' && !(await checkServerConnection())) {
+          safeRuntimeMessage({
+            type: 'ACT_TTS_DONE',
+            eventType: 'error',
+            errorMessage: 'Connection failed! Is the Supertonic Python server running?'
           });
-  }
-  
-  if (request.type === 'CMD_STOP') {
-      chrome.runtime.sendMessage({ type: 'ACT_STOP' });
-      chrome.tts.stop();
-  }
-
-  // TTS Delegation from Offscreen
-  if (request.type === 'CMD_TTS_SPEAK') {
-      console.log('[BACKGROUND] CMD_TTS_SPEAK received:', {
-          textLength: request.text.length,
-          rate: request.rate,
-          voiceName: request.voiceName || 'default'
-      });
-      
-      let eventReceived = false;
-      let pollInterval = null;
-      
-      const options = {
-          rate: request.rate,
-          onEvent: (event) => {
-              console.log('[BACKGROUND] TTS Event:', event.type);
-              eventReceived = true;
-              
-              if (pollInterval) {
-                  clearInterval(pollInterval);
-                  pollInterval = null;
-              }
-              
-              if (event.type === 'start') {
-                  chrome.runtime.sendMessage({
-                      type: 'ACT_TTS_STARTED'
-                  }).catch(() => {});
-              }
-              
-              if (event.type === 'end' || event.type === 'interrupted' || event.type === 'error' || event.type === 'cancelled') {
-                  console.log('[BACKGROUND] Sending ACT_TTS_DONE:', event.type);
-                  chrome.runtime.sendMessage({
-                      type: 'ACT_TTS_DONE',
-                      eventType: event.type,
-                      errorMessage: event.errorMessage
-                  }).catch(e => {
-                      console.log('[BACKGROUND] Could not send TTS_DONE:', e.message);
-                  });
-              }
-          }
-      };
-      
-      // CRITICAL FIX: Set voice correctly
-      if (request.voiceName && request.voiceName.trim() !== '') {
-          // For Android, voice name might be the full locale string
-          options.voiceName = request.voiceName;
-          
-          // ALSO try setting lang if voiceName looks like a locale
-          if (request.voiceName.includes('_') || request.voiceName.includes('-')) {
-              // e.g., "en_GB" or "en-us-supertonic-F5"
-              const parts = request.voiceName.split(/[-_]/);
-              if (parts.length >= 2) {
-                  // Reconstruct a standard locale string like "en-GB"
-                  options.lang = `${parts[0]}-${parts[1].toUpperCase()}`;
-              }
-          }
-          
-          console.log('[BACKGROUND] Voice options:', options);
+          sendResponse({ status: 'error' });
+          return;
       }
-
+      
       try {
-          console.log('[BACKGROUND] Calling chrome.tts.speak()...');
-          chrome.tts.speak(request.text, options);
-          console.log('[BACKGROUND] chrome.tts.speak() called successfully');
-          
-          // FALLBACK: Poll for TTS completion if events don't fire (Android workaround)
-          let pollCount = 0;
-          const maxPolls = 600; // 300 seconds max (generous for long texts)
-          
-          setTimeout(() => {
-              if (!eventReceived) {
-                  console.warn('[BACKGROUND] No TTS events received after 2s, starting fallback polling...');
-                  
-                  pollInterval = setInterval(() => {
-                      pollCount++;
-                      
-                      chrome.tts.isSpeaking((speaking) => {
-                          // console.log(`[BACKGROUND] Poll ${pollCount}: isSpeaking = ${speaking}`); // Reduce noise
-                          
-                          if (!speaking || pollCount >= maxPolls) {
-                              if (pollInterval) {
-                                  clearInterval(pollInterval);
-                                  pollInterval = null;
-                              }
-                              
-                              if (!eventReceived) {
-                                  console.log('[BACKGROUND] Fallback: Sending ACT_TTS_DONE via polling');
-                                  chrome.runtime.sendMessage({
-                                      type: 'ACT_TTS_DONE',
-                                      eventType: 'end',
-                                      errorMessage: null
-                                  }).catch(() => {});
-                                  eventReceived = true;
-                              }
-                          }
-                      });
-                  }, 500); // Poll every 500ms
-              }
-          }, 2000); // Wait 2 seconds before starting to poll
-          
-      } catch (e) {
-          console.error('[BACKGROUND] chrome.tts.speak() threw error:', e);
-          if (pollInterval) clearInterval(pollInterval);
-          chrome.runtime.sendMessage({ 
-              type: 'ACT_TTS_DONE', 
-              eventType: 'error', 
-              errorMessage: e.message 
-          }).catch(() => {});
+        await setupOffscreenDocument(OFFSCREEN_DOCUMENT_PATH);
+        // Ensure offscreen is ready
+        await new Promise(resolve => setTimeout(resolve, 200));
+        await safeRuntimeMessage({ type: 'ACT_STREAM', payload: request.payload });
+        resetIdleTimer();
+        sendResponse({ status: 'started' });
+      } catch (err) {
+        console.error('[BACKGROUND] CMD_START_STREAM error:', err);
+        sendResponse({ status: 'error', message: err.message });
       }
+    })();
+    return true;
   }
   
-  if (request.type === 'CMD_TTS_STOP') {
+  // --- HANDLER: STOP ---
+  if (request.type === 'CMD_STOP' || request.type === 'CMD_FORCE_CLEANUP') {
+    (async () => {
+      clearAllIntervals();
       chrome.tts.stop();
+      await safeRuntimeMessage({ type: 'ACT_STOP' });
+      resetIdleTimer();
+      if (request.type === 'CMD_FORCE_CLEANUP') await closeOffscreen();
+      sendResponse({ status: 'stopped' });
+    })();
+    return true;
   }
+
+  // --- HANDLER: PROGRESS TRACKING ---
+  if (request.type === 'UPDATE_PROGRESS') {
+      chrome.storage.local.set({ savedIndex: request.index });
+      resetIdleTimer();
+      return false;
+  }
+
+  if (request.type === 'CMD_TTS_STOP') {
+    clearAllIntervals();
+    chrome.tts.stop();
+    sendResponse({ status: 'stopped' });
+    return false;
+  }
+
+  if (request.type === 'CMD_TTS_SPEAK') {
+    resetIdleTimer();
+    handleSystemTTS(request);
+    sendResponse({ status: 'queued' });
+    return true;
+  }
+});
+
+// ==========================================
+// 6. HELPER: SYSTEM TTS LOGIC
+// ==========================================
+function handleSystemTTS(request) {
+    let eventReceived = false;
+    let pollInterval = null;
+
+    const cleanupInterval = () => {
+        if (pollInterval) {
+            clearInterval(pollInterval);
+            activePollIntervals.delete(pollInterval);
+            pollInterval = null;
+        }
+    };
+
+    const options = {
+        rate: request.rate || 1.0,
+        onEvent: (event) => {
+             eventReceived = true;
+             cleanupInterval();
+             if (event.type === 'start') {
+                  safeRuntimeMessage({ type: 'ACT_TTS_STARTED' });
+             }
+             if (['end', 'error', 'interrupted', 'cancelled'].includes(event.type)) {
+                 safeRuntimeMessage({ 
+                     type: 'ACT_TTS_DONE', 
+                     requestId: request.requestId,
+                     eventType: event.type,
+                     errorMessage: event.errorMessage
+                 });
+             }
+        }
+    };
+
+    if (request.voiceName && request.voiceName.trim() !== '') {
+        options.voiceName = request.voiceName;
+        if (request.voiceName.includes('_') || request.voiceName.includes('-')) {
+            const parts = request.voiceName.split(/[-_]/);
+            if (parts.length >= 2) options.lang = `${parts[0]}-${parts[1].toUpperCase()}`;
+        }
+    }
+    
+    try {
+        chrome.tts.speak(request.text, options);
+        setTimeout(() => {
+            if (!eventReceived) {
+                pollInterval = setInterval(() => {
+                    chrome.tts.isSpeaking((speaking) => {
+                        if (!speaking) {
+                            cleanupInterval();
+                            if (!eventReceived) {
+                                safeRuntimeMessage({ type: 'ACT_TTS_DONE', eventType: 'end' });
+                                eventReceived = true;
+                            }
+                        }
+                    });
+                }, 500); 
+                activePollIntervals.add(pollInterval);
+            }
+        }, 2000); 
+    } catch (e) {
+        cleanupInterval();
+        safeRuntimeMessage({ type: 'ACT_TTS_DONE', eventType: 'error', errorMessage: e.message });
+    }
+}
+
+// ==========================================
+// 7. LIFECYCLE
+// ==========================================
+
+// Close offscreen when extension is disabled
+if (chrome.management && chrome.management.onDisabled) {
+    chrome.management.onDisabled.addListener(async (info) => {
+      if (info.id === chrome.runtime.id) await closeOffscreen();
+    });
+}
+
+// Proper way to handle suspension in Chrome Extensions
+chrome.runtime.onSuspend.addListener(async () => {
+  console.log('[BACKGROUND] Suspending, cleaning up');
+  await closeOffscreen();
 });

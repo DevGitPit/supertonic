@@ -7,6 +7,9 @@ import android.content.ServiceConnection
 import android.os.Bundle
 import android.os.Environment
 import android.os.IBinder
+import android.os.RemoteException
+import android.util.Log
+import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -15,30 +18,39 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.brahmadeo.supertonic.tts.service.IPlaybackService
 import com.brahmadeo.supertonic.tts.service.IPlaybackListener
+import com.brahmadeo.supertonic.tts.service.IPlaybackService
 import com.brahmadeo.supertonic.tts.service.PlaybackService
 import com.brahmadeo.supertonic.tts.utils.TextNormalizer
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import android.graphics.PorterDuff
-import android.content.res.Configuration
-import android.os.RemoteException
 
 class PlaybackActivity : AppCompatActivity() {
 
     private lateinit var sentencesList: RecyclerView
-    private lateinit var playStopButton: Button
+    private lateinit var playStopButton: com.google.android.material.floatingactionbutton.FloatingActionButton
+    private lateinit var stopButton: Button
     private lateinit var exportButton: Button
-    private lateinit var progressBar: ProgressBar
-    private lateinit var birdImage: ImageView
+    private lateinit var progressBar: com.google.android.material.progressindicator.LinearProgressIndicator
+    private lateinit var exportOverlay: RelativeLayout
+    private lateinit var cancelExportBtn: Button
 
     private var playbackService: IPlaybackService? = null
     private var isBound = false
     private lateinit var adapter: SentenceAdapter
     private var currentSentenceIndex = -1
+    
+    // State persistence
+    private var currentText = ""
+    private var currentVoicePath = ""
+    private var currentSpeed = 1.0f
+    private var currentSteps = 5
+    
+    // UI State tracking
+    private var isPlaying = false
+    private var isServiceActive = false
 
     companion object {
         const val EXTRA_TEXT = "extra_text"
@@ -50,10 +62,23 @@ class PlaybackActivity : AppCompatActivity() {
     private val playbackListenerStub = object : IPlaybackListener.Stub() {
         override fun onStateChanged(isPlaying: Boolean, hasContent: Boolean, isSynthesizing: Boolean) {
             runOnUiThread {
-                if (isPlaying || isSynthesizing) {
-                    playStopButton.text = "Stop"
+                this@PlaybackActivity.isPlaying = isPlaying
+                this@PlaybackActivity.isServiceActive = isPlaying || isSynthesizing
+                
+                if (isPlaying) {
+                    playStopButton.setImageResource(android.R.drawable.ic_media_pause)
+                    stopButton.visibility = View.GONE
+                    exportButton.visibility = View.GONE
+                } else if (this@PlaybackActivity.isServiceActive) {
+                    playStopButton.setImageResource(android.R.drawable.ic_media_play)
+                    stopButton.visibility = View.VISIBLE
+                    exportButton.visibility = View.VISIBLE
+                    exportButton.isEnabled = true
                 } else {
-                    playStopButton.text = "Play"
+                    playStopButton.setImageResource(android.R.drawable.ic_media_play)
+                    stopButton.visibility = View.VISIBLE
+                    exportButton.visibility = View.VISIBLE
+                    exportButton.isEnabled = true
                 }
             }
         }
@@ -61,6 +86,7 @@ class PlaybackActivity : AppCompatActivity() {
         override fun onProgress(current: Int, total: Int) {
             runOnUiThread {
                 currentSentenceIndex = current
+                updateIndexState(current)
                 adapter.setCurrentIndex(current)
                 progressBar.max = total
                 progressBar.progress = current
@@ -70,13 +96,17 @@ class PlaybackActivity : AppCompatActivity() {
 
         override fun onPlaybackStopped() {
             runOnUiThread {
-                playStopButton.text = "Play"
+                isPlaying = false
+                isServiceActive = false
+                playStopButton.setImageResource(android.R.drawable.ic_media_play)
+                stopButton.visibility = View.VISIBLE
+                exportButton.visibility = View.VISIBLE
             }
         }
 
         override fun onExportComplete(success: Boolean, path: String) {
             runOnUiThread {
-                exportButton.isEnabled = true
+                hideExportOverlay()
                 if (success) {
                     Toast.makeText(this@PlaybackActivity, "Saved to $path", Toast.LENGTH_LONG).show()
                 } else {
@@ -93,24 +123,10 @@ class PlaybackActivity : AppCompatActivity() {
                 playbackService?.setListener(playbackListenerStub)
                 isBound = true
                 
-                if (playbackService?.isServiceActive == true) {
-                    // Already playing
+                if (intent.getBooleanExtra("is_resume", false)) {
+                    restoreState()
                 } else {
-                    // Check crash recovery
-                    val prefs = getSharedPreferences("SupertonicResume", Context.MODE_PRIVATE)
-                    val savedText = prefs.getString("last_text", "")
-                    val intentText = intent.getStringExtra(EXTRA_TEXT)
-                    
-                    if (savedText == intentText) {
-                        val lastIndex = prefs.getInt("last_index", 0)
-                        if (lastIndex > 0) {
-                            currentSentenceIndex = lastIndex
-                            adapter.setCurrentIndex(lastIndex)
-                            sentencesList.scrollToPosition(lastIndex)
-                        }
-                    } else {
-                        startPlaybackFromIntent()
-                    }
+                    startPlaybackFromIntent()
                 }
             } catch (e: RemoteException) {
                 e.printStackTrace()
@@ -120,17 +136,6 @@ class PlaybackActivity : AppCompatActivity() {
         override fun onServiceDisconnected(arg0: ComponentName) {
             isBound = false
             playbackService = null
-            Toast.makeText(this@PlaybackActivity, "TTS Service restarted. Press Play to resume.", Toast.LENGTH_LONG).show()
-            playStopButton.text = "Play"
-            
-            // Restore last state from prefs in case we crashed
-            val prefs = getSharedPreferences("SupertonicResume", Context.MODE_PRIVATE)
-            val lastIndex = prefs.getInt("last_index", 0)
-            if (lastIndex > 0) {
-                currentSentenceIndex = lastIndex
-                adapter.setCurrentIndex(lastIndex)
-                sentencesList.scrollToPosition(lastIndex)
-            }
         }
     }
 
@@ -140,31 +145,39 @@ class PlaybackActivity : AppCompatActivity() {
 
         sentencesList = findViewById(R.id.sentencesList)
         playStopButton = findViewById(R.id.playStopButton)
+        stopButton = findViewById(R.id.stopButton)
         exportButton = findViewById(R.id.exportButton)
         progressBar = findViewById(R.id.progressBar)
-        birdImage = findViewById(R.id.birdImage)
+        exportOverlay = findViewById(R.id.exportOverlay)
+        cancelExportBtn = findViewById(R.id.cancelExportBtn)
 
-        setupBirdTheming()
+        val toolbar = findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.playbackToolbar)
+        toolbar.setNavigationOnClickListener { finish() }
 
-        val text = intent.getStringExtra(EXTRA_TEXT) ?: ""
+        currentText = intent.getStringExtra(EXTRA_TEXT) ?: ""
+        currentVoicePath = intent.getStringExtra(EXTRA_VOICE_PATH) ?: ""
+        currentSpeed = intent.getFloatExtra(EXTRA_SPEED, 1.0f)
+        currentSteps = intent.getIntExtra(EXTRA_STEPS, 5)
         
-        val normalizer = TextNormalizer()
-        val sentences = normalizer.splitIntoSentences(text)
-        
-        adapter = SentenceAdapter(sentences) { index ->
-            playFromIndex(index)
+        if (intent.getBooleanExtra("is_resume", false) && currentText.isEmpty()) {
+             val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
+             currentText = prefs.getString("last_text", "") ?: ""
+             currentVoicePath = prefs.getString("last_voice_path", "") ?: ""
+             currentSpeed = prefs.getFloat("last_speed", 1.0f)
+             currentSteps = prefs.getInt("last_steps", 5)
+             currentSentenceIndex = prefs.getInt("last_index", 0)
         }
-        sentencesList.layoutManager = LinearLayoutManager(this)
-        sentencesList.adapter = adapter
+
+        setupList(currentText)
 
         playStopButton.setOnClickListener {
             try {
-                if (playbackService?.isServiceActive == true) {
-                    playbackService?.stop()
+                if (isPlaying) {
+                    playbackService?.stop() // AIDL stop currently just stops everything
+                } else if (isServiceActive) {
+                    // Playback was paused or in progress
+                    playFromIndex(currentSentenceIndex)
                 } else {
-                    if (currentSentenceIndex >= adapter.itemCount) {
-                        currentSentenceIndex = 0
-                    }
                     if (currentSentenceIndex >= 0) {
                         playFromIndex(currentSentenceIndex)
                     } else {
@@ -175,79 +188,127 @@ class PlaybackActivity : AppCompatActivity() {
                 e.printStackTrace()
             }
         }
+        
+        stopButton.setOnClickListener {
+            try {
+                playbackService?.stop()
+            } catch (e: RemoteException) { }
+            clearState()
+            finish()
+        }
 
         exportButton.setOnClickListener {
-            val textToExport = intent.getStringExtra(EXTRA_TEXT) ?: return@setOnClickListener
-            val voicePath = intent.getStringExtra(EXTRA_VOICE_PATH) ?: return@setOnClickListener
-            val speed = intent.getFloatExtra(EXTRA_SPEED, 1.0f)
-            val steps = intent.getIntExtra(EXTRA_STEPS, 5)
-            
-            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-            val filename = "Supertonic_TTS_$timestamp.wav"
-            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val file = File(downloadsDir, filename)
-            
-            Toast.makeText(this, "Exporting to Downloads...", Toast.LENGTH_SHORT).show()
-            exportButton.isEnabled = false
-            
+            showExportOverlay()
+            startExport()
+        }
+        
+        cancelExportBtn.setOnClickListener {
             try {
-                playbackService?.exportAudio(textToExport, voicePath, speed, steps, file.absolutePath)
-            } catch (e: RemoteException) {
-                e.printStackTrace()
-                exportButton.isEnabled = true
-                Toast.makeText(this, "Export Failed (Remote Error)", Toast.LENGTH_SHORT).show()
-            }
+                playbackService?.stop()
+            } catch (e: RemoteException) { }
+            hideExportOverlay()
         }
 
         val intent = Intent(this, PlaybackService::class.java)
         bindService(intent, connection, Context.BIND_AUTO_CREATE)
     }
-
-    private fun setupBirdTheming() {
-        val isDarkMode = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        val goldColor = ContextCompat.getColor(this, R.color.accent_gold)
+    
+    private fun setupList(text: String) {
+        val normalizer = TextNormalizer()
+        val sentences = normalizer.splitIntoSentences(text)
+        adapter = SentenceAdapter(sentences) { index ->
+            playFromIndex(index)
+        }
+        sentencesList.layoutManager = LinearLayoutManager(this)
+        sentencesList.adapter = adapter
         
-        if (isDarkMode) {
-            birdImage.setColorFilter(goldColor, PorterDuff.Mode.SCREEN)
-        } else {
-            birdImage.setColorFilter(goldColor, PorterDuff.Mode.MULTIPLY)
+        if (currentSentenceIndex >= 0 && currentSentenceIndex < sentences.size) {
+            adapter.setCurrentIndex(currentSentenceIndex)
+            sentencesList.scrollToPosition(currentSentenceIndex)
         }
     }
 
     private fun startPlaybackFromIntent() {
-        val text = intent.getStringExtra(EXTRA_TEXT) ?: return
-        val voicePath = intent.getStringExtra(EXTRA_VOICE_PATH) ?: return
-        val speed = intent.getFloatExtra(EXTRA_SPEED, 1.0f)
-        val steps = intent.getIntExtra(EXTRA_STEPS, 5)
-        
+        if (currentText.isEmpty()) return
+        saveState()
         try {
-            playbackService?.synthesizeAndPlay(text, voicePath, speed, steps, 0)
+            playbackService?.synthesizeAndPlay(currentText, currentVoicePath, currentSpeed, currentSteps, 0)
         } catch (e: RemoteException) {
             e.printStackTrace()
         }
     }
 
     private fun playFromIndex(index: Int) {
-        val text = intent.getStringExtra(EXTRA_TEXT) ?: return
-        val voicePath = intent.getStringExtra(EXTRA_VOICE_PATH) ?: return
-        val speed = intent.getFloatExtra(EXTRA_SPEED, 1.0f)
-        val steps = intent.getIntExtra(EXTRA_STEPS, 5)
-        
+        if (currentText.isEmpty()) return
+        saveState()
         try {
-            playbackService?.synthesizeAndPlay(text, voicePath, speed, steps, index)
+            playbackService?.synthesizeAndPlay(currentText, currentVoicePath, currentSpeed, currentSteps, index)
         } catch (e: RemoteException) {
             e.printStackTrace()
         }
     }
     
+    private fun saveState() {
+        getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).edit()
+            .putString("last_text", currentText)
+            .putString("last_voice_path", currentVoicePath)
+            .putFloat("last_speed", currentSpeed)
+            .putInt("last_steps", currentSteps)
+            .putBoolean("is_playing", true)
+            .apply()
+    }
+    
+    private fun updateIndexState(index: Int) {
+        getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).edit()
+            .putInt("last_index", index)
+            .apply()
+    }
+    
+    private fun clearState() {
+        getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).edit()
+            .putBoolean("is_playing", false)
+            .apply()
+    }
+    
+    private fun restoreState() {
+        try {
+            if (playbackService?.isServiceActive == false) {
+                 playbackListenerStub.onStateChanged(false, true, false)
+            }
+        } catch (e: RemoteException) { }
+    }
+
+    private fun startExport() {
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val filename = "Supertonic_TTS_$timestamp.wav"
+        val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
+        val appDir = File(musicDir, "Supertonic Audio")
+        if (!appDir.exists()) appDir.mkdirs()
+        val file = File(appDir, filename)
+        
+        try {
+            playbackService?.exportAudio(currentText, currentVoicePath, currentSpeed, currentSteps, file.absolutePath)
+        } catch (e: RemoteException) {
+            e.printStackTrace()
+            hideExportOverlay()
+            Toast.makeText(this, "Export Failed (Remote Error)", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    private fun showExportOverlay() {
+        exportOverlay.visibility = View.VISIBLE
+    }
+    
+    private fun hideExportOverlay() {
+        exportOverlay.visibility = View.GONE
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         if (isBound) {
             try {
                 playbackService?.setListener(null)
-            } catch (e: RemoteException) {
-                // Service might be dead
-            }
+            } catch (e: RemoteException) { }
             unbindService(connection)
             isBound = false
         }
@@ -267,6 +328,7 @@ class PlaybackActivity : AppCompatActivity() {
         }
 
         inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+            val cardView: com.google.android.material.card.MaterialCardView = view as com.google.android.material.card.MaterialCardView
             val textView: TextView = view.findViewById(R.id.sentenceText)
         }
 
@@ -281,12 +343,24 @@ class PlaybackActivity : AppCompatActivity() {
             
             val context = holder.itemView.context
             if (position == currentIndex) {
-                holder.textView.setBackgroundColor(0x33C5A059.toInt())
-                holder.textView.setTextColor(ContextCompat.getColor(context, R.color.accent_gold))
+                val bgColor = com.google.android.material.color.MaterialColors.getColor(context, com.google.android.material.R.attr.colorPrimaryContainer, android.graphics.Color.LTGRAY)
+                val textColor = com.google.android.material.color.MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnPrimaryContainer, android.graphics.Color.BLACK)
+                
+                holder.cardView.setCardBackgroundColor(bgColor)
+                holder.cardView.strokeWidth = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 2f, context.resources.displayMetrics).toInt()
+                holder.cardView.strokeColor = com.google.android.material.color.MaterialColors.getColor(context, com.google.android.material.R.attr.colorPrimary, bgColor)
+                
+                holder.textView.setTextColor(textColor)
                 holder.textView.setTypeface(null, android.graphics.Typeface.BOLD)
             } else {
-                holder.textView.background = null
-                holder.textView.setTextColor(ContextCompat.getColor(context, R.color.text_primary))
+                val surfaceColor = com.google.android.material.color.MaterialColors.getColor(context, com.google.android.material.R.attr.colorSurface, android.graphics.Color.WHITE)
+                val textColor = com.google.android.material.color.MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, android.graphics.Color.BLACK)
+                
+                holder.cardView.setCardBackgroundColor(surfaceColor)
+                holder.cardView.strokeWidth = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 1f, context.resources.displayMetrics).toInt()
+                holder.cardView.strokeColor = com.google.android.material.color.MaterialColors.getColor(context, com.google.android.material.R.attr.colorOutlineVariant, android.graphics.Color.TRANSPARENT)
+                
+                holder.textView.setTextColor(textColor)
                 holder.textView.setTypeface(null, android.graphics.Typeface.NORMAL)
             }
         }

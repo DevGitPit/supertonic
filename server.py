@@ -10,6 +10,16 @@ PORT = 8080
 HOST_PATH = "./cpp/build/start_host.sh"
 
 class TTSHandler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/health':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok"}).encode('utf-8'))
+        else:
+            self.send_error(404)
+
     def do_POST(self):
         if self.path == '/synthesize':
             content_length = int(self.headers['Content-Length'])
@@ -44,15 +54,21 @@ class TTSHandler(http.server.SimpleHTTPRequestHandler):
                 proc.terminate()
                 
                 # Send response to client
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.send_header('Access-Control-Allow-Origin', '*')
-                self.end_headers()
-                self.wfile.write(json.dumps(response).encode('utf-8'))
+                try:
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    self.wfile.write(json.dumps(response).encode('utf-8'))
+                except BrokenPipeError:
+                    print("Client disconnected before response could be sent")
                 
             except Exception as e:
                 print(f"Error: {e}")
-                self.send_error(500, str(e))
+                try:
+                    self.send_error(500, str(e))
+                except BrokenPipeError:
+                    pass
         else:
             self.send_error(404)
 
