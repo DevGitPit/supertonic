@@ -21,6 +21,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputEditText
+import android.os.RemoteException
 import java.io.File
 
 class LexiconActivity : AppCompatActivity() {
@@ -31,13 +32,12 @@ class LexiconActivity : AppCompatActivity() {
     private lateinit var adapter: LexiconAdapter
     private val rules = mutableListOf<LexiconItem>()
 
-    private var playbackService: PlaybackService? = null
+    private var playbackService: com.brahmadeo.supertonic.tts.service.IPlaybackService? = null
     private var isBound = false
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(className: ComponentName, service: IBinder) {
-            val binder = service as PlaybackService.LocalBinder
-            playbackService = binder.getService()
+            playbackService = com.brahmadeo.supertonic.tts.service.IPlaybackService.Stub.asInterface(service)
             isBound = true
         }
 
@@ -149,8 +149,12 @@ class LexiconActivity : AppCompatActivity() {
         val stylePath = File(filesDir, "voice_styles/$voiceFile").absolutePath
         val steps = prefs.getInt("diffusion_steps", 5)
 
-        playbackService?.stopPlayback()
-        playbackService?.synthesizeAndPlay(text, stylePath, 1.0f, steps)
+        try {
+            playbackService?.stop()
+            playbackService?.synthesizeAndPlay(text, stylePath, 1.0f, steps, 0)
+        } catch (e: RemoteException) {
+            e.printStackTrace()
+        }
     }
 
     private fun deleteRule(item: LexiconItem) {
