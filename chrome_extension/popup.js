@@ -347,7 +347,21 @@ document.addEventListener('DOMContentLoaded', function() {
           if (resp.ok) {
               serverAvailable = true;
               voiceSelect.innerHTML = "";
-              ["F1", "F2", "F3", "F4", "F5", "M1", "M2", "M3", "M4", "M5"].forEach(v => voiceSelect.add(new Option(v, v + ".json")));
+              
+              const voices = [
+                  { id: "M1", name: "Alex - Lively" },
+                  { id: "M2", name: "James - Deep" },
+                  { id: "M3", name: "Robert - Polished" },
+                  { id: "M4", name: "Sam - Soft" },
+                  { id: "M5", name: "Daniel - Warm" },
+                  { id: "F1", name: "Sarah - Calm" },
+                  { id: "F2", name: "Lily - Bright" },
+                  { id: "F3", name: "Jessica - Clear" },
+                  { id: "F4", name: "Olivia - Crisp" },
+                  { id: "F5", name: "Emily - Kind" }
+              ];
+
+              voices.forEach(v => voiceSelect.add(new Option(v.name, v.id + ".json")));
               
               // Restore saved voice if it exists in the new list
               chrome.storage.local.get(['savedVoice'], (result) => {

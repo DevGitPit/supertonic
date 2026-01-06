@@ -127,6 +127,7 @@ int main() {
                 }
                 
                 std::string text = request.value("text", "");
+                std::string lang = request.value("lang", "en");
                 std::string voice_style_path = request.value("voice_style_path", "");
                 float speed = request.value("speed", 1.0f);
                 int total_step = request.value("total_step", 5);
@@ -140,7 +141,7 @@ int main() {
                 auto style = loadVoiceStyle(styles, false);
                 
                 // Inference
-                auto result = g_tts->call(*g_memory_info, text, style, total_step, speed);
+                auto result = g_tts->call(*g_memory_info, text, lang, style, total_step, speed);
                 
                 // Convert float audio to 16-bit PCM for playback
                 std::vector<unsigned char> pcm_data;

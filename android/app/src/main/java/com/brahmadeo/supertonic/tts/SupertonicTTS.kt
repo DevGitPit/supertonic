@@ -111,7 +111,7 @@ object SupertonicTTS {
 
     @Synchronized
     fun getAudioSampleRate(): Int {
-        if (nativePtr == 0L) return 24000
+        if (nativePtr == 0L) return 44100
         return getSampleRate(nativePtr)
     }
 
