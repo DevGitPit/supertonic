@@ -15,7 +15,7 @@ object SupertonicTTS {
     }
 
     private external fun init(modelPath: String, libPath: String): Long
-    private external fun synthesize(ptr: Long, text: String, stylePath: String, speed: Float, bufferSeconds: Float, steps: Int): ByteArray
+    private external fun synthesize(ptr: Long, text: String, lang: String, stylePath: String, speed: Float, bufferSeconds: Float, steps: Int): ByteArray
     private external fun getSocClass(ptr: Long): Int
     private external fun getSampleRate(ptr: Long): Int
     private external fun close(ptr: Long)
@@ -86,7 +86,7 @@ object SupertonicTTS {
     }
 
     @Synchronized
-    fun generateAudio(text: String, stylePath: String, speed: Float = 1.0f, bufferDuration: Float = 0.0f, steps: Int = 5): ByteArray? {
+    fun generateAudio(text: String, lang: String, stylePath: String, speed: Float = 1.0f, bufferDuration: Float = 0.0f, steps: Int = 5): ByteArray? {
         if (nativePtr == 0L) {
             Log.e("SupertonicTTS", "Engine not initialized")
             return null
@@ -95,7 +95,7 @@ object SupertonicTTS {
         currentSessionId++ // New session for every sentence
         
         try {
-            val data = synthesize(nativePtr, text, stylePath, speed, bufferDuration, steps)
+            val data = synthesize(nativePtr, text, lang, stylePath, speed, bufferDuration, steps)
             return if (data.isNotEmpty()) data else null
         } catch (e: Exception) {
             Log.e("SupertonicTTS", "Native synthesis exception: ${e.message}")
