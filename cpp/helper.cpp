@@ -6,9 +6,13 @@
 #include <random>
 #include <sstream>
 #include <regex>
+#include <unordered_map>
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
+
+// Available languages for multilingual TTS
+const std::vector<std::string> AVAILABLE_LANGS = {"en", "ko", "es", "pt", "fr"};
 
 // Global tensor buffers for memory management
 static std::vector<std::vector<float>> g_tensor_buffers_float;
@@ -45,7 +49,7 @@ UnicodeProcessor::UnicodeProcessor(const std::string& unicode_indexer_json_path)
     indexer_ = loadJsonInt64(unicode_indexer_json_path);
 }
 
-std::string UnicodeProcessor::preprocessText(const std::string& text) {
+std::string UnicodeProcessor::preprocessText(const std::string& text, const std::string& lang) {
     // TODO: Need advanced normalizer for better performance
     // NOTE: C++ doesn't have built-in Unicode normalization like Python's NFKD
     // For full Unicode normalization, consider using ICU library
@@ -53,17 +57,8 @@ std::string UnicodeProcessor::preprocessText(const std::string& text) {
     
     std::string result = text;
     
-    // FIXME: this should be fixed for non-English languages
-    
-    // Remove emojis and various Unicode symbols
-    // Using regex to remove common emoji ranges and special symbols
-    // Note: This is a simplified version - full emoji support needs UTF-8 handling
-    std::regex emoji_pattern(
-        "[\xF0\x9F][\x80-\xBF]{2}|"  // Common emoji pattern in UTF-8
-        "[\xE2][\x80-\xBF]{2}|"       // Various symbols
-        "[\xE2][\x98-\x9E][\x80-\xBF]" // More symbols
-    );
-    result = std::regex_replace(result, emoji_pattern, "");
+    // IMPORTANT: Do symbol replacements FIRST (before emoji removal)
+    // to preserve curly quotes and other punctuation that might be matched by emoji patterns
     
     // Replace various dashes and symbols
     struct Replacement {
@@ -75,12 +70,11 @@ std::string UnicodeProcessor::preprocessText(const std::string& text) {
         {"–", "-"},      // en dash
         {"‑", "-"},      // non-breaking hyphen
         {"—", "-"},      // em dash
-        {"¯", " "},      // macron
         {"_", " "},      // underscore
-        { u8"\u201C", "\"" },   // left double quote “
-        { u8"\u201D", "\"" },   // right double quote ”
-        { u8"\u2018", "'"  },   // left single quote ‘
-        { u8"\u2019", "'"  },   // right single quote ’
+        { u8"\u201C", "\"" },   // left double quote "
+        { u8"\u201D", "\"" },   // right double quote "
+        { u8"\u2018", "'"  },   // left single quote '
+        { u8"\u2019", "'"  },   // right single quote '
         {"´", "'"},      // acute accent
         {"`", "'"},      // grave accent
         {"[", " "},      // left bracket
@@ -100,12 +94,12 @@ std::string UnicodeProcessor::preprocessText(const std::string& text) {
         }
     }
     
-    // Remove combining diacritics (common combining marks in UTF-8)
-    // FIXME: this should be fixed for non-English languages
-    std::regex diacritics_pattern(
-        "[\xCC\xCD][\x80-\xBF]"  // Combining diacritical marks range
+    // Remove emojis AFTER symbol replacements
+    // Only target actual emoji ranges (4-byte UTF-8 sequences starting with F0 9F)
+    std::regex emoji_pattern(
+        "[\xF0][\x9F][\x80-\xBF][\x80-\xBF]"  // 4-byte emoji (U+1F000-U+1FFFF)
     );
-    result = std::regex_replace(result, diacritics_pattern, "");
+    result = std::regex_replace(result, emoji_pattern, "");
     
     // Remove special symbols
     const char* special_symbols[] = {"♥", "☆", "♡", "©", "\\"};
@@ -187,14 +181,168 @@ std::string UnicodeProcessor::preprocessText(const std::string& text) {
         }
     }
     
+    // Validate language
+    bool valid_lang = false;
+    for (const auto& available_lang : AVAILABLE_LANGS) {
+        if (lang == available_lang) {
+            valid_lang = true;
+            break;
+        }
+    }
+    if (!valid_lang) {
+        throw std::runtime_error("Invalid language: " + lang + ". Available: en, ko, es, pt, fr");
+    }
+    
+    // Wrap text with language tags
+    result = "<" + lang + ">" + result + "</" + lang + ">";
+    
     return result;
+}
+
+// Hangul syllable decomposition constants (Unicode Standard Annex #15)
+static const uint32_t HANGUL_SBASE = 0xAC00;  // Start of Hangul syllables
+static const uint32_t HANGUL_LBASE = 0x1100;  // Start of Hangul Jamo (leading consonants)
+static const uint32_t HANGUL_VBASE = 0x1161;  // Start of Hangul Jamo (vowels)
+static const uint32_t HANGUL_TBASE = 0x11A7;  // Start of Hangul Jamo (trailing consonants)
+static const int HANGUL_LCOUNT = 19;  // Number of leading consonants
+static const int HANGUL_VCOUNT = 21;  // Number of vowels
+static const int HANGUL_TCOUNT = 28;  // Number of trailing consonants (including none)
+static const int HANGUL_NCOUNT = HANGUL_VCOUNT * HANGUL_TCOUNT;  // 588
+static const int HANGUL_SCOUNT = HANGUL_LCOUNT * HANGUL_NCOUNT;  // 11172
+
+// Latin character NFKD decompositions for Spanish, Portuguese, French
+static const std::unordered_map<uint32_t, std::vector<uint16_t>> LATIN_DECOMPOSITIONS = {
+    // Acute accent
+    {0x00C1, {0x0041, 0x0301}}, // Á → A + ́
+    {0x00C9, {0x0045, 0x0301}}, // É → E + ́
+    {0x00CD, {0x0049, 0x0301}}, // Í → I + ́
+    {0x00D3, {0x004F, 0x0301}}, // Ó → O + ́
+    {0x00DA, {0x0055, 0x0301}}, // Ú → U + ́
+    {0x00E1, {0x0061, 0x0301}}, // á → a + ́
+    {0x00E9, {0x0065, 0x0301}}, // é → e + ́
+    {0x00ED, {0x0069, 0x0301}}, // í → i + ́
+    {0x00F3, {0x006F, 0x0301}}, // ó → o + ́
+    {0x00FA, {0x0075, 0x0301}}, // ú → u + ́
+    // Grave accent
+    {0x00C0, {0x0041, 0x0300}}, // À → A + ̀
+    {0x00C8, {0x0045, 0x0300}}, // È → E + ̀
+    {0x00CC, {0x0049, 0x0300}}, // Ì → I + ̀
+    {0x00D2, {0x004F, 0x0300}}, // Ò → O + ̀
+    {0x00D9, {0x0055, 0x0300}}, // Ù → U + ̀
+    {0x00E0, {0x0061, 0x0300}}, // à → a + ̀
+    {0x00E8, {0x0065, 0x0300}}, // è → e + ̀
+    {0x00EC, {0x0069, 0x0300}}, // ì → i + ̀
+    {0x00F2, {0x006F, 0x0300}}, // ò → o + ̀
+    {0x00F9, {0x0075, 0x0300}}, // ù → u + ̀
+    // Circumflex
+    {0x00C2, {0x0041, 0x0302}}, // Â → A + ̂
+    {0x00CA, {0x0045, 0x0302}}, // Ê → E + ̂
+    {0x00CE, {0x0049, 0x0302}}, // Î → I + ̂
+    {0x00D4, {0x004F, 0x0302}}, // Ô → O + ̂
+    {0x00DB, {0x0055, 0x0302}}, // Û → U + ̂
+    {0x00E2, {0x0061, 0x0302}}, // â → a + ̂
+    {0x00EA, {0x0065, 0x0302}}, // ê → e + ̂
+    {0x00EE, {0x0069, 0x0302}}, // î → i + ̂
+    {0x00F4, {0x006F, 0x0302}}, // ô → o + ̂
+    {0x00FB, {0x0075, 0x0302}}, // û → u + ̂
+    // Tilde
+    {0x00C3, {0x0041, 0x0303}}, // Ã → A + ̃
+    {0x00D1, {0x004E, 0x0303}}, // Ñ → N + ̃
+    {0x00D5, {0x004F, 0x0303}}, // Õ → O + ̃
+    {0x00E3, {0x0061, 0x0303}}, // ã → a + ̃
+    {0x00F1, {0x006E, 0x0303}}, // ñ → n + ̃
+    {0x00F5, {0x006F, 0x0303}}, // õ → o + ̃
+    // Diaeresis
+    {0x00C4, {0x0041, 0x0308}}, // Ä → A + ̈
+    {0x00CB, {0x0045, 0x0308}}, // Ë → E + ̈
+    {0x00CF, {0x0049, 0x0308}}, // Ï → I + ̈
+    {0x00D6, {0x004F, 0x0308}}, // Ö → O + ̈
+    {0x00DC, {0x0055, 0x0308}}, // Ü → U + ̈
+    {0x00E4, {0x0061, 0x0308}}, // ä → a + ̈
+    {0x00EB, {0x0065, 0x0308}}, // ë → e + ̈
+    {0x00EF, {0x0069, 0x0308}}, // ï → i + ̈
+    {0x00F6, {0x006F, 0x0308}}, // ö → o + ̈
+    {0x00FC, {0x0075, 0x0308}}, // ü → u + ̈
+    // Cedilla
+    {0x00C7, {0x0043, 0x0327}}, // Ç → C + ̧
+    {0x00E7, {0x0063, 0x0327}}, // ç → c + ̧
+};
+
+// Decompose a character using NFKD (Hangul + Latin accented)
+static void decomposeCharacter(uint32_t codepoint, std::vector<uint16_t>& output) {
+    // Check Hangul syllables first
+    if (codepoint >= HANGUL_SBASE && codepoint < HANGUL_SBASE + HANGUL_SCOUNT) {
+        // Decompose Hangul syllable into Jamo
+        uint32_t sIndex = codepoint - HANGUL_SBASE;
+        uint32_t lIndex = sIndex / HANGUL_NCOUNT;
+        uint32_t vIndex = (sIndex % HANGUL_NCOUNT) / HANGUL_TCOUNT;
+        uint32_t tIndex = sIndex % HANGUL_TCOUNT;
+        
+        output.push_back(static_cast<uint16_t>(HANGUL_LBASE + lIndex));
+        output.push_back(static_cast<uint16_t>(HANGUL_VBASE + vIndex));
+        if (tIndex > 0) {
+            output.push_back(static_cast<uint16_t>(HANGUL_TBASE + tIndex));
+        }
+        return;
+    }
+    
+    // Check Latin decompositions
+    auto it = LATIN_DECOMPOSITIONS.find(codepoint);
+    if (it != LATIN_DECOMPOSITIONS.end()) {
+        for (uint16_t cp : it->second) {
+            output.push_back(cp);
+        }
+        return;
+    }
+    
+    // Keep as-is
+    output.push_back(static_cast<uint16_t>(codepoint & 0xFFFF));
 }
 
 std::vector<uint16_t> UnicodeProcessor::textToUnicodeValues(const std::string& text) {
     std::vector<uint16_t> unicode_values;
-    for (char c : text) {
-        unicode_values.push_back(static_cast<uint16_t>(static_cast<unsigned char>(c)));
+    size_t i = 0;
+    
+    while (i < text.size()) {
+        uint32_t codepoint = 0;
+        unsigned char c = static_cast<unsigned char>(text[i]);
+        
+        if ((c & 0x80) == 0) {
+            // 1-byte ASCII (0xxxxxxx)
+            codepoint = c;
+            i += 1;
+        }
+        else if ((c & 0xE0) == 0xC0 && i + 1 < text.size()) {
+            // 2-byte UTF-8 (110xxxxx 10xxxxxx)
+            codepoint = (c & 0x1F) << 6;
+            codepoint |= (static_cast<unsigned char>(text[i + 1]) & 0x3F);
+            i += 2;
+        }
+        else if ((c & 0xF0) == 0xE0 && i + 2 < text.size()) {
+            // 3-byte UTF-8 (1110xxxx 10xxxxxx 10xxxxxx) - includes Korean
+            codepoint = (c & 0x0F) << 12;
+            codepoint |= (static_cast<unsigned char>(text[i + 1]) & 0x3F) << 6;
+            codepoint |= (static_cast<unsigned char>(text[i + 2]) & 0x3F);
+            i += 3;
+        }
+        else if ((c & 0xF8) == 0xF0 && i + 3 < text.size()) {
+            // 4-byte UTF-8 (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
+            codepoint = (c & 0x07) << 18;
+            codepoint |= (static_cast<unsigned char>(text[i + 1]) & 0x3F) << 12;
+            codepoint |= (static_cast<unsigned char>(text[i + 2]) & 0x3F) << 6;
+            codepoint |= (static_cast<unsigned char>(text[i + 3]) & 0x3F);
+            i += 4;
+        }
+        else {
+            // Invalid UTF-8, skip byte
+            i += 1;
+            continue;
+        }
+        
+        // Decompose Hangul syllables and Latin accented characters (NFKD)
+        decomposeCharacter(codepoint, unicode_values);
     }
+    
     return unicode_values;
 }
 
@@ -206,25 +354,31 @@ std::vector<std::vector<std::vector<float>>> UnicodeProcessor::getTextMask(
 
 void UnicodeProcessor::call(
     const std::vector<std::string>& text_list,
+    const std::vector<std::string>& lang_list,
     std::vector<std::vector<int64_t>>& text_ids,
     std::vector<std::vector<std::vector<float>>>& text_mask
 ) {
     std::vector<std::string> processed_texts;
-    for (const auto& text : text_list) {
-        processed_texts.push_back(preprocessText(text));
+    for (size_t i = 0; i < text_list.size(); i++) {
+        processed_texts.push_back(preprocessText(text_list[i], lang_list[i]));
     }
     
+    // Convert texts to unicode values first to get correct character counts
+    std::vector<std::vector<uint16_t>> all_unicode_vals;
     std::vector<int64_t> text_ids_lengths;
     for (const auto& text : processed_texts) {
-        text_ids_lengths.push_back(static_cast<int64_t>(text.length()));
+        auto unicode_vals = textToUnicodeValues(text);
+        // Use number of Unicode codepoints, not bytes
+        text_ids_lengths.push_back(static_cast<int64_t>(unicode_vals.size()));
+        all_unicode_vals.push_back(std::move(unicode_vals));
     }
     
     int64_t max_len = *std::max_element(text_ids_lengths.begin(), text_ids_lengths.end());
     
     text_ids.resize(text_list.size());
-    for (size_t i = 0; i < processed_texts.size(); i++) {
+    for (size_t i = 0; i < all_unicode_vals.size(); i++) {
         text_ids[i].resize(max_len, 0);
-        auto unicode_vals = textToUnicodeValues(processed_texts[i]);
+        const auto& unicode_vals = all_unicode_vals[i];
         for (size_t j = 0; j < unicode_vals.size(); j++) {
             if (unicode_vals[j] < indexer_.size()) {
                 text_ids[i][j] = indexer_[unicode_vals[j]];
@@ -315,6 +469,7 @@ void TextToSpeech::sampleNoisyLatent(
 TextToSpeech::SynthesisResult TextToSpeech::_infer(
     Ort::MemoryInfo& memory_info,
     const std::vector<std::string>& text_list,
+    const std::vector<std::string>& lang_list,
     const Style& style,
     int total_step,
     float speed
@@ -328,7 +483,7 @@ TextToSpeech::SynthesisResult TextToSpeech::_infer(
     // Process text
     std::vector<std::vector<int64_t>> text_ids;
     std::vector<std::vector<std::vector<float>>> text_mask;
-    text_processor_->call(text_list, text_ids, text_mask);
+    text_processor_->call(text_list, lang_list, text_ids, text_mask);
     
     std::vector<int64_t> text_ids_shape = {bsz, static_cast<int64_t>(text_ids[0].size())};
     std::vector<int64_t> text_mask_shape = {bsz, 1, static_cast<int64_t>(text_mask[0][0].size())};
@@ -530,6 +685,7 @@ TextToSpeech::SynthesisResult TextToSpeech::_infer(
 TextToSpeech::SynthesisResult TextToSpeech::call(
     Ort::MemoryInfo& memory_info,
     const std::string& text,
+    const std::string& lang,
     const Style& style,
     int total_step,
     float speed,
@@ -539,12 +695,13 @@ TextToSpeech::SynthesisResult TextToSpeech::call(
         throw std::runtime_error("Single speaker text to speech only supports single style");
     }
     
-    auto text_list = chunkText(text);
+    int max_len = (lang == "ko") ? 120 : 300;
+    auto text_list = chunkText(text, max_len);
     std::vector<float> wav_cat;
     float dur_cat = 0.0f;
     
     for (const auto& chunk : text_list) {
-        auto result = _infer(memory_info, {chunk}, style, total_step, speed);
+        auto result = _infer(memory_info, {chunk}, {lang}, style, total_step, speed);
         
         if (wav_cat.empty()) {
             wav_cat = result.wav;
@@ -568,11 +725,12 @@ TextToSpeech::SynthesisResult TextToSpeech::call(
 TextToSpeech::SynthesisResult TextToSpeech::batch(
     Ort::MemoryInfo& memory_info,
     const std::vector<std::string>& text_list,
+    const std::vector<std::string>& lang_list,
     const Style& style,
     int total_step,
     float speed
 ) {
-    return _infer(memory_info, text_list, style, total_step, speed);
+    return _infer(memory_info, text_list, lang_list, style, total_step, speed);
 }
 
 // ============================================================================
@@ -926,15 +1084,43 @@ std::vector<int64_t> loadJsonInt64(const std::string& file_path) {
 
 std::string sanitizeFilename(const std::string& text, int max_len) {
     std::string result;
-    int count = 0;
-    for (char c : text) {
-        if (count >= max_len) break;
-        if (std::isalnum(static_cast<unsigned char>(c))) {
-            result += c;
-        } else {
-            result += '_';
+    int char_count = 0;
+    size_t i = 0;
+    
+    while (i < text.size() && char_count < max_len) {
+        unsigned char c = static_cast<unsigned char>(text[i]);
+        
+        // Check if it's ASCII alphanumeric or underscore
+        if (std::isalnum(c) || c == '_') {
+            result += text[i];
+            i++;
+            char_count++;
         }
-        count++;
+        // Check for UTF-8 multi-byte sequences (preserve Unicode letters/numbers)
+        else if ((c & 0xE0) == 0xC0 && i + 1 < text.size()) {
+            // 2-byte UTF-8 sequence
+            result += text.substr(i, 2);
+            i += 2;
+            char_count++;
+        }
+        else if ((c & 0xF0) == 0xE0 && i + 2 < text.size()) {
+            // 3-byte UTF-8 sequence (includes Korean, Japanese, Chinese)
+            result += text.substr(i, 3);
+            i += 3;
+            char_count++;
+        }
+        else if ((c & 0xF8) == 0xF0 && i + 3 < text.size()) {
+            // 4-byte UTF-8 sequence
+            result += text.substr(i, 4);
+            i += 4;
+            char_count++;
+        }
+        else {
+            // Replace other characters with underscore
+            result += '_';
+            i++;
+            char_count++;
+        }
     }
     return result;
 }

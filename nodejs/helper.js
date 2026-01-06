@@ -5,6 +5,8 @@ import * as ort from 'onnxruntime-node';
 
 const __filename = fileURLToPath(import.meta.url);
 
+const AVAILABLE_LANGS = ["en", "ko", "es", "pt", "fr"];
+
 /**
  * Unicode text processor
  */
@@ -13,11 +15,9 @@ class UnicodeProcessor {
         this.indexer = JSON.parse(fs.readFileSync(unicodeIndexerJsonPath, 'utf8'));
     }
 
-    _preprocessText(text) {
+    _preprocessText(text, lang) {
         // TODO: Need advanced normalizer for better performance
         text = text.normalize('NFKD');
-
-        // FIXME: this should be fixed for non-English languages
 
         // Remove emojis (wide Unicode range)
         const emojiPattern = /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F1E6}-\u{1F1FF}]+/gu;
@@ -28,7 +28,6 @@ class UnicodeProcessor {
             '–': '-',
             '‑': '-',
             '—': '-',
-            '¯': ' ',
             '_': ' ',
             '\u201C': '"',  // left double quote "
             '\u201D': '"',  // right double quote "
@@ -47,9 +46,6 @@ class UnicodeProcessor {
         for (const [k, v] of Object.entries(replacements)) {
             text = text.replaceAll(k, v);
         }
-
-        // Remove combining diacritics // FIXME: this should be fixed for non-English languages
-        text = text.replace(/[\u0302\u0303\u0304\u0305\u0306\u0307\u0308\u030A\u030B\u030C\u0327\u0328\u0329\u032A\u032B\u032C\u032D\u032E\u032F]/g, '');
 
         // Remove special symbols
         text = text.replace(/[♥☆♡©\\]/g, '');
@@ -92,6 +88,14 @@ class UnicodeProcessor {
             text += '.';
         }
 
+        // Validate language
+        if (!AVAILABLE_LANGS.includes(lang)) {
+            throw new Error(`Invalid language: ${lang}. Available: ${AVAILABLE_LANGS.join(', ')}`);
+        }
+        
+        // Wrap text with language tags
+        text = `<${lang}>` + text + `</${lang}>`;
+
         return text;
     }
 
@@ -103,8 +107,8 @@ class UnicodeProcessor {
         return lengthToMask(textIdsLengths);
     }
 
-    call(textList) {
-        const processedTexts = textList.map(t => this._preprocessText(t));
+    call(textList, langList) {
+        const processedTexts = textList.map((t, i) => this._preprocessText(t, langList[i]));
         const textIdsLengths = processedTexts.map(t => t.length);
         const maxLen = Math.max(...textIdsLengths);
         
@@ -191,12 +195,12 @@ class TextToSpeech {
         return { noisyLatent, latentMask };
     }
 
-    async _infer(textList, style, totalStep, speed = 1.05) {
+    async _infer(textList, langList, style, totalStep, speed = 1.05) {
         if (textList.length !== style.ttl.dims[0]) {
             throw new Error('Number of texts must match number of style vectors');
         }
         const bsz = textList.length;
-        const { textIds, textMask } = this.textProcessor.call(textList);
+        const { textIds, textMask } = this.textProcessor.call(textList, langList);
         const textIdsShape = [bsz, textIds[0].length];
         const textMaskShape = [bsz, 1, textMask[0][0].length];
         
@@ -267,16 +271,17 @@ class TextToSpeech {
         return { wav, duration: durOnnx };
     }
 
-    async call(text, style, totalStep, speed = 1.05, silenceDuration = 0.3) {
+    async call(text, lang, style, totalStep, speed = 1.05, silenceDuration = 0.3) {
         if (style.ttl.dims[0] !== 1) {
             throw new Error('Single speaker text to speech only supports single style');
         }
-        const textList = chunkText(text);
+        const maxLen = lang === 'ko' ? 120 : 300;
+        const textList = chunkText(text, maxLen);
         let wavCat = null;
         let durCat = 0;
         
         for (const chunk of textList) {
-            const { wav, duration } = await this._infer([chunk], style, totalStep, speed);
+            const { wav, duration } = await this._infer([chunk], [lang], style, totalStep, speed);
             
             if (wavCat === null) {
                 wavCat = wav;
@@ -292,8 +297,8 @@ class TextToSpeech {
         return { wav: wavCat, duration: [durCat] };
     }
 
-    async batch(textList, style, totalStep, speed = 1.05) {
-        return await this._infer(textList, style, totalStep, speed);
+    async batch(textList, langList, style, totalStep, speed = 1.05) {
+        return await this._infer(textList, langList, style, totalStep, speed);
     }
 }
 
@@ -500,6 +505,15 @@ export async function timer(name, fn) {
     const elapsed = ((Date.now() - start) / 1000).toFixed(2);
     console.log(`  -> ${name} completed in ${elapsed} sec`);
     return result;
+}
+
+/**
+ * Sanitize filename by replacing non-alphanumeric characters with underscores (supports Unicode)
+ */
+export function sanitizeFilename(text, maxLen) {
+    const prefix = text.substring(0, maxLen);
+    // \p{L} matches any Unicode letter, \p{N} matches any Unicode number
+    return prefix.replace(/[^\p{L}\p{N}_]/gu, '_');
 }
 
 /**

@@ -21,6 +21,7 @@ public class ExampleONNX {
         List<String> text = Arrays.asList(
             "This morning, I took a walk in the park, and the sound of the birds and the breeze was so pleasant that I stopped for a long time just to listen."
         );
+        List<String> lang = Arrays.asList("en");
         String saveDir = "results";
         boolean batch = false;
     }
@@ -58,6 +59,11 @@ public class ExampleONNX {
                         result.text = Arrays.asList(args[++i].split("\\|"));
                     }
                     break;
+                case "--lang":
+                    if (i + 1 < args.length) {
+                        result.lang = Arrays.asList(args[++i].split(","));
+                    }
+                    break;
                 case "--save-dir":
                     if (i + 1 < args.length) result.saveDir = args[++i];
                     break;
@@ -85,11 +91,16 @@ public class ExampleONNX {
             String saveDir = parsedArgs.saveDir;
             List<String> voiceStylePaths = parsedArgs.voiceStyle;
             List<String> textList = parsedArgs.text;
+            List<String> langList = parsedArgs.lang;
             boolean batch = parsedArgs.batch;
             
             if (batch) {
                 if (voiceStylePaths.size() != textList.size()) {
                     throw new RuntimeException("Number of voice styles (" + voiceStylePaths.size() + 
+                        ") must match number of texts (" + textList.size() + ")");
+                }
+                if (langList.size() != textList.size()) {
+                    throw new RuntimeException("Number of languages (" + langList.size() + 
                         ") must match number of texts (" + textList.size() + ")");
                 }
             }
@@ -116,7 +127,7 @@ public class ExampleONNX {
                 if (batch) {
                     ttsResult = Helper.timer("Generating speech from text", () -> {
                         try {
-                            return textToSpeech.batch(textList, style, totalStep, speed, env);
+                            return textToSpeech.batch(textList, langList, style, totalStep, speed, env);
                         } catch (Exception e) {
                             throw new RuntimeException(e);
                         }
@@ -124,7 +135,7 @@ public class ExampleONNX {
                 } else {
                     ttsResult = Helper.timer("Generating speech from text", () -> {
                         try {
-                            return textToSpeech.call(textList.get(0), style, totalStep, speed, 0.3f, env);
+                            return textToSpeech.call(textList.get(0), langList.get(0), style, totalStep, speed, 0.3f, env);
                         } catch (Exception e) {
                             throw new RuntimeException(e);
                         }

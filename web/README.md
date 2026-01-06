@@ -4,6 +4,8 @@ This example demonstrates how to use Supertonic in a web browser using ONNX Runt
 
 ## 📰 Update News
 
+**2026.01.06** - 🎉 **Supertonic 2** released with multilingual support! Now supports English (`en`), Korean (`ko`), Spanish (`es`), Portuguese (`pt`), and French (`fr`). [Demo](https://huggingface.co/spaces/Supertone/supertonic-2) | [Models](https://huggingface.co/Supertone/supertonic-2)
+
 **2025.12.10** - Added [6 new voice styles](https://huggingface.co/Supertone/supertonic/tree/b10dbaf18b316159be75b34d24f740008fddd381) (M3, M4, M5, F3, F4, F5). See [Voices](https://supertone-inc.github.io/supertonic-py/voices/) for details
 
 **2025.12.08** - Optimized ONNX models via [OnnxSlim](https://github.com/inisis/OnnxSlim) now available on [Hugging Face Models](https://huggingface.co/Supertone/supertonic)
@@ -18,9 +20,10 @@ This example demonstrates how to use Supertonic in a web browser using ONNX Runt
 
 - 🌐 Runs entirely in the browser (no server required for inference)
 - 🚀 WebGPU support with automatic fallback to WebAssembly
+- 🌍 Multilingual support: English (en), Korean (ko), Spanish (es), Portuguese (pt), French (fr)
 - ⚡ Pre-extracted voice styles for instant generation
 - 🎨 Modern, responsive UI
-- 🎭 Multiple voice style presets (2 Male, 2 Female)
+- 🎭 Multiple voice style presets (5 Male, 5 Female)
 - 💾 Download generated audio as WAV files
 - 📊 Detailed generation statistics (audio length, generation time)
 - ⏱️ Real-time progress tracking
@@ -52,19 +55,27 @@ This will start a local development server (usually at http://localhost:3000) an
 
 1. **Wait for Models to Load**: The app will automatically load models and the default voice style (M1)
 2. **Select Voice Style**: Choose from available voice presets
-   - **Male 1 (M1)**: Default male voice
-   - **Male 2 (M2)**: Alternative male voice
-   - **Female 1 (F1)**: Default female voice
-   - **Female 2 (F2)**: Alternative female voice
-3. **Enter Text**: Type or paste the text you want to convert to speech
-4. **Adjust Settings** (optional):
+   - **Male 1-5 (M1-M5)**: Male voice styles
+   - **Female 1-5 (F1-F5)**: Female voice styles
+3. **Select Language**: Choose the language that matches your input text
+   - **English (en)**: Default language
+   - **한국어 (ko)**: Korean
+   - **Español (es)**: Spanish
+   - **Português (pt)**: Portuguese
+   - **Français (fr)**: French
+4. **Enter Text**: Type or paste the text you want to convert to speech
+5. **Adjust Settings** (optional):
    - **Total Steps**: More steps = better quality but slower (default: 5)
-5. **Generate Speech**: Click the "Generate Speech" button
-6. **View Results**: 
+6. **Generate Speech**: Click the "Generate Speech" button
+7. **View Results**: 
    - See the full input text
    - View audio length and generation time statistics
    - Play the generated audio in the browser
    - Download as WAV file
+
+## Multilingual Support
+
+Supertonic 2 supports multiple languages. Make sure to select the correct language for your input text to get the best results. The model will automatically handle text preprocessing and pronunciation for the selected language.
 
 ## Technical Details
 
@@ -80,7 +91,7 @@ This demo uses:
 - The ONNX models must be accessible at `assets/onnx/` relative to the web root
 - Voice style JSON files must be accessible at `assets/voice_styles/` relative to the web root
 - Pre-extracted voice styles enable instant generation without audio processing
-- Four voice style presets are provided (M1, M2, F1, F2)
+- Ten voice style presets are provided (M1-M5, F1-F5)
 
 ## Troubleshooting
 

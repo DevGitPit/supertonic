@@ -57,11 +57,13 @@ case $test_mode in
 esac
 echo ""
 
-# Batch inference test data - base variables
+# Batch inference test data - multilingual examples
 BATCH_VOICE_STYLE_1="assets/voice_styles/M1.json"
 BATCH_VOICE_STYLE_2="assets/voice_styles/F1.json"
 BATCH_TEXT_1="The sun sets behind the mountains, painting the sky in shades of pink and orange."
-BATCH_TEXT_2="The weather is beautiful and sunny outside. A gentle breeze makes the air feel fresh and pleasant."
+BATCH_TEXT_2="오늘 아침에 공원을 산책했는데, 새소리와 바람 소리가 너무 기분 좋았어요."
+BATCH_LANG_1="en"
+BATCH_LANG_2="ko"
 
 # Long-form inference test data
 LONGFORM_VOICE_STYLE="assets/voice_styles/M1.json"
@@ -179,7 +181,7 @@ if [ "$TEST_DEFAULT" = true ]; then
     run_test "Python (default)" "py" "uv run example_onnx.py"
 fi
 if [ "$TEST_BATCH" = true ]; then
-    run_test "Python (batch)" "py" "uv run example_onnx.py --batch --voice-style $BATCH_VOICE_STYLE_1 $BATCH_VOICE_STYLE_2 --text '$BATCH_TEXT_1' '$BATCH_TEXT_2'"
+    run_test "Python (batch)" "py" "uv run example_onnx.py --batch --voice-style $BATCH_VOICE_STYLE_1 $BATCH_VOICE_STYLE_2 --text '$BATCH_TEXT_1' '$BATCH_TEXT_2' --lang $BATCH_LANG_1 $BATCH_LANG_2"
 fi
 if [ "$TEST_LONGFORM" = true ]; then
     run_test "Python (long-form)" "py" "uv run example_onnx.py --voice-style $LONGFORM_VOICE_STYLE --text '$LONGFORM_TEXT'"
@@ -195,7 +197,7 @@ if [ "$TEST_DEFAULT" = true ]; then
     run_test "JavaScript (default)" "nodejs" "node example_onnx.js"
 fi
 if [ "$TEST_BATCH" = true ]; then
-    run_test "JavaScript (batch)" "nodejs" "node example_onnx.js --batch --voice-style $BATCH_VOICE_STYLE_1,$BATCH_VOICE_STYLE_2 --text '$BATCH_TEXT_1|$BATCH_TEXT_2'"
+    run_test "JavaScript (batch)" "nodejs" "node example_onnx.js --batch --voice-style $BATCH_VOICE_STYLE_1,$BATCH_VOICE_STYLE_2 --text '$BATCH_TEXT_1|$BATCH_TEXT_2' --lang $BATCH_LANG_1,$BATCH_LANG_2"
 fi
 if [ "$TEST_LONGFORM" = true ]; then
     run_test "JavaScript (long-form)" "nodejs" "node example_onnx.js --voice-style $LONGFORM_VOICE_STYLE --text '$LONGFORM_TEXT'"
@@ -212,7 +214,7 @@ if [ "$TEST_DEFAULT" = true ]; then
     run_test "Go (default)" "go" "go run example_onnx.go helper.go"
 fi
 if [ "$TEST_BATCH" = true ]; then
-    run_test "Go (batch)" "go" "go run example_onnx.go helper.go --batch -voice-style $BATCH_VOICE_STYLE_1,$BATCH_VOICE_STYLE_2 -text '$BATCH_TEXT_1|$BATCH_TEXT_2'"
+    run_test "Go (batch)" "go" "go run example_onnx.go helper.go --batch -voice-style $BATCH_VOICE_STYLE_1,$BATCH_VOICE_STYLE_2 -text '$BATCH_TEXT_1|$BATCH_TEXT_2' -lang $BATCH_LANG_1,$BATCH_LANG_2"
 fi
 if [ "$TEST_LONGFORM" = true ]; then
     run_test "Go (long-form)" "go" "go run example_onnx.go helper.go -voice-style $LONGFORM_VOICE_STYLE -text '$LONGFORM_TEXT'"
@@ -228,7 +230,7 @@ if [ "$TEST_DEFAULT" = true ]; then
     run_test "Rust (default)" "rust" "cargo run --release"
 fi
 if [ "$TEST_BATCH" = true ]; then
-    run_test "Rust (batch)" "rust" "cargo run --release -- --batch --voice-style $BATCH_VOICE_STYLE_1,$BATCH_VOICE_STYLE_2 --text '$BATCH_TEXT_1|$BATCH_TEXT_2'"
+    run_test "Rust (batch)" "rust" "cargo run --release -- --batch --voice-style $BATCH_VOICE_STYLE_1,$BATCH_VOICE_STYLE_2 --text '$BATCH_TEXT_1|$BATCH_TEXT_2' --lang $BATCH_LANG_1,$BATCH_LANG_2"
 fi
 if [ "$TEST_LONGFORM" = true ]; then
     run_test "Rust (long-form)" "rust" "cargo run --release -- --voice-style $LONGFORM_VOICE_STYLE --text '$LONGFORM_TEXT'"
@@ -244,7 +246,7 @@ if [ "$TEST_DEFAULT" = true ]; then
     run_test "C# (default)" "csharp" "dotnet run --configuration Release"
 fi
 if [ "$TEST_BATCH" = true ]; then
-    run_test "C# (batch)" "csharp" "dotnet run --configuration Release -- --batch --voice-style ../$BATCH_VOICE_STYLE_1,../$BATCH_VOICE_STYLE_2 --text '$BATCH_TEXT_1|$BATCH_TEXT_2'"
+    run_test "C# (batch)" "csharp" "dotnet run --configuration Release -- --batch --voice-style ../$BATCH_VOICE_STYLE_1,../$BATCH_VOICE_STYLE_2 --text '$BATCH_TEXT_1|$BATCH_TEXT_2' --lang $BATCH_LANG_1,$BATCH_LANG_2"
 fi
 if [ "$TEST_LONGFORM" = true ]; then
     run_test "C# (long-form)" "csharp" "dotnet run --configuration Release -- --voice-style ../$LONGFORM_VOICE_STYLE --text '$LONGFORM_TEXT'"
@@ -260,7 +262,7 @@ if [ "$TEST_DEFAULT" = true ]; then
     run_test "Java (default)" "java" "mvn exec:java -q"
 fi
 if [ "$TEST_BATCH" = true ]; then
-    run_test "Java (batch)" "java" "mvn exec:java -q -Dexec.args='--batch --voice-style $BATCH_VOICE_STYLE_1,$BATCH_VOICE_STYLE_2 --text \"$BATCH_TEXT_1|$BATCH_TEXT_2\"'"
+    run_test "Java (batch)" "java" "mvn exec:java -q -Dexec.args='--batch --voice-style $BATCH_VOICE_STYLE_1,$BATCH_VOICE_STYLE_2 --text \"$BATCH_TEXT_1|$BATCH_TEXT_2\" --lang $BATCH_LANG_1,$BATCH_LANG_2'"
 fi
 if [ "$TEST_LONGFORM" = true ]; then
     run_test "Java (long-form)" "java" "mvn exec:java -q -Dexec.args='--voice-style $LONGFORM_VOICE_STYLE --text \"$LONGFORM_TEXT\"'"
@@ -276,7 +278,7 @@ if [ "$TEST_DEFAULT" = true ]; then
     run_test "Swift (default)" "swift" ".build/release/example_onnx"
 fi
 if [ "$TEST_BATCH" = true ]; then
-    run_test "Swift (batch)" "swift" ".build/release/example_onnx --batch --voice-style $BATCH_VOICE_STYLE_1,$BATCH_VOICE_STYLE_2 --text '$BATCH_TEXT_1|$BATCH_TEXT_2'"
+    run_test "Swift (batch)" "swift" ".build/release/example_onnx --batch --voice-style $BATCH_VOICE_STYLE_1,$BATCH_VOICE_STYLE_2 --text '$BATCH_TEXT_1|$BATCH_TEXT_2' --lang $BATCH_LANG_1,$BATCH_LANG_2"
 fi
 if [ "$TEST_LONGFORM" = true ]; then
     run_test "Swift (long-form)" "swift" ".build/release/example_onnx --voice-style $LONGFORM_VOICE_STYLE --text '$LONGFORM_TEXT'"
@@ -292,7 +294,7 @@ if [ "$TEST_DEFAULT" = true ]; then
     run_test "C++ (default)" "cpp/build" "./example_onnx"
 fi
 if [ "$TEST_BATCH" = true ]; then
-    run_test "C++ (batch)" "cpp/build" "./example_onnx --batch --voice-style ../$BATCH_VOICE_STYLE_1,../$BATCH_VOICE_STYLE_2 --text '$BATCH_TEXT_1|$BATCH_TEXT_2'"
+    run_test "C++ (batch)" "cpp/build" "./example_onnx --batch --voice-style ../$BATCH_VOICE_STYLE_1,../$BATCH_VOICE_STYLE_2 --text '$BATCH_TEXT_1|$BATCH_TEXT_2' --lang $BATCH_LANG_1,$BATCH_LANG_2"
 fi
 if [ "$TEST_LONGFORM" = true ]; then
     run_test "C++ (long-form)" "cpp/build" "./example_onnx --voice-style ../$LONGFORM_VOICE_STYLE --text '$LONGFORM_TEXT'"

@@ -10,11 +10,16 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/go-audio/audio"
 	"github.com/go-audio/wav"
 	ort "github.com/yalue/onnxruntime_go"
+	"golang.org/x/text/unicode/norm"
 )
+
+// Available languages for multilingual TTS
+var AvailableLangs = []string{"en", "ko", "es", "pt", "fr"}
 
 // Config structures
 type SpecProcessorConfig struct {
@@ -108,11 +113,11 @@ func NewUnicodeProcessor(unicodeIndexerPath string) (*UnicodeProcessor, error) {
 }
 
 // Call processes text list to text IDs and mask
-func (up *UnicodeProcessor) Call(textList []string) ([][]int64, [][][]float64) {
+func (up *UnicodeProcessor) Call(textList []string, langList []string) ([][]int64, [][][]float64) {
 	// Preprocess texts
 	processedTexts := make([]string, len(textList))
 	for i, text := range textList {
-		processedTexts[i] = preprocessText(text)
+		processedTexts[i] = preprocessText(text, langList[i])
 	}
 
 	// Get text lengths
@@ -325,14 +330,21 @@ func splitSentences(text string) []string {
 	return sentences
 }
 
-// Utility functions
-func preprocessText(text string) string {
-	// TODO: Need advanced normalizer for better performance
-	// NOTE: Go doesn't have built-in NFKD normalization like Python
-	// For full Unicode normalization, use golang.org/x/text/unicode/norm
-	// This implementation handles basic text preprocessing
+// isValidLang checks if a language is in the available languages list
+func isValidLang(lang string) bool {
+	for _, l := range AvailableLangs {
+		if l == lang {
+			return true
+		}
+	}
+	return false
+}
 
-	// FIXME: this should be fixed for non-English languages
+// Utility functions
+func preprocessText(text string, lang string) string {
+	// TODO: Need advanced normalizer for better performance
+	// Apply NFKD normalization using golang.org/x/text/unicode/norm
+	text = norm.NFKD.String(text)
 
 	// Remove emojis and various Unicode symbols
 	emojiPattern := regexp.MustCompile(`[\x{1F600}-\x{1F64F}\x{1F300}-\x{1F5FF}\x{1F680}-\x{1F6FF}\x{1F700}-\x{1F77F}\x{1F780}-\x{1F7FF}\x{1F800}-\x{1F8FF}\x{1F900}-\x{1F9FF}\x{1FA00}-\x{1FA6F}\x{1FA70}-\x{1FAFF}\x{2600}-\x{26FF}\x{2700}-\x{27BF}\x{1F1E6}-\x{1F1FF}]+`)
@@ -343,7 +355,6 @@ func preprocessText(text string) string {
 		"–": "-",    // en dash
 		"‑": "-",    // non-breaking hyphen
 		"—": "-",    // em dash
-		"¯": " ",    // macron
 		"_": " ",    // underscore
 		"\u201C": "\"",   // left double quote
 		"\u201D": "\"",   // right double quote
@@ -363,11 +374,6 @@ func preprocessText(text string) string {
 	for old, new := range replacements {
 		text = strings.ReplaceAll(text, old, new)
 	}
-
-	// Remove combining diacritics (common combining marks)
-	// FIXME: this should be fixed for non-English languages
-	diacriticsPattern := regexp.MustCompile(`[\x{0302}\x{0303}\x{0304}\x{0305}\x{0306}\x{0307}\x{0308}\x{030A}\x{030B}\x{030C}\x{0327}\x{0328}\x{0329}\x{032A}\x{032B}\x{032C}\x{032D}\x{032E}\x{032F}]`)
-	text = diacriticsPattern.ReplaceAllString(text, "")
 
 	// Remove special symbols
 	specialSymbols := []string{"♥", "☆", "♡", "©", "\\"}
@@ -417,6 +423,14 @@ func preprocessText(text string) string {
 			text += "."
 		}
 	}
+
+	// Validate language
+	if !isValidLang(lang) {
+		panic(fmt.Sprintf("Invalid language: %s. Available: %v", lang, AvailableLangs))
+	}
+
+	// Wrap text with language tags
+	text = fmt.Sprintf("<%s>%s</%s>", lang, text, lang)
 
 	return text
 }
@@ -661,11 +675,11 @@ func (tts *TextToSpeech) sampleNoisyLatent(durOnnx []float32) ([][][]float64, []
 	return noisyLatent, latentMask
 }
 
-func (tts *TextToSpeech) _infer(textList []string, style *Style, totalStep int, speed float32) ([]float32, []float32, error) {
+func (tts *TextToSpeech) _infer(textList []string, langList []string, style *Style, totalStep int, speed float32) ([]float32, []float32, error) {
 	bsz := len(textList)
 
 	// Process text
-	textIDs, textMask := tts.textProcessor.Call(textList)
+	textIDs, textMask := tts.textProcessor.Call(textList, langList)
 	textIDsShape := []int64{int64(bsz), int64(len(textIDs[0]))}
 	textMaskShape := []int64{int64(bsz), 1, int64(len(textMask[0][0]))}
 
@@ -785,14 +799,18 @@ func (tts *TextToSpeech) _infer(textList []string, style *Style, totalStep int, 
 }
 
 // Call synthesizes speech from a single text with automatic chunking
-func (tts *TextToSpeech) Call(text string, style *Style, totalStep int, speed float32, silenceDuration float32) ([]float32, float32, error) {
-	chunks := chunkText(text, 0)
+func (tts *TextToSpeech) Call(text string, lang string, style *Style, totalStep int, speed float32, silenceDuration float32) ([]float32, float32, error) {
+	maxLen := 300
+	if lang == "ko" {
+		maxLen = 120
+	}
+	chunks := chunkText(text, maxLen)
 	
 	var wavCat []float32
 	var durCat float32
 
 	for i, chunk := range chunks {
-		wav, duration, err := tts._infer([]string{chunk}, style, totalStep, speed)
+		wav, duration, err := tts._infer([]string{chunk}, []string{lang}, style, totalStep, speed)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -818,8 +836,8 @@ func (tts *TextToSpeech) Call(text string, style *Style, totalStep int, speed fl
 }
 
 // Batch synthesizes speech from multiple texts
-func (tts *TextToSpeech) Batch(textList []string, style *Style, totalStep int, speed float32) ([]float32, []float32, error) {
-	return tts._infer(textList, style, totalStep, speed)
+func (tts *TextToSpeech) Batch(textList []string, langList []string, style *Style, totalStep int, speed float32) ([]float32, []float32, error) {
+	return tts._infer(textList, langList, style, totalStep, speed)
 }
 
 func (tts *TextToSpeech) Destroy() {
@@ -917,15 +935,17 @@ func InitializeONNXRuntime() error {
 	return nil
 }
 
-// sanitizeFilename creates a safe filename from text
+// sanitizeFilename creates a safe filename from text (supports Unicode)
 func sanitizeFilename(text string, maxLen int) string {
-	if len(text) > maxLen {
-		text = text[:maxLen]
+	runes := []rune(text)
+	if len(runes) > maxLen {
+		runes = runes[:maxLen]
 	}
 	
-	result := make([]rune, 0, len(text))
-	for _, r := range text {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+	result := make([]rune, 0, len(runes))
+	for _, r := range runes {
+		// unicode.IsLetter matches any Unicode letter, unicode.IsDigit matches any Unicode digit
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			result = append(result, r)
 		} else {
 			result = append(result, '_')

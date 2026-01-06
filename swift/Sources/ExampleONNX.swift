@@ -9,6 +9,7 @@ struct Args {
     var nTest: Int = 4
     var voiceStyle: [String] = ["assets/voice_styles/M1.json"]
     var text: [String] = ["This morning, I took a walk in the park, and the sound of the birds and the breeze was so pleasant that I stopped for a long time just to listen."]
+    var lang: [String] = ["en"]
     var saveDir: String = "results"
     var batch: Bool = false
 }
@@ -54,6 +55,11 @@ func parseArgs() -> Args {
                 args.text = arguments[i + 1].components(separatedBy: "|")
                 i += 1
             }
+        case "--lang":
+            if i + 1 < arguments.count {
+                args.lang = arguments[i + 1].components(separatedBy: ",")
+                i += 1
+            }
         case "--save-dir":
             if i + 1 < arguments.count {
                 args.saveDir = arguments[i + 1]
@@ -84,6 +90,10 @@ struct ExampleONNX {
                 print("Error: Number of voice styles (\(args.voiceStyle.count)) must match number of texts (\(args.text.count))")
                 return
             }
+            guard args.lang.count == args.text.count else {
+                print("Error: Number of languages (\(args.lang.count)) must match number of texts (\(args.text.count))")
+                return
+            }
         }
         
         let bsz = args.voiceStyle.count
@@ -108,13 +118,13 @@ struct ExampleONNX {
                 
                 if args.batch {
                     let result = try timer("Generating speech from text") {
-                        try textToSpeech.batch(args.text, style, args.totalStep, speed: args.speed)
+                        try textToSpeech.batch(args.text, args.lang, style, args.totalStep, speed: args.speed)
                     }
                     wav = result.wav
                     duration = result.duration
                 } else {
                     let result = try timer("Generating speech from text") {
-                        try textToSpeech.call(args.text[0], style, args.totalStep, speed: args.speed, silenceDuration: 0.3)
+                        try textToSpeech.call(args.text[0], args.lang[0], style, args.totalStep, speed: args.speed, silenceDuration: 0.3)
                     }
                     wav = result.wav
                     duration = [result.duration]

@@ -8,6 +8,9 @@
 #include <chrono>
 #include <onnxruntime_cxx_api.h>
 
+// Available languages for multilingual TTS
+extern const std::vector<std::string> AVAILABLE_LANGS;
+
 /**
  * Configuration structure
  */
@@ -33,6 +36,7 @@ public:
     // Process text list to text IDs and mask
     void call(
         const std::vector<std::string>& text_list,
+        const std::vector<std::string>& lang_list,
         std::vector<std::vector<int64_t>>& text_ids,
         std::vector<std::vector<std::vector<float>>>& text_mask
     );
@@ -40,7 +44,7 @@ public:
 private:
     std::vector<int64_t> indexer_;
     
-    std::string preprocessText(const std::string& text);
+    std::string preprocessText(const std::string& text, const std::string& lang);
     std::vector<uint16_t> textToUnicodeValues(const std::string& text);
     std::vector<std::vector<std::vector<float>>> getTextMask(
         const std::vector<int64_t>& text_ids_lengths
@@ -89,6 +93,7 @@ public:
     SynthesisResult call(
         Ort::MemoryInfo& memory_info,
         const std::string& text,
+        const std::string& lang,
         const Style& style,
         int total_step,
         float speed = 1.05f,
@@ -98,6 +103,7 @@ public:
     SynthesisResult batch(
         Ort::MemoryInfo& memory_info,
         const std::vector<std::string>& text_list,
+        const std::vector<std::string>& lang_list,
         const Style& style,
         int total_step,
         float speed = 1.05f
@@ -109,6 +115,7 @@ private:
     SynthesisResult _infer(
         Ort::MemoryInfo& memory_info,
         const std::vector<std::string>& text_list,
+        const std::vector<std::string>& lang_list,
         const Style& style,
         int total_step,
         float speed = 1.05f

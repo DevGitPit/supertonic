@@ -1,15 +1,18 @@
 # Supertonic iOS Example App
 
-A minimal iOS demo that runs Supertonic (ONNX Runtime) on-device. The app shows:
+A minimal iOS demo that runs Supertonic 2 (ONNX Runtime) on-device. The app shows:
 - Multiline text input
 - NFE (denoising steps) slider
 - Voice toggle (M/F)
+- Language selector (en, ko, es, pt, fr)
 - Generate & Play buttons
 - RTF display (Elapsed / Audio seconds)
 
 All ONNX models/configs are reused from `Supertonic/assets/onnx`, and voice style JSON files from `Supertonic/assets/voice_styles`.
 
 ## 📰 Update News
+
+**2026.01.06** - 🎉 **Supertonic 2** released with multilingual support! Now supports English (`en`), Korean (`ko`), Spanish (`es`), Portuguese (`pt`), and French (`fr`). [Demo](https://huggingface.co/spaces/Supertone/supertonic-2) | [Models](https://huggingface.co/Supertone/supertonic-2)
 
 **2025.12.10** - Added [6 new voice styles](https://huggingface.co/Supertone/supertonic/tree/b10dbaf18b316159be75b34d24f740008fddd381) (M3, M4, M5, F3, F4, F5). See [Voices](https://supertone-inc.github.io/supertonic-py/voices/) for details
 
@@ -59,7 +62,17 @@ These references are defined in `project.yml` and added to the app bundle by Xco
 ## App Controls
 - **Text**: Multiline `TextEditor`
 - **NFE**: Denoising steps (default 5)
-- **Voice**: M1/M2/F1/F2 voice style selector (4 pre-extracted styles)
+- **Voice**: M/F voice style selector
+- **Language**: Language selector (English, 한국어, Español, Português, Français)
 - **Generate**: Runs end-to-end synthesis
 - **Play/Stop**: Controls playback of the last output
 - **RTF**: Shows Elapsed / Audio seconds for quick performance intuition
+
+## Multilingual Support
+
+Supertonic 2 supports multiple languages. Select the appropriate language for your input text:
+- **English (en)**: Default language
+- **한국어 (ko)**: Korean
+- **Español (es)**: Spanish
+- **Português (pt)**: Portuguese
+- **Français (fr)**: French

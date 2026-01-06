@@ -14,7 +14,7 @@ class SupertonicApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Supertonic',
+      title: 'Supertonic 2',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
@@ -44,6 +44,7 @@ class _TTSPageState extends State<TTSPage> {
   String _status = 'Not initialized';
   int _totalSteps = 5;
   double _speed = 1.05;
+  String _selectedLang = 'en';
   bool _isPlaying = false;
   String? _lastGeneratedFilePath;
 
@@ -119,6 +120,7 @@ class _TTSPageState extends State<TTSPage> {
     try {
       final result = await _textToSpeech!.call(
         _textController.text,
+        _selectedLang,
         _style!,
         _totalSteps,
         speed: _speed,
@@ -208,7 +210,7 @@ class _TTSPageState extends State<TTSPage> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: const Text('Supertonic'),
+        title: const Text('Supertonic 2'),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -307,6 +309,31 @@ class _TTSPageState extends State<TTSPage> {
                   width: 40,
                   child: Text(_speed.toStringAsFixed(2),
                       textAlign: TextAlign.right),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Language selector
+            Row(
+              children: [
+                const Expanded(flex: 2, child: Text('Language:')),
+                Expanded(
+                  flex: 3,
+                  child: DropdownButton<String>(
+                    value: _selectedLang,
+                    isExpanded: true,
+                    items: const [
+                      DropdownMenuItem(value: 'en', child: Text('English')),
+                      DropdownMenuItem(value: 'ko', child: Text('한국어')),
+                      DropdownMenuItem(value: 'es', child: Text('Español')),
+                      DropdownMenuItem(value: 'pt', child: Text('Português')),
+                      DropdownMenuItem(value: 'fr', child: Text('Français')),
+                    ],
+                    onChanged: _isLoading || _isGenerating
+                        ? null
+                        : (value) => setState(() => _selectedLang = value!),
+                  ),
                 ),
               ],
             ),

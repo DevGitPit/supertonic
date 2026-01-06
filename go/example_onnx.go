@@ -19,6 +19,7 @@ type Args struct {
 	nTest       int
 	voiceStyle  []string
 	text        []string
+	lang        []string
 	saveDir     string
 	batch       bool
 }
@@ -34,9 +35,10 @@ func parseArgs() *Args {
 	flag.StringVar(&args.saveDir, "save-dir", "results", "Output directory")
 	flag.BoolVar(&args.batch, "batch", false, "Enable batch mode (multiple text-style pairs)")
 
-	var voiceStyleStr, textStr string
+	var voiceStyleStr, textStr, langStr string
 	flag.StringVar(&voiceStyleStr, "voice-style", "assets/voice_styles/M1.json", "Voice style file path(s), comma-separated")
 	flag.StringVar(&textStr, "text", "This morning, I took a walk in the park, and the sound of the birds and the breeze was so pleasant that I stopped for a long time just to listen.", "Text(s) to synthesize, pipe-separated")
+	flag.StringVar(&langStr, "lang", "en", "Language(s) for synthesis, comma-separated (en, ko, es, pt, fr)")
 
 	flag.Parse()
 
@@ -56,6 +58,14 @@ func parseArgs() *Args {
 		}
 	}
 
+	// Parse comma-separated lang
+	if langStr != "" {
+		args.lang = strings.Split(langStr, ",")
+		for i := range args.lang {
+			args.lang[i] = strings.TrimSpace(args.lang[i])
+		}
+	}
+
 	return args
 }
 
@@ -70,12 +80,18 @@ func main() {
 	saveDir := args.saveDir
 	voiceStylePaths := args.voiceStyle
 	textList := args.text
+	langList := args.lang
 	batch := args.batch
 
 	if batch {
 		if len(voiceStylePaths) != len(textList) {
 			fmt.Printf("Error: Number of voice styles (%d) must match number of texts (%d)\n",
 				len(voiceStylePaths), len(textList))
+			os.Exit(1)
+		}
+		if len(langList) != len(textList) {
+			fmt.Printf("Error: Number of languages (%d) must match number of texts (%d)\n",
+				len(langList), len(textList))
 			os.Exit(1)
 		}
 	}
@@ -126,7 +142,7 @@ func main() {
 
 		if batch {
 			Timer("Generating speech from text", func() interface{} {
-				w, d, err := textToSpeech.Batch(textList, style, totalStep, speed)
+				w, d, err := textToSpeech.Batch(textList, langList, style, totalStep, speed)
 				if err != nil {
 					fmt.Printf("Error generating speech: %v\n", err)
 					os.Exit(1)
@@ -137,7 +153,7 @@ func main() {
 			})
 		} else {
 			Timer("Generating speech from text", func() interface{} {
-				w, d, err := textToSpeech.Call(textList[0], style, totalStep, speed, 0.3)
+				w, d, err := textToSpeech.Call(textList[0], langList[0], style, totalStep, speed, 0.3)
 				if err != nil {
 					fmt.Printf("Error generating speech: %v\n", err)
 					os.Exit(1)

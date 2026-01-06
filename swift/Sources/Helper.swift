@@ -2,6 +2,14 @@ import Foundation
 import Accelerate
 import OnnxRuntimeBindings
 
+// MARK: - Available Languages
+
+let AVAILABLE_LANGS = ["en", "ko", "es", "pt", "fr"]
+
+func isValidLang(_ lang: String) -> Bool {
+    return AVAILABLE_LANGS.contains(lang)
+}
+
 // MARK: - Configuration Structures
 
 struct Config: Codable {
@@ -42,12 +50,16 @@ class UnicodeProcessor {
         self.indexer = try JSONDecoder().decode([Int64].self, from: data)
     }
     
-    func call(_ textList: [String]) -> (textIds: [[Int64]], textMask: [[[Float]]]) {
-        let processedTexts = textList.map { preprocessText($0) }
+    func call(_ textList: [String], _ langList: [String]) -> (textIds: [[Int64]], textMask: [[[Float]]]) {
+        var processedTexts = [String]()
+        for (i, text) in textList.enumerated() {
+            processedTexts.append(preprocessText(text, lang: langList[i]))
+        }
         
+        // Use unicodeScalars.count for correct length after NFKD decomposition
         var textIdsLengths = [Int]()
         for text in processedTexts {
-            textIdsLengths.append(text.count)
+            textIdsLengths.append(text.unicodeScalars.count)
         }
         
         let maxLen = textIdsLengths.max() ?? 0
@@ -71,11 +83,9 @@ class UnicodeProcessor {
     }
 }
 
-func preprocessText(_ text: String) -> String {
-    // TODO: Need advanced normalizer for better performance
-    var text = text.precomposedStringWithCompatibilityMapping
-
-    // FIXME: this should be fixed for non-English languages
+func preprocessText(_ text: String, lang: String) -> String {
+    // Use NFKD (decomposed) for proper Hangul Jamo decomposition
+    var text = text.decomposedStringWithCompatibilityMapping
 
     // Remove emojis (wide Unicode range)
     // Swift NSRegularExpression doesn't support Unicode escapes above \uFFFF
@@ -101,7 +111,6 @@ func preprocessText(_ text: String) -> String {
         "–": "-",      // en dash
         "‑": "-",      // non-breaking hyphen
         "—": "-",      // em dash
-        "¯": " ",      // macron
         "_": " ",      // underscore
         "\u{201C}": "\"",     // left double quote
         "\u{201D}": "\"",     // right double quote
@@ -121,11 +130,6 @@ func preprocessText(_ text: String) -> String {
     for (old, new) in replacements {
         text = text.replacingOccurrences(of: old, with: new)
     }
-
-    // Remove combining diacritics // FIXME: this should be fixed for non-English languages
-    let diacriticsPattern = try! NSRegularExpression(pattern: "[\\u0302\\u0303\\u0304\\u0305\\u0306\\u0307\\u0308\\u030A\\u030B\\u030C\\u0327\\u0328\\u0329\\u032A\\u032B\\u032C\\u032D\\u032E\\u032F]")
-    let diacriticsRange = NSRange(text.startIndex..., in: text)
-    text = diacriticsPattern.stringByReplacingMatches(in: text, range: diacriticsRange, withTemplate: "")
 
     // Remove special symbols
     let specialSymbols = ["♥", "☆", "♡", "©", "\\"]
@@ -178,6 +182,14 @@ func preprocessText(_ text: String) -> String {
             text += "."
         }
     }
+
+    // Validate language
+    guard isValidLang(lang) else {
+        fatalError("Invalid language: \(lang). Available: \(AVAILABLE_LANGS.joined(separator: ", "))")
+    }
+
+    // Wrap text with language tags
+    text = "<\(lang)>\(text)</\(lang)>"
 
     return text
 }
@@ -560,11 +572,11 @@ class TextToSpeech {
         self.sampleRate = cfgs.ae.sample_rate
     }
     
-    private func _infer(_ textList: [String], _ style: Style, _ totalStep: Int, speed: Float = 1.05) throws -> (wav: [Float], duration: [Float]) {
+    private func _infer(_ textList: [String], _ langList: [String], _ style: Style, _ totalStep: Int, speed: Float = 1.05) throws -> (wav: [Float], duration: [Float]) {
         let bsz = textList.count
         
         // Process text
-        let (textIds, textMask) = textProcessor.call(textList)
+        let (textIds, textMask) = textProcessor.call(textList, langList)
         
         // Flatten text IDs
         let textIdsFlat = textIds.flatMap { $0 }
@@ -688,14 +700,16 @@ class TextToSpeech {
         return (wav, duration)
     }
     
-    func call(_ text: String, _ style: Style, _ totalStep: Int, speed: Float = 1.05, silenceDuration: Float = 0.3) throws -> (wav: [Float], duration: Float) {
-        let chunks = chunkText(text)
+    func call(_ text: String, _ lang: String, _ style: Style, _ totalStep: Int, speed: Float = 1.05, silenceDuration: Float = 0.3) throws -> (wav: [Float], duration: Float) {
+        let maxLen = lang == "ko" ? 120 : 300
+        let chunks = chunkText(text, maxLen: maxLen)
+        let langList = Array(repeating: lang, count: chunks.count)
         
         var wavCat = [Float]()
         var durCat: Float = 0.0
         
         for (i, chunk) in chunks.enumerated() {
-            let result = try _infer([chunk], style, totalStep, speed: speed)
+            let result = try _infer([chunk], [langList[i]], style, totalStep, speed: speed)
             
             let dur = result.duration[0]
             let wavLen = Int(Float(sampleRate) * dur)
@@ -717,8 +731,8 @@ class TextToSpeech {
         return (wavCat, durCat)
     }
     
-    func batch(_ textList: [String], _ style: Style, _ totalStep: Int, speed: Float = 1.05) throws -> (wav: [Float], duration: [Float]) {
-        return try _infer(textList, style, totalStep, speed: speed)
+    func batch(_ textList: [String], _ langList: [String], _ style: Style, _ totalStep: Int, speed: Float = 1.05) throws -> (wav: [Float], duration: [Float]) {
+        return try _infer(textList, langList, style, totalStep, speed: speed)
     }
 }
 

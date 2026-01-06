@@ -12,7 +12,7 @@ struct ContentView: View {
                 Spacer()
 
                 VStack(spacing: 12) {
-                    Text("SupertonicTTS iOS Demo")
+                    Text("Supertonic 2 iOS Demo")
                         .font(.title2.weight(.semibold))
                         .foregroundColor(.primary)
 
@@ -43,6 +43,19 @@ struct ContentView: View {
                         Text("F").tag(TTSService.Voice.female)
                     }
                     .pickerStyle(SegmentedPickerStyle())
+                    .padding(.horizontal)
+                    
+                    HStack(spacing: 12) {
+                        Text("Language")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        Picker("Language", selection: $vm.language) {
+                            ForEach(TTSService.Language.allCases, id: \.self) { lang in
+                                Text(lang.displayName).tag(lang)
+                            }
+                        }
+                        .pickerStyle(MenuPickerStyle())
+                    }
                     .padding(.horizontal)
                 }
 

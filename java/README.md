@@ -4,6 +4,8 @@ This guide provides examples for running TTS inference using `ExampleONNX.java`.
 
 ## 📰 Update News
 
+**2026.01.06** - 🎉 **Supertonic 2** released with multilingual support! Now supports English (`en`), Korean (`ko`), Spanish (`es`), Portuguese (`pt`), and French (`fr`). [Demo](https://huggingface.co/spaces/Supertone/supertonic-2) | [Models](https://huggingface.co/Supertone/supertonic-2)
+
 **2025.12.10** - Added [6 new voice styles](https://huggingface.co/Supertone/supertonic/tree/b10dbaf18b316159be75b34d24f740008fddd381) (M3, M4, M5, F3, F4, F5). See [Voices](https://supertone-inc.github.io/supertonic-py/voices/) for details
 
 **2025.12.08** - Optimized ONNX models via [OnnxSlim](https://github.com/inisis/OnnxSlim) now available on [Hugging Face Models](https://huggingface.co/Supertone/supertonic)
@@ -47,13 +49,13 @@ This will use:
 ### Example 2: Batch Inference
 Process multiple voice styles and texts at once:
 ```bash
-mvn exec:java -Dexec.args="--batch --voice-style assets/voice_styles/M1.json,assets/voice_styles/F1.json --text 'The sun sets behind the mountains, painting the sky in shades of pink and orange.|The weather is beautiful and sunny outside. A gentle breeze makes the air feel fresh and pleasant.'"
+mvn exec:java -Dexec.args="--batch --voice-style assets/voice_styles/M1.json,assets/voice_styles/F1.json --text 'The sun sets behind the mountains, painting the sky in shades of pink and orange.|오늘 아침에 공원을 산책했는데, 새소리와 바람 소리가 너무 기분 좋았어요.' --lang en,ko"
 ```
 
 This will:
-- Generate speech for 2 different voice-text pairs
-- Use male voice (M1.json) for the first text
-- Use female voice (F1.json) for the second text
+- Generate speech for 2 different voice-text-language pairs
+- Use male voice (M1.json) for the first text in English
+- Use female voice (F1.json) for the second text in Korean
 - Process both samples in a single batch
 
 ### Example 3: High Quality Inference
@@ -111,14 +113,16 @@ java -jar target/tts-example.jar --total-step 10 --text "Your custom text here"
 | `--onnx-dir` | str | `assets/onnx` | Path to ONNX model directory |
 | `--total-step` | int | 5 | Number of denoising steps (higher = better quality, slower) |
 | `--n-test` | int | 4 | Number of times to generate each sample |
-| `--voice-style` | str+ | `assets/voice_styles/M1.json` | Voice style file path(s) |
-| `--text` | str+ | (long default text) | Text(s) to synthesize |
+| `--voice-style` | str+ | `assets/voice_styles/M1.json` | Voice style file path(s), comma-separated |
+| `--text` | str+ | (long default text) | Text(s) to synthesize, pipe-separated |
+| `--lang` | str+ | `en` | Language(s) for synthesis, comma-separated (en, ko, es, pt, fr) |
 | `--save-dir` | str | `results` | Output directory |
 | `--batch` | flag | False | Enable batch mode (multiple text-style pairs, disables automatic chunking) |
 
 ## Notes
 
-- **Batch Processing**: When using `--batch`, the number of `--voice-style` files must match the number of `--text` entries
+- **Multilingual Support**: Use `--lang` to specify the language for each text. Available: `en` (English), `ko` (Korean), `es` (Spanish), `pt` (Portuguese), `fr` (French)
+- **Batch Processing**: When using `--batch`, the number of `--voice-style`, `--text`, and `--lang` entries must match
 - **Automatic Chunking**: Without `--batch`, long texts are automatically split and concatenated with 0.3s pauses
 - **Quality vs Speed**: Higher `--total-step` values produce better quality but take longer
 - **GPU Support**: GPU mode is not supported yet

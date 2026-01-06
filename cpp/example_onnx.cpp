@@ -16,6 +16,7 @@ struct Args {
     std::vector<std::string> text = {
         "This morning, I took a walk in the park, and the sound of the birds and the breeze was so pleasant that I stopped for a long time just to listen."
     };
+    std::vector<std::string> lang = {"en"};
     std::string save_dir = "results";
     bool batch = false;
 };
@@ -41,6 +42,7 @@ Args parseArgs(int argc, char* argv[]) {
         else if (arg == "--n-test" && i + 1 < argc) args.n_test = std::stoi(argv[++i]);
         else if (arg == "--voice-style" && i + 1 < argc) args.voice_style = splitString(argv[++i], ',');
         else if (arg == "--text" && i + 1 < argc) args.text = splitString(argv[++i], '|');
+        else if (arg == "--lang" && i + 1 < argc) args.lang = splitString(argv[++i], ',');
         else if (arg == "--save-dir" && i + 1 < argc) args.save_dir = argv[++i];
         else if (arg == "--batch") args.batch = true;
     }
@@ -58,6 +60,7 @@ int main(int argc, char* argv[]) {
     std::string save_dir = args.save_dir;
     std::vector<std::string> voice_style_paths = args.voice_style;
     std::vector<std::string> text_list = args.text;
+    std::vector<std::string> lang_list = args.lang;
     bool batch = args.batch;
     
     if (voice_style_paths.size() != text_list.size()) {
@@ -87,9 +90,9 @@ int main(int argc, char* argv[]) {
         
         auto result = timer("Generating speech from text", [&]() {
             if (batch) {
-                return text_to_speech->batch(memory_info, text_list, style, total_step, speed);
+                return text_to_speech->batch(memory_info, text_list, lang_list, style, total_step, speed);
             } else {
-                return text_to_speech->call(memory_info, text_list[0], style, total_step, speed);
+                return text_to_speech->call(memory_info, text_list[0], lang_list[0], style, total_step, speed);
             }
         });
         

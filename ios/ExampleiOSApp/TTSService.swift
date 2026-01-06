@@ -3,6 +3,23 @@ import OnnxRuntimeBindings
 
 final class TTSService {
     enum Voice { case male, female }
+    enum Language: String, CaseIterable {
+        case en = "en"
+        case ko = "ko"
+        case es = "es"
+        case pt = "pt"
+        case fr = "fr"
+        
+        var displayName: String {
+            switch self {
+            case .en: return "English"
+            case .ko: return "한국어"
+            case .es: return "Español"
+            case .pt: return "Português"
+            case .fr: return "Français"
+            }
+        }
+    }
 
     private let env: ORTEnv
     private let textToSpeech: TextToSpeech
@@ -16,13 +33,13 @@ final class TTSService {
         sampleRate = textToSpeech.sampleRate
     }
 
-    func synthesize(text: String, nfe: Int, voice: Voice) async throws -> URL {
+    func synthesize(text: String, nfe: Int, voice: Voice, language: Language) async throws -> URL {
         // Load style for the selected voice
         let styleURL = try Self.locateVoiceStyleURL(voice: voice)
         let style = try loadVoiceStyle([styleURL.path], verbose: false)
 
         // 2) Synthesize via packed TextToSpeech component
-        let (wav, duration) = try textToSpeech.call(text, style, nfe)
+        let (wav, duration) = try textToSpeech.call(text, language.rawValue, style, nfe)
         let audioSeconds = Double(duration)
         let wavLenSample = min(Int(Double(sampleRate) * audioSeconds), wav.count)
         let wavOut = Array(wav[0..<wavLenSample])

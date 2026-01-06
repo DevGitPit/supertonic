@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { loadTextToSpeech, loadVoiceStyle, timer, writeWavFile } from './helper.js';
+import { loadTextToSpeech, loadVoiceStyle, timer, writeWavFile, sanitizeFilename } from './helper.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,6 +19,7 @@ function parseArgs() {
         nTest: 4,
         voiceStyle: ['assets/voice_styles/M1.json'],
         text: ['This morning, I took a walk in the park, and the sound of the birds and the breeze was so pleasant that I stopped for a long time just to listen.'],
+        lang: ['en'],
         saveDir: 'results',
         batch: false
     };
@@ -41,6 +42,8 @@ function parseArgs() {
             args.voiceStyle = process.argv[++i].split(',');
         } else if (arg === '--text' && i + 1 < process.argv.length) {
             args.text = process.argv[++i].split('|');
+        } else if (arg === '--lang' && i + 1 < process.argv.length) {
+            args.lang = process.argv[++i].split(',');
         } else if (arg === '--save-dir' && i + 1 < process.argv.length) {
             args.saveDir = process.argv[++i];
         }
@@ -63,6 +66,7 @@ async function main() {
     const saveDir = args.saveDir;
     const voiceStylePaths = args.voiceStyle.map(p => path.resolve(__dirname, p));
     const textList = args.text;
+    const langList = args.lang;
     const batch = args.batch;
 
     if (voiceStylePaths.length !== textList.length) {
@@ -83,9 +87,9 @@ async function main() {
         
         const { wav, duration } = await timer('Generating speech from text', async () => {
             if (batch) {
-                return await textToSpeech.batch(textList, style, totalStep, speed);
+                return await textToSpeech.batch(textList, langList, style, totalStep, speed);
             } else {
-                return await textToSpeech.call(textList[0], style, totalStep, speed);
+                return await textToSpeech.call(textList[0], langList[0], style, totalStep, speed);
             }
         });
         
@@ -95,7 +99,7 @@ async function main() {
 
         const wavShape = [bsz, wav.length / bsz];
         for (let b = 0; b < bsz; b++) {
-            const fname = `${textList[b].substring(0, 20).replace(/[^a-zA-Z0-9]/g, '_')}_${n + 1}.wav`;
+            const fname = `${sanitizeFilename(textList[b], 20)}_${n + 1}.wav`;
             const wavLen = Math.floor(textToSpeech.sampleRate * duration[b]);
             const wavOut = wav.slice(b * wavShape[1], b * wavShape[1] + wavLen);
             

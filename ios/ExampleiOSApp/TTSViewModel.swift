@@ -6,6 +6,7 @@ final class TTSViewModel: ObservableObject {
     @Published var text: String = "This morning, I took a walk in the park, and the sound of the birds and the breeze was so pleasant that I stopped for a long time just to listen."
     @Published var nfe: Double = 5
     @Published var voice: TTSService.Voice = .male
+    @Published var language: TTSService.Language = .en
     @Published var isGenerating: Bool = false
     @Published var isPlaying: Bool = false
     @Published var errorMessage: String?
@@ -39,7 +40,7 @@ final class TTSViewModel: ObservableObject {
         Task {
             let tic = Date()
             do {
-                let url = try await service.synthesize(text: text, nfe: Int(nfe), voice: voice)
+                let url = try await service.synthesize(text: text, nfe: Int(nfe), voice: voice, language: language)
                 let elapsed = Date().timeIntervalSince(tic)
                 let audio = audioDuration(at: url)
                 await MainActor.run {

@@ -57,6 +57,13 @@ def parse_args():
         help="Text(s) to synthesize. Can specify multiple texts for batch processing",
     )
     parser.add_argument(
+        "--lang",
+        type=str,
+        nargs="+",
+        default=["en"],
+        help="Language(s) of the text(s). Can specify multiple languages for batch processing",
+    )
+    parser.add_argument(
         "--save-dir", type=str, default="results", help="Output directory"
     )
 
@@ -73,6 +80,7 @@ n_test = args.n_test
 save_dir = args.save_dir
 voice_style_paths = args.voice_style
 text_list = args.text
+lang_list = args.lang
 batch = args.batch
 
 assert len(voice_style_paths) == len(
@@ -91,9 +99,13 @@ for n in range(n_test):
     print(f"\n[{n+1}/{n_test}] Starting synthesis...")
     with timer("Generating speech from text"):
         if batch:
-            wav, duration = text_to_speech.batch(text_list, style, total_step, speed)
+            wav, duration = text_to_speech.batch(
+                text_list, lang_list, style, total_step, speed
+            )
         else:
-            wav, duration = text_to_speech(text_list[0], style, total_step, speed)
+            wav, duration = text_to_speech(
+                text_list[0], lang_list[0], style, total_step, speed
+            )
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     for b in range(bsz):

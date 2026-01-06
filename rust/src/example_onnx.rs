@@ -42,6 +42,10 @@ struct Args {
     #[arg(long, value_delimiter = '|', default_values_t = vec!["This morning, I took a walk in the park, and the sound of the birds and the breeze was so pleasant that I stopped for a long time just to listen.".to_string()])]
     text: Vec<String>,
 
+    /// Language(s) for synthesis (en, ko, es, pt, fr)
+    #[arg(long, value_delimiter = ',', default_values_t = vec!["en".to_string()])]
+    lang: Vec<String>,
+
     /// Output directory
     #[arg(long, default_value = "results")]
     save_dir: String,
@@ -61,6 +65,7 @@ fn main() -> Result<()> {
     let n_test = args.n_test;
     let voice_style_paths = &args.voice_style;
     let text_list = &args.text;
+    let lang_list = &args.lang;
     let save_dir = &args.save_dir;
     let batch = args.batch;
 
@@ -69,6 +74,13 @@ fn main() -> Result<()> {
             anyhow::bail!(
                 "Number of voice styles ({}) must match number of texts ({})",
                 voice_style_paths.len(),
+                text_list.len()
+            );
+        }
+        if lang_list.len() != text_list.len() {
+            anyhow::bail!(
+                "Number of languages ({}) must match number of texts ({})",
+                lang_list.len(),
                 text_list.len()
             );
         }
@@ -90,11 +102,11 @@ fn main() -> Result<()> {
 
         let (wav, duration) = if batch {
             timer("Generating speech from text", || {
-                text_to_speech.batch(text_list, &style, total_step, speed)
+                text_to_speech.batch(text_list, lang_list, &style, total_step, speed)
             })?
         } else {
             let (w, d) = timer("Generating speech from text", || {
-                text_to_speech.call(&text_list[0], &style, total_step, speed, 0.3)
+                text_to_speech.call(&text_list[0], &lang_list[0], &style, total_step, speed, 0.3)
             })?;
             (w, vec![d])
         };

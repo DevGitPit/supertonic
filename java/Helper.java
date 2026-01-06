@@ -19,6 +19,17 @@ import java.util.regex.Pattern;
 import java.util.regex.Matcher;
 
 /**
+ * Available languages for multilingual TTS
+ */
+class Languages {
+    public static final List<String> AVAILABLE = Arrays.asList("en", "ko", "es", "pt", "fr");
+    
+    public static boolean isValid(String lang) {
+        return AVAILABLE.contains(lang);
+    }
+}
+
+/**
  * Configuration classes
  */
 class Config {
@@ -96,22 +107,28 @@ class UnicodeProcessor {
         return result.toString();
     }
     
-    public TextProcessResult call(List<String> textList) {
+    public TextProcessResult call(List<String> textList, List<String> langList) {
         List<String> processedTexts = new ArrayList<>();
-        for (String text : textList) {
-            processedTexts.add(preprocessText(text));
+        for (int i = 0; i < textList.size(); i++) {
+            processedTexts.add(preprocessText(textList.get(i), langList.get(i)));
+        }
+        
+        // Convert texts to unicode values first to get correct character counts
+        List<int[]> allUnicodeVals = new ArrayList<>();
+        for (String text : processedTexts) {
+            allUnicodeVals.add(textToUnicodeValues(text));
         }
         
         int[] textIdsLengths = new int[processedTexts.size()];
         int maxLen = 0;
-        for (int i = 0; i < processedTexts.size(); i++) {
-            textIdsLengths[i] = processedTexts.get(i).length();
+        for (int i = 0; i < allUnicodeVals.size(); i++) {
+            textIdsLengths[i] = allUnicodeVals.get(i).length;  // Use code point count, not char count
             maxLen = Math.max(maxLen, textIdsLengths[i]);
         }
         
         long[][] textIds = new long[processedTexts.size()][maxLen];
-        for (int i = 0; i < processedTexts.size(); i++) {
-            int[] unicodeVals = textToUnicodeValues(processedTexts.get(i));
+        for (int i = 0; i < allUnicodeVals.size(); i++) {
+            int[] unicodeVals = allUnicodeVals.get(i);
             for (int j = 0; j < unicodeVals.length; j++) {
                 textIds[i][j] = indexer[unicodeVals[j]];
             }
@@ -121,11 +138,9 @@ class UnicodeProcessor {
         return new TextProcessResult(textIds, textMask);
     }
     
-    private String preprocessText(String text) {
+    private String preprocessText(String text, String lang) {
         // TODO: Need advanced normalizer for better performance
         text = Normalizer.normalize(text, Normalizer.Form.NFKD);
-
-        // FIXME: this should be fixed for non-English languages
 
         // Remove emojis (wide Unicode range)
         // Java Pattern doesn't support \x{...} syntax for Unicode above \uFFFF
@@ -137,7 +152,6 @@ class UnicodeProcessor {
         replacements.put("–", "-");      // en dash
         replacements.put("‑", "-");      // non-breaking hyphen
         replacements.put("—", "-");      // em dash
-        replacements.put("¯", " ");      // macron
         replacements.put("_", " ");      // underscore
         replacements.put("\u201C", "\"");     // left double quote
         replacements.put("\u201D", "\"");     // right double quote
@@ -156,9 +170,6 @@ class UnicodeProcessor {
         for (Map.Entry<String, String> entry : replacements.entrySet()) {
             text = text.replace(entry.getKey(), entry.getValue());
         }
-
-        // Remove combining diacritics // FIXME: this should be fixed for non-English languages
-        text = text.replaceAll("[\\u0302\\u0303\\u0304\\u0305\\u0306\\u0307\\u0308\\u030A\\u030B\\u030C\\u0327\\u0328\\u0329\\u032A\\u032B\\u032C\\u032D\\u032E\\u032F]", "");
 
         // Remove special symbols
         text = text.replaceAll("[♥☆♡©\\\\]", "");
@@ -201,15 +212,20 @@ class UnicodeProcessor {
             text += ".";
         }
 
+        // Validate language
+        if (!Languages.isValid(lang)) {
+            throw new IllegalArgumentException("Invalid language: " + lang + ". Available: " + Languages.AVAILABLE);
+        }
+
+        // Wrap text with language tags
+        text = "<" + lang + ">" + text + "</" + lang + ">";
+
         return text;
     }
     
     private int[] textToUnicodeValues(String text) {
-        int[] values = new int[text.length()];
-        for (int i = 0; i < text.length(); i++) {
-            values[i] = text.codePointAt(i);
-        }
-        return values;
+        // Use codePoints() stream to correctly handle surrogate pairs
+        return text.codePoints().toArray();
     }
     
     private float[][][] getTextMask(int[] lengths) {
@@ -269,12 +285,12 @@ class TextToSpeech {
         this.ldim = config.ttl.latentDim;
     }
     
-    private TTSResult _infer(List<String> textList, Style style, int totalStep, float speed, OrtEnvironment env) 
+    private TTSResult _infer(List<String> textList, List<String> langList, Style style, int totalStep, float speed, OrtEnvironment env) 
             throws OrtException {
         int bsz = textList.size();
         
         // Process text
-        UnicodeProcessor.TextProcessResult textResult = textProcessor.call(textList);
+        UnicodeProcessor.TextProcessResult textResult = textProcessor.call(textList, langList);
         long[][] textIds = textResult.textIds;
         float[][][] textMask = textResult.textMask;
         
@@ -360,7 +376,18 @@ class TextToSpeech {
         
         OrtSession.Result vocoderResult = vocoderSession.run(vocoderInputs);
         float[][] wavBatch = (float[][]) vocoderResult.get(0).getValue();
-        float[] wav = wavBatch[0];
+        
+        // Flatten all batch audio into a single array for batch processing
+        int totalSamples = 0;
+        for (float[] w : wavBatch) {
+            totalSamples += w.length;
+        }
+        float[] wav = new float[totalSamples];
+        int offset = 0;
+        for (float[] w : wavBatch) {
+            System.arraycopy(w, 0, wav, offset, w.length);
+            offset += w.length;
+        }
         
         // Clean up
         textIdsTensor.close();
@@ -421,15 +448,16 @@ class TextToSpeech {
     /**
      * Synthesize speech from a single text with automatic chunking
      */
-    public TTSResult call(String text, Style style, int totalStep, float speed, float silenceDuration, OrtEnvironment env) 
+    public TTSResult call(String text, String lang, Style style, int totalStep, float speed, float silenceDuration, OrtEnvironment env) 
             throws OrtException {
-        List<String> chunks = Helper.chunkText(text, 0);
+        int maxLen = lang.equals("ko") ? 120 : 300;
+        List<String> chunks = Helper.chunkText(text, maxLen);
         
         List<Float> wavCat = new ArrayList<>();
         float durCat = 0.0f;
         
         for (int i = 0; i < chunks.size(); i++) {
-            TTSResult result = _infer(Arrays.asList(chunks.get(i)), style, totalStep, speed, env);
+            TTSResult result = _infer(Arrays.asList(chunks.get(i)), Arrays.asList(lang), style, totalStep, speed, env);
             
             float dur = result.duration[0];
             int wavLen = (int) (sampleRate * dur);
@@ -464,9 +492,9 @@ class TextToSpeech {
     /**
      * Batch synthesize speech from multiple texts
      */
-    public TTSResult batch(List<String> textList, Style style, int totalStep, float speed, OrtEnvironment env) 
+    public TTSResult batch(List<String> textList, List<String> langList, Style style, int totalStep, float speed, OrtEnvironment env) 
             throws OrtException {
-        return _infer(textList, style, totalStep, speed, env);
+        return _infer(textList, langList, style, totalStep, speed, env);
     }
     
     public void close() throws OrtException {
@@ -841,13 +869,20 @@ public class Helper {
     }
     
     /**
-     * Sanitize filename
+     * Sanitize filename (supports Unicode characters)
      */
     public static String sanitizeFilename(String text, int maxLen) {
-        if (text.length() > maxLen) {
-            text = text.substring(0, maxLen);
+        // Get first maxLen characters (code points, not chars for surrogate pairs)
+        int[] codePoints = text.codePoints().limit(maxLen).toArray();
+        StringBuilder result = new StringBuilder();
+        for (int codePoint : codePoints) {
+            if (Character.isLetterOrDigit(codePoint)) {
+                result.appendCodePoint(codePoint);
+            } else {
+                result.append('_');
+            }
         }
-        return text.replaceAll("[^a-zA-Z0-9]", "_");
+        return result.toString();
     }
     
     /**

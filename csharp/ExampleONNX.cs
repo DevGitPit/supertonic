@@ -19,6 +19,7 @@ namespace Supertonic
             { 
                 "This morning, I took a walk in the park, and the sound of the birds and the breeze was so pleasant that I stopped for a long time just to listen." 
             };
+            public List<string> Lang { get; set; } = new List<string> { "en" };
             public string SaveDir { get; set; } = "results";
             public bool Batch { get; set; } = false;
         }
@@ -55,6 +56,9 @@ namespace Supertonic
                     case "--text" when i + 1 < args.Length:
                         result.Text = args[++i].Split('|').ToList();
                         break;
+                    case "--lang" when i + 1 < args.Length:
+                        result.Lang = args[++i].Split(',').ToList();
+                        break;
                     case "--save-dir" when i + 1 < args.Length:
                         result.SaveDir = args[++i];
                         break;
@@ -76,6 +80,7 @@ namespace Supertonic
             string saveDir = parsedArgs.SaveDir;
             var voiceStylePaths = parsedArgs.VoiceStyle;
             var textList = parsedArgs.Text;
+            var langList = parsedArgs.Lang;
             bool batch = parsedArgs.Batch;
 
             if (voiceStylePaths.Count != textList.Count)
@@ -101,11 +106,11 @@ namespace Supertonic
                 {
                     if (batch)
                     {
-                        return textToSpeech.Batch(textList, style, totalStep, speed);
+                        return textToSpeech.Batch(textList, langList, style, totalStep, speed);
                     }
                     else
                     {
-                        return textToSpeech.Call(textList[0], style, totalStep, speed);
+                        return textToSpeech.Call(textList[0], langList[0], style, totalStep, speed);
                     }
                 });
 

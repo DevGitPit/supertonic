@@ -10,17 +10,17 @@ import onnxruntime as ort
 
 import re
 
+AVAILABLE_LANGS = ["en", "ko", "es", "pt", "fr"]
+
 
 class UnicodeProcessor:
     def __init__(self, unicode_indexer_path: str):
         with open(unicode_indexer_path, "r") as f:
             self.indexer = json.load(f)
 
-    def _preprocess_text(self, text: str) -> str:
+    def _preprocess_text(self, text: str, lang: str) -> str:
         # TODO: Need advanced normalizer for better performance
         text = normalize("NFKD", text)
-
-        # FIXME: this should be fixed for non-English languages
 
         # Remove emojis (wide Unicode range)
         emoji_pattern = re.compile(
@@ -45,10 +45,9 @@ class UnicodeProcessor:
             "–": "-",
             "‑": "-",
             "—": "-",
-            "¯": " ",
             "_": " ",
-            "\u201C": '"',  # left double quote "
-            "\u201D": '"',  # right double quote "
+            "\u201c": '"',  # left double quote "
+            "\u201d": '"',  # right double quote "
             "\u2018": "'",  # left single quote '
             "\u2019": "'",  # right single quote '
             "´": "'",
@@ -63,13 +62,6 @@ class UnicodeProcessor:
         }
         for k, v in replacements.items():
             text = text.replace(k, v)
-
-        # Remove combining diacritics # FIXME: this should be fixed for non-English languages
-        text = re.sub(
-            r"[\u0302\u0303\u0304\u0305\u0306\u0307\u0308\u030A\u030B\u030C\u0327\u0328\u0329\u032A\u032B\u032C\u032D\u032E\u032F]",
-            "",
-            text,
-        )
 
         # Remove special symbols
         text = re.sub(r"[♥☆♡©\\]", "", text)
@@ -107,6 +99,9 @@ class UnicodeProcessor:
         if not re.search(r"[.!?;:,'\"')\]}…。」』】〉》›»]$", text):
             text += "."
 
+        if lang not in AVAILABLE_LANGS:
+            raise ValueError(f"Invalid language: {lang}")
+        text = f"<{lang}>" + text + f"</{lang}>"
         return text
 
     def _get_text_mask(self, text_ids_lengths: np.ndarray) -> np.ndarray:
@@ -119,8 +114,12 @@ class UnicodeProcessor:
         )  # 2 bytes
         return unicode_values
 
-    def __call__(self, text_list: list[str]) -> tuple[np.ndarray, np.ndarray]:
-        text_list = [self._preprocess_text(t) for t in text_list]
+    def __call__(
+        self, text_list: list[str], lang_list: list[str]
+    ) -> tuple[np.ndarray, np.ndarray]:
+        text_list = [
+            self._preprocess_text(t, lang) for t, lang in zip(text_list, lang_list)
+        ]
         text_ids_lengths = np.array([len(text) for text in text_list], dtype=np.int64)
         text_ids = np.zeros((len(text_list), text_ids_lengths.max()), dtype=np.int64)
         for i, text in enumerate(text_list):
@@ -176,13 +175,18 @@ class TextToSpeech:
         return noisy_latent, latent_mask
 
     def _infer(
-        self, text_list: list[str], style: Style, total_step: int, speed: float = 1.05
+        self,
+        text_list: list[str],
+        lang_list: list[str],
+        style: Style,
+        total_step: int,
+        speed: float = 1.05,
     ) -> tuple[np.ndarray, np.ndarray]:
         assert (
             len(text_list) == style.ttl.shape[0]
         ), "Number of texts must match number of style vectors"
         bsz = len(text_list)
-        text_ids, text_mask = self.text_processor(text_list)
+        text_ids, text_mask = self.text_processor(text_list, lang_list)
         dur_onnx, *_ = self.dp_ort.run(
             None, {"text_ids": text_ids, "style_dp": style.dp, "text_mask": text_mask}
         )
@@ -213,6 +217,7 @@ class TextToSpeech:
     def __call__(
         self,
         text: str,
+        lang: str,
         style: Style,
         total_step: int,
         speed: float = 1.05,
@@ -221,11 +226,12 @@ class TextToSpeech:
         assert (
             style.ttl.shape[0] == 1
         ), "Single speaker text to speech only supports single style"
-        text_list = chunk_text(text)
+        max_len = 120 if lang == "ko" else 300
+        text_list = chunk_text(text, max_len=max_len)
         wav_cat = None
         dur_cat = None
         for text in text_list:
-            wav, dur_onnx = self._infer([text], style, total_step, speed)
+            wav, dur_onnx = self._infer([text], [lang], style, total_step, speed)
             if wav_cat is None:
                 wav_cat = wav
                 dur_cat = dur_onnx
@@ -238,9 +244,14 @@ class TextToSpeech:
         return wav_cat, dur_cat
 
     def batch(
-        self, text_list: list[str], style: Style, total_step: int, speed: float = 1.05
+        self,
+        text_list: list[str],
+        lang_list: list[str],
+        style: Style,
+        total_step: int,
+        speed: float = 1.05,
     ) -> tuple[np.ndarray, np.ndarray]:
-        return self._infer(text_list, style, total_step, speed)
+        return self._infer(text_list, lang_list, style, total_step, speed)
 
 
 def length_to_mask(lengths: np.ndarray, max_len: Optional[int] = None) -> np.ndarray:
@@ -365,11 +376,13 @@ def timer(name: str):
 
 
 def sanitize_filename(text: str, max_len: int) -> str:
-    """Sanitize filename by replacing non-alphanumeric characters with underscores"""
+    """Sanitize filename by replacing non-alphanumeric characters with underscores (supports Unicode)"""
     import re
 
     prefix = text[:max_len]
-    return re.sub(r"[^a-zA-Z0-9]", "_", prefix)
+    # \w matches Unicode word characters (letters, digits, underscore) with re.UNICODE
+    # We replace non-word characters except keeping existing underscores
+    return re.sub(r"[^\w]", "_", prefix, flags=re.UNICODE)
 
 
 def chunk_text(text: str, max_len: int = 300) -> list[str]:

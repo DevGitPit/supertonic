@@ -1,5 +1,12 @@
 import * as ort from 'onnxruntime-web';
 
+// Available languages for multilingual TTS
+export const AVAILABLE_LANGS = ['en', 'ko', 'es', 'pt', 'fr'];
+
+export function isValidLang(lang) {
+    return AVAILABLE_LANGS.includes(lang);
+}
+
 /**
  * Unicode Text Processor
  */
@@ -8,8 +15,8 @@ export class UnicodeProcessor {
         this.indexer = indexer;
     }
 
-    call(textList) {
-        const processedTexts = textList.map(text => this.preprocessText(text));
+    call(textList, langList) {
+        const processedTexts = textList.map((text, i) => this.preprocessText(text, langList[i]));
         
         const textIdsLengths = processedTexts.map(text => text.length);
         const maxLen = Math.max(...textIdsLengths);
@@ -27,11 +34,9 @@ export class UnicodeProcessor {
         return { textIds, textMask };
     }
 
-    preprocessText(text) {
+    preprocessText(text, lang) {
         // TODO: Need advanced normalizer for better performance
         text = text.normalize('NFKD');
-
-        // FIXME: this should be fixed for non-English languages
 
         // Remove emojis (wide Unicode range)
         const emojiPattern = /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F1E6}-\u{1F1FF}]+/gu;
@@ -42,7 +47,6 @@ export class UnicodeProcessor {
             '–': '-',
             '‑': '-',
             '—': '-',
-            '¯': ' ',
             '_': ' ',
             '\u201C': '"',  // left double quote "
             '\u201D': '"',  // right double quote "
@@ -61,9 +65,6 @@ export class UnicodeProcessor {
         for (const [k, v] of Object.entries(replacements)) {
             text = text.replaceAll(k, v);
         }
-
-        // Remove combining diacritics // FIXME: this should be fixed for non-English languages
-        text = text.replace(/[\u0302\u0303\u0304\u0305\u0306\u0307\u0308\u030A\u030B\u030C\u0327\u0328\u0329\u032A\u032B\u032C\u032D\u032E\u032F]/g, '');
 
         // Remove special symbols
         text = text.replace(/[♥☆♡©\\]/g, '');
@@ -105,6 +106,14 @@ export class UnicodeProcessor {
         if (!/[.!?;:,'\"')\]}…。」』】〉》›»]$/.test(text)) {
             text += '.';
         }
+
+        // Validate language
+        if (!isValidLang(lang)) {
+            throw new Error(`Invalid language: ${lang}. Available: ${AVAILABLE_LANGS.join(', ')}`);
+        }
+
+        // Wrap text with language tags
+        text = `<${lang}>${text}</${lang}>`;
 
         return text;
     }
@@ -150,11 +159,11 @@ export class TextToSpeech {
         this.sampleRate = cfgs.ae.sample_rate;
     }
 
-    async _infer(textList, style, totalStep, speed = 1.05, progressCallback = null) {
+    async _infer(textList, langList, style, totalStep, speed = 1.05, progressCallback = null) {
         const bsz = textList.length;
         
         // Process text
-        const { textIds, textMask } = this.textProcessor.call(textList);
+        const { textIds, textMask } = this.textProcessor.call(textList, langList);
         
         const textIdsFlat = new BigInt64Array(textIds.flat().map(x => BigInt(x)));
         const textIdsShape = [bsz, textIds[0].length];
@@ -259,16 +268,18 @@ export class TextToSpeech {
         return { wav, duration };
     }
 
-    async call(text, style, totalStep, speed = 1.05, silenceDuration = 0.3, progressCallback = null) {
+    async call(text, lang, style, totalStep, speed = 1.05, silenceDuration = 0.3, progressCallback = null) {
         if (style.ttl.dims[0] !== 1) {
             throw new Error('Single speaker text to speech only supports single style');
         }
-        const textList = chunkText(text);
+        const maxLen = lang === 'ko' ? 120 : 300;
+        const textList = chunkText(text, maxLen);
+        const langList = new Array(textList.length).fill(lang);
         let wavCat = [];
         let durCat = 0;
         
-        for (const chunk of textList) {
-            const { wav, duration } = await this._infer([chunk], style, totalStep, speed, progressCallback);
+        for (let i = 0; i < textList.length; i++) {
+            const { wav, duration } = await this._infer([textList[i]], [langList[i]], style, totalStep, speed, progressCallback);
             
             if (wavCat.length === 0) {
                 wavCat = wav;
@@ -284,8 +295,8 @@ export class TextToSpeech {
         return { wav: wavCat, duration: [durCat] };
     }
 
-    async batch(textList, style, totalStep, speed = 1.05, progressCallback = null) {
-        return await this._infer(textList, style, totalStep, speed, progressCallback);
+    async batch(textList, langList, style, totalStep, speed = 1.05, progressCallback = null) {
+        return await this._infer(textList, langList, style, totalStep, speed, progressCallback);
     }
 
     sampleNoisyLatent(duration, sampleRate, baseChunkSize, chunkCompress, latentDim) {

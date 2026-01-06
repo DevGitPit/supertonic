@@ -24,6 +24,7 @@ let currentStylePath = DEFAULT_VOICE_STYLE_PATH;
 const textInput = document.getElementById('text');
 const voiceStyleSelect = document.getElementById('voiceStyleSelect');
 const voiceStyleInfo = document.getElementById('voiceStyleInfo');
+const langSelect = document.getElementById('langSelect');
 const totalStepInput = document.getElementById('totalStep');
 const speedInput = document.getElementById('speed');
 const generateBtn = document.getElementById('generateBtn');
@@ -188,12 +189,14 @@ async function generateSpeech() {
         
         const totalStep = parseInt(totalStepInput.value);
         const speed = parseFloat(speedInput.value);
+        const lang = langSelect.value;
         
         showStatus('ℹ️ <strong>Generating speech from text...</strong>');
         const tic = Date.now();
         
         const { wav, duration } = await textToSpeech.call(
-            text, 
+            text,
+            lang,
             currentStyle, 
             totalStep,
             speed,

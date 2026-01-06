@@ -10,6 +10,12 @@ using Microsoft.ML.OnnxRuntime.Tensors;
 
 namespace Supertonic
 {
+    // Available languages for multilingual TTS
+    public static class Languages
+    {
+        public static readonly string[] Available = { "en", "ko", "es", "pt", "fr" };
+    }
+
     // ============================================================================
     // Configuration classes
     // ============================================================================
@@ -118,12 +124,10 @@ namespace Supertonic
             return result.ToString();
         }
 
-        private string PreprocessText(string text)
+        private string PreprocessText(string text, string lang)
         {
             // TODO: Need advanced normalizer for better performance
             text = text.Normalize(NormalizationForm.FormKD);
-
-            // FIXME: this should be fixed for non-English languages
 
             // Remove emojis (wide Unicode range)
             // C# doesn't support \u{...} syntax in regex, so we use character filtering instead
@@ -135,7 +139,6 @@ namespace Supertonic
                 {"–", "-"},      // en dash
                 {"‑", "-"},      // non-breaking hyphen
                 {"—", "-"},      // em dash
-                {"¯", " "},      // macron
                 {"_", " "},      // underscore
                 {"\u201C", "\""},     // left double quote
                 {"\u201D", "\""},     // right double quote
@@ -156,9 +159,6 @@ namespace Supertonic
             {
                 text = text.Replace(kvp.Key, kvp.Value);
             }
-
-            // Remove combining diacritics // FIXME: this should be fixed for non-English languages
-            text = Regex.Replace(text, @"[\u0302\u0303\u0304\u0305\u0306\u0307\u0308\u030A\u030B\u030C\u0327\u0328\u0329\u032A\u032B\u032C\u032D\u032E\u032F]", "");
 
             // Remove special symbols
             text = Regex.Replace(text, @"[♥☆♡©\\]", "");
@@ -208,6 +208,15 @@ namespace Supertonic
                 text += ".";
             }
 
+            // Validate language
+            if (!Languages.Available.Contains(lang))
+            {
+                throw new ArgumentException($"Invalid language: {lang}. Available: {string.Join(", ", Languages.Available)}");
+            }
+
+            // Wrap text with language tags
+            text = $"<{lang}>" + text + $"</{lang}>";
+
             return text;
         }
 
@@ -221,9 +230,9 @@ namespace Supertonic
             return Helper.LengthToMask(textIdsLengths);
         }
 
-        public (long[][] textIds, float[][][] textMask) Call(List<string> textList)
+        public (long[][] textIds, float[][][] textMask) Call(List<string> textList, List<string> langList)
         {
-            var processedTexts = textList.Select(t => PreprocessText(t)).ToList();
+            var processedTexts = textList.Select((t, i) => PreprocessText(t, langList[i])).ToList();
             var textIdsLengths = processedTexts.Select(t => (long)t.Length).ToArray();
             long maxLen = textIdsLengths.Max();
 
@@ -328,7 +337,7 @@ namespace Supertonic
             return (noisyLatent, latentMask);
         }
 
-        private (float[] wav, float[] duration) _Infer(List<string> textList, Style style, int totalStep, float speed = 1.05f)
+        private (float[] wav, float[] duration) _Infer(List<string> textList, List<string> langList, Style style, int totalStep, float speed = 1.05f)
         {
             int bsz = textList.Count;
             if (bsz != style.TtlShape[0])
@@ -337,7 +346,7 @@ namespace Supertonic
             }
 
             // Process text
-            var (textIds, textMask) = _textProcessor.Call(textList);
+            var (textIds, textMask) = _textProcessor.Call(textList, langList);
             var textIdsShape = new long[] { bsz, textIds[0].Length };
             var textMaskShape = new long[] { bsz, 1, textMask[0][0].Length };
 
@@ -424,20 +433,21 @@ namespace Supertonic
             return (wavTensor.ToArray(), durOnnx);
         }
 
-        public (float[] wav, float[] duration) Call(string text, Style style, int totalStep, float speed = 1.05f, float silenceDuration = 0.3f)
+        public (float[] wav, float[] duration) Call(string text, string lang, Style style, int totalStep, float speed = 1.05f, float silenceDuration = 0.3f)
         {
             if (style.TtlShape[0] != 1)
             {
                 throw new ArgumentException("Single speaker text to speech only supports single style");
             }
 
-            var textList = Helper.ChunkText(text);
+            int maxLen = lang == "ko" ? 120 : 300;
+            var textList = Helper.ChunkText(text, maxLen);
             var wavCat = new List<float>();
             float durCat = 0.0f;
 
             foreach (var chunk in textList)
             {
-                var (wav, duration) = _Infer(new List<string> { chunk }, style, totalStep, speed);
+                var (wav, duration) = _Infer(new List<string> { chunk }, new List<string> { lang }, style, totalStep, speed);
 
                 if (wavCat.Count == 0)
                 {
@@ -457,9 +467,9 @@ namespace Supertonic
             return (wavCat.ToArray(), new float[] { durCat });
         }
 
-        public (float[] wav, float[] duration) Batch(List<string> textList, Style style, int totalStep, float speed = 1.05f)
+        public (float[] wav, float[] duration) Batch(List<string> textList, List<string> langList, Style style, int totalStep, float speed = 1.05f)
         {
-            return _Infer(textList, style, totalStep, speed);
+            return _Infer(textList, langList, style, totalStep, speed);
         }
     }
 
