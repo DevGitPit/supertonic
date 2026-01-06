@@ -1,8 +1,9 @@
 # Supertonic Project Context
 
 ## Project Overview
-**Supertonic** is a high-performance, on-device text-to-speech (TTS) system designed for extreme speed and minimal computational overhead. It uses ONNX Runtime to run entirely locally without cloud dependencies.
+**Supertonic** (v2) is a high-performance, on-device text-to-speech (TTS) system designed for extreme speed and minimal computational overhead. It uses ONNX Runtime to run entirely locally without cloud dependencies.
 
+*   **New in v2:** **Multilingual Support** (English, Korean, Spanish, Portuguese, French) and **High-Fidelity Audio** (44.1kHz).
 *   **Key Features:** Blazingly fast (up to 167x real-time), ultra-lightweight (66M parameters), privacy-focused (offline).
 *   **Architecture:** The project is structured as a collection of SDKs and examples implementing the core ONNX inference across multiple languages and platforms.
 *   **Core Assets:** The trained models and voice styles are stored in the `assets/` directory (managed via Git LFS).
@@ -18,10 +19,10 @@ The repository is organized by language/platform, each serving as a standalone e
 *   `rust/`: Rust implementation (uses `cargo`).
 *   `go/`: Go implementation.
 *   `java/`, `csharp/`, `swift/`: Implementations for JVM, .NET, and macOS.
-*   `android/`: Complete Android application (Gradle).
+*   `android/`: Complete Android application (Gradle) with AIDL support and UI localization.
 *   `ios/`: Native iOS application (Xcode).
 *   `flutter/`: Cross-platform Flutter package.
-*   `chrome_extension/`: Browser extension that interfaces with a local server.
+*   `chrome_extension/`: Browser extension (v1.3) that interfaces with a local server or native host.
 *   `server.py`: An HTTP wrapper (port 8080) around the C++ implementation, allowing external tools (like the Chrome extension) to request TTS synthesis.
 
 ## Building and Running
@@ -30,7 +31,7 @@ The repository is organized by language/platform, each serving as a standalone e
 1.  **Git LFS**: Essential for downloading the model files.
     ```bash
     git lfs install
-    git clone https://huggingface.co/Supertone/supertonic assets
+    git clone https://huggingface.co/Supertone/supertonic-2 assets
     ```
     *Ensure the `assets` folder is populated before running any code.*
 
