@@ -13,7 +13,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="History"
+            android:text="@string/history_title"
             android:textSize="24sp"
             android:textStyle="bold"
             android:layout_marginBottom="16dp"/>
@@ -22,7 +22,7 @@
             android:id="@+id/clearHistoryBtn"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Clear All"
+            android:text="@string/clear_all_button"
             android:textColor="#FFFFFF"
             android:backgroundTint="#FF5252"
             android:layout_gravity="end"

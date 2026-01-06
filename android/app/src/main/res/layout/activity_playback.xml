@@ -16,7 +16,7 @@
             android:id="@+id/playbackToolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:title="Now Playing"
+            app:title="@string/now_playing_title"
             app:titleTextAppearance="@style/ToolbarTitleText"
             app:navigationIcon="?attr/homeAsUpIndicator" />
 
@@ -145,7 +145,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Saving Audio..."
+                        android:text="@string/saving_audio"
                         android:textAppearance="?attr/textAppearanceTitleMedium"
                         android:layout_marginBottom="16dp"/>
 
@@ -160,7 +160,7 @@
                         style="@style/Widget.Material3.Button.TextButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Cancel"
+                        android:text="@string/cancel"
                         android:textColor="?attr/colorError"/>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>

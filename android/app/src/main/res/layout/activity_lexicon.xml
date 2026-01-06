@@ -15,7 +15,7 @@
             android:id="@+id/lexiconToolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:title="Pronunciation Dictionary"
+            app:title="@string/lexicon_title"
             app:titleTextAppearance="@style/ToolbarTitleText"
             app:navigationIcon="?attr/homeAsUpIndicator" />
 
@@ -30,7 +30,7 @@
             android:id="@+id/emptyStateText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="No custom rules yet.\nAdd terms to fix pronunciations."
+            android:text="@string/lexicon_empty_state"
             android:textAlignment="center"
             android:textAppearance="?attr/textAppearanceBodyLarge"
             android:textColor="?attr/colorOnSurfaceVariant"
@@ -56,7 +56,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
         android:layout_margin="16dp"
-        android:text="Add Term"
+        android:text="@string/add_term_button"
         app:icon="@android:drawable/ic_input_add" />
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

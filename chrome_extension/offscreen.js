@@ -73,7 +73,7 @@ window.addEventListener('unload', cleanup);
 async function initAudioContext() {
     const AudioCtor = window.AudioContext || window.webkitAudioContext;
     if (!audioContext) {
-        audioContext = new AudioCtor({ sampleRate: 24000 });
+        audioContext = new AudioCtor({ sampleRate: 44100 });
     }
     if (audioContext.state === 'suspended') {
         await audioContext.resume();
@@ -105,7 +105,8 @@ async function createKeepAliveAudio() {
         silenceAudioElement = document.getElementById('silenceAnchor');
         if (silenceAudioElement) {
             silenceAudioElement.srcObject = streamDestination.stream;
-            silenceAudioElement.volume = 1.0;
+            silenceAudioElement.volume = 0.0; // Mute the silence stream
+            silenceAudioElement.muted = true;
             silenceAudioElement.loop = true;
             silenceAudioElement.setAttribute('playsinline', '');
             silenceAudioElement.setAttribute('webkit-playsinline', '');
@@ -502,12 +503,23 @@ function scheduleAudio() {
 
 async function sendSynthesizeRequest(text, signal) {
     if (!currentVoice || currentVoice.trim() === '') {
-        console.warn(`${LOG_PREFIX} No voice selected for synthesis`);
+        console.warn(`No voice selected for synthesis`);
         return { error: 'No voice selected' };
     }
     const controller = new AbortController();
     activeConnections.add(controller);
     const combinedSignal = signal ? signal : controller.signal;
+
+    // Simple language detection for basic testing
+    let detectedLang = 'en';
+    // Korean: Hangul Jamo (3131-314E), Vowels (314F-3163), Syllables (AC00-D7A3)
+    if (/[\u3131-\u314E\u314F-\u3163\uAC00-\uD7A3]/.test(text)) detectedLang = 'ko';
+    // Spanish: á,é,í,ó,ú,ü,ñ,¿,¡
+    else if (/[\u00E1\u00E9\u00ED\u00F3\u00FA\u00FC\u00F1\u00BF\u00A1]/.test(text)) detectedLang = 'es';
+    // French: à,â,ç,é,è,ê,ë,î,ï,ô,û,ù
+    else if (/[\u00E0\u00E2\u00E7\u00E9\u00E8\u00EA\u00EB\u00EE\u00EF\u00F4\u00FB\u00F9]/.test(text)) detectedLang = 'fr';
+    // Portuguese: ã,õ,á,é,í,ó,ú,ç
+    else if (/[\u00E3\u00F5\u00E1\u00E9\u00ED\u00F3\u00FA\u00E7]/.test(text)) detectedLang = 'pt';
 
     try {
         const response = await fetch('http://127.0.0.1:8080/synthesize', {
@@ -516,6 +528,7 @@ async function sendSynthesizeRequest(text, signal) {
             body: JSON.stringify({
                 command: "synthesize",
                 text: text,
+                lang: detectedLang,
                 voice_style_path: "assets/voice_styles/" + currentVoice,
                 speed: currentSpeed,
                 total_step: currentStep
@@ -535,7 +548,7 @@ function decodeAudio(base64, sampleRate) {
     const pcm = new Int16Array(bytes.buffer);
     const f32 = new Float32Array(pcm.length);
     for (let i = 0; i < pcm.length; i++) f32[i] = pcm[i] / 32768.0;
-    const buffer = audioContext.createBuffer(1, f32.length, sampleRate || 24000);
+    const buffer = audioContext.createBuffer(1, f32.length, sampleRate || 44100);
     buffer.getChannelData(0).set(f32);
     return buffer;
 }

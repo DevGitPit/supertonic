@@ -1,0 +1,90 @@
+<resources>
+    <string name="app_name">Supertonic TTS</string>
+    
+    <!-- Main Activity -->
+    <string name="default_input_text">Olá mundo! Este é o Supertonic TTS no Android. Selecione uma voz e velocidade abaixo!</string>
+    <string name="voice_style_label">Estilo de Voz</string>
+    <string name="speed_label">Velocidade</string>
+    <string name="quality_label">Qualidade</string>
+    <string name="synthesize_button">Sintetizar</string>
+    <string name="loading_engine">Carregando motor...</string>
+    <string name="initializing">Inicializando...</string>
+    <string name="ready_soc_fmt">Pronto (SoC: %1$s)</string>
+    <string name="init_failed">Falha na inicialização</string>
+    <string name="engine_error">Erro do motor</string>
+    <string name="asset_copy_failed">Falha ao copiar arquivos</string>
+    <string name="asset_error">Erro de recursos</string>
+    <string name="shared_text">Texto compartilhado</string>
+    <string name="fetched_web_text">Texto web obtido</string>
+    <string name="resume_title">Retomar reprodução?</string>
+    <string name="resume_message">Deseja continuar lendo de onde parou?</string>
+    <string name="play_selected_title">Reproduzir texto selecionado?</string>
+    <string name="play_selected_message">Deseja iniciar a síntese deste texto imediatamente?</string>
+    <string name="yes">Sim</string>
+    <string name="no">Não</string>
+    <string name="cancel">Cancelar</string>
+    <string name="delete">Excluir</string>
+    <string name="ok">OK</string>
+
+    <!-- Playback Activity -->
+    <string name="now_playing_title">Reproduzindo agora</string>
+    <string name="saving_audio">Salvando áudio...</string>
+    <string name="saved_to_fmt">Salvo em %1$s</string>
+    <string name="export_failed">Falha na exportação</string>
+
+    <!-- History Activity -->
+    <string name="history_title">Histórico</string>
+    <string name="clear_all_button">Limpar tudo</string>
+
+    <!-- Saved Audio Activity -->
+    <string name="saved_audio_title">Áudio salvo</string>
+    <string name="delete_audio_title">Excluir áudio</string>
+    <string name="delete_audio_message_fmt">Tem certeza que deseja excluir %1$s?</string>
+
+    <!-- Lexicon Activity -->
+    <string name="lexicon_title">Dicionário de pronúncia</string>
+    <string name="lexicon_empty_state">Ainda não há regras personalizadas.\nAdicione termos para corrigir as pronúncias.</string>
+    <string name="add_term_button">Adicionar termo</string>
+    <string name="add_rule_title">Adicionar regra de pronúncia</string>
+    <string name="term_hint">Termo (ex. LLMs)</string>
+    <string name="replacement_hint">Substituição (ex. L L Ems)</string>
+    <string name="ignore_case_label">Ignorar maiúsculas</string>
+    <string name="test_button">Testar</string>
+    <string name="save_button">Salvar</string>
+    <string name="enter_replacement_msg">Digite uma substituição para testar</string>
+    <string name="empty_fields_msg">O termo e a substituição não podem estar vazios</string>
+    <string name="no_rules_export">Não há regras para exportar</string>
+    <string name="export_failed_fmt">Falha na exportação: %1$s</string>
+    <string name="import_error">Erro de importação: arquivo JSON inválido</string>
+    <string name="no_valid_rules">Nenhuma regra válida encontrada no arquivo</string>
+    <string name="import_complete_title">Importação concluída</string>
+    <string name="import_stats_fmt">%1$d novos termos adicionados.\n%2$d termos atualizados.</string>
+    <string name="import_no_changes">Todos os termos já existem e estão atualizados.</string>
+    <string name="export_chooser_title">Exportar léxico</string>
+
+    <!-- Menus -->
+    <string name="action_reset">Redefinir</string>
+    <string name="action_saved">Áudio salvo</string>
+    <string name="action_history">Histórico</string>
+    <string name="action_lexicon">Léxico</string>
+    <string name="action_import">Importar JSON</string>
+    <string name="action_export">Exportar JSON</string>
+    
+    <!-- Notifications -->
+    <string name="notif_synthesizing">Sintetizando...</string>
+    <string name="notif_playing">Reproduzindo áudio</string>
+    <string name="notif_paused">Pausado</string>
+    <string name="notif_exporting">Exportando áudio...</string>
+
+    <!-- Voices -->
+    <string name="voice_m1">Alex - Animado, Otimista</string>
+    <string name="voice_m2">James - Profundo, Calmo</string>
+    <string name="voice_m3">Robert - Polido, Autoritário</string>
+    <string name="voice_m4">Sam - Suave, Amigável</string>
+    <string name="voice_m5">Daniel - Caloroso, Reconfortante</string>
+    <string name="voice_f1">Sarah - Calma, Composta</string>
+    <string name="voice_f2">Lily - Brilhante, Alegre</string>
+    <string name="voice_f3">Jessica - Profissional, Clara</string>
+    <string name="voice_f4">Olivia - Nítida, Confiante</string>
+    <string name="voice_f5">Emily - Gentil, Suave</string>
+</resources>

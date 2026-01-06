@@ -6,7 +6,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 object WavUtils {
-    fun saveWav(file: File, pcmData: ByteArray, sampleRate: Int = 24000, channels: Int = 1, bitsPerSample: Int = 16) {
+    fun saveWav(file: File, pcmData: ByteArray, sampleRate: Int = 44100, channels: Int = 1, bitsPerSample: Int = 16) {
         val dataSize = pcmData.size
         val byteRate = sampleRate * channels * bitsPerSample / 8
         val blockAlign = channels * bitsPerSample / 8

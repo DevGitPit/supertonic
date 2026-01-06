@@ -4,11 +4,11 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
-import android.content.res.Configuration
-import android.graphics.PorterDuff
 import android.os.Bundle
 import android.os.Environment
 import android.os.IBinder
+import android.os.RemoteException
+import android.util.Log
 import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
@@ -18,6 +18,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.brahmadeo.supertonic.tts.service.IPlaybackListener
+import com.brahmadeo.supertonic.tts.service.IPlaybackService
 import com.brahmadeo.supertonic.tts.service.PlaybackService
 import com.brahmadeo.supertonic.tts.utils.TextNormalizer
 import java.io.File
@@ -25,7 +27,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
+class PlaybackActivity : AppCompatActivity() {
 
     private lateinit var sentencesList: RecyclerView
     private lateinit var playStopButton: com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -35,7 +37,7 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
     private lateinit var exportOverlay: RelativeLayout
     private lateinit var cancelExportBtn: Button
 
-    private var playbackService: PlaybackService? = null
+    private var playbackService: IPlaybackService? = null
     private var isBound = false
     private lateinit var adapter: SentenceAdapter
     private var currentSentenceIndex = -1
@@ -57,17 +59,77 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
         const val EXTRA_STEPS = "extra_steps"
     }
 
+    private val playbackListenerStub = object : IPlaybackListener.Stub() {
+        override fun onStateChanged(isPlaying: Boolean, hasContent: Boolean, isSynthesizing: Boolean) {
+            runOnUiThread {
+                this@PlaybackActivity.isPlaying = isPlaying
+                this@PlaybackActivity.isServiceActive = isPlaying || isSynthesizing
+                
+                if (isPlaying) {
+                    playStopButton.setImageResource(android.R.drawable.ic_media_pause)
+                    stopButton.visibility = View.GONE
+                    exportButton.visibility = View.GONE
+                } else if (this@PlaybackActivity.isServiceActive) {
+                    playStopButton.setImageResource(android.R.drawable.ic_media_play)
+                    stopButton.visibility = View.VISIBLE
+                    exportButton.visibility = View.VISIBLE
+                    exportButton.isEnabled = true
+                } else {
+                    playStopButton.setImageResource(android.R.drawable.ic_media_play)
+                    stopButton.visibility = View.VISIBLE
+                    exportButton.visibility = View.VISIBLE
+                    exportButton.isEnabled = true
+                }
+            }
+        }
+
+        override fun onProgress(current: Int, total: Int) {
+            runOnUiThread {
+                currentSentenceIndex = current
+                updateIndexState(current)
+                adapter.setCurrentIndex(current)
+                progressBar.max = total
+                progressBar.progress = current
+                sentencesList.smoothScrollToPosition(current)
+            }
+        }
+
+        override fun onPlaybackStopped() {
+            runOnUiThread {
+                isPlaying = false
+                isServiceActive = false
+                playStopButton.setImageResource(android.R.drawable.ic_media_play)
+                stopButton.visibility = View.VISIBLE
+                exportButton.visibility = View.VISIBLE
+            }
+        }
+
+        override fun onExportComplete(success: Boolean, path: String) {
+            runOnUiThread {
+                hideExportOverlay()
+                if (success) {
+                    Toast.makeText(this@PlaybackActivity, getString(R.string.saved_to_fmt, path), Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this@PlaybackActivity, getString(R.string.export_failed), Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(className: ComponentName, service: IBinder) {
-            val binder = service as PlaybackService.LocalBinder
-            playbackService = binder.getService()
-            playbackService?.setListener(this@PlaybackActivity)
-            isBound = true
-            
-            if (intent.getBooleanExtra("is_resume", false)) {
-                restoreState()
-            } else {
-                startPlaybackFromIntent()
+            playbackService = IPlaybackService.Stub.asInterface(service)
+            try {
+                playbackService?.setListener(playbackListenerStub)
+                isBound = true
+                
+                if (intent.getBooleanExtra("is_resume", false)) {
+                    restoreState()
+                } else {
+                    startPlaybackFromIntent()
+                }
+            } catch (e: RemoteException) {
+                e.printStackTrace()
             }
         }
 
@@ -109,21 +171,28 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
         setupList(currentText)
 
         playStopButton.setOnClickListener {
-            if (isPlaying) {
-                playbackService?.pause()
-            } else if (isServiceActive) {
-                playbackService?.play()
-            } else {
-                if (currentSentenceIndex >= 0) {
+            try {
+                if (isPlaying) {
+                    playbackService?.stop() // AIDL stop currently just stops everything
+                } else if (isServiceActive) {
+                    // Playback was paused or in progress
                     playFromIndex(currentSentenceIndex)
                 } else {
-                    startPlaybackFromIntent()
+                    if (currentSentenceIndex >= 0) {
+                        playFromIndex(currentSentenceIndex)
+                    } else {
+                        startPlaybackFromIntent()
+                    }
                 }
+            } catch (e: RemoteException) {
+                e.printStackTrace()
             }
         }
         
         stopButton.setOnClickListener {
-            playbackService?.stopPlayback()
+            try {
+                playbackService?.stop()
+            } catch (e: RemoteException) { }
             clearState()
             finish()
         }
@@ -134,7 +203,9 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
         }
         
         cancelExportBtn.setOnClickListener {
-            playbackService?.stopPlayback() // Cancels export
+            try {
+                playbackService?.stop()
+            } catch (e: RemoteException) { }
             hideExportOverlay()
         }
 
@@ -160,13 +231,21 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
     private fun startPlaybackFromIntent() {
         if (currentText.isEmpty()) return
         saveState()
-        playbackService?.synthesizeAndPlay(currentText, currentVoicePath, currentSpeed, currentSteps)
+        try {
+            playbackService?.synthesizeAndPlay(currentText, currentVoicePath, currentSpeed, currentSteps, 0)
+        } catch (e: RemoteException) {
+            e.printStackTrace()
+        }
     }
 
     private fun playFromIndex(index: Int) {
         if (currentText.isEmpty()) return
         saveState()
-        playbackService?.synthesizeAndPlay(currentText, currentVoicePath, currentSpeed, currentSteps, index)
+        try {
+            playbackService?.synthesizeAndPlay(currentText, currentVoicePath, currentSpeed, currentSteps, index)
+        } catch (e: RemoteException) {
+            e.printStackTrace()
+        }
     }
     
     private fun saveState() {
@@ -192,30 +271,27 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
     }
     
     private fun restoreState() {
-        if (playbackService?.isServiceActive() == false) {
-             onStateChanged(false, true, false)
-        }
+        try {
+            if (playbackService?.isServiceActive == false) {
+                 playbackListenerStub.onStateChanged(false, true, false)
+            }
+        } catch (e: RemoteException) { }
     }
 
     private fun startExport() {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val filename = "Supertonic_TTS_$timestamp.wav"
-        
         val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
         val appDir = File(musicDir, "Supertonic Audio")
         if (!appDir.exists()) appDir.mkdirs()
-        
         val file = File(appDir, filename)
         
-        playbackService?.exportAudio(currentText, currentVoicePath, currentSpeed, currentSteps, file) { success ->
-            runOnUiThread {
-                hideExportOverlay()
-                if (success) {
-                    Toast.makeText(this, "Saved to Music/Supertonic Audio", Toast.LENGTH_LONG).show()
-                } else {
-                    Toast.makeText(this, "Export Cancelled or Failed", Toast.LENGTH_SHORT).show()
-                }
-            }
+        try {
+            playbackService?.exportAudio(currentText, currentVoicePath, currentSpeed, currentSteps, file.absolutePath)
+        } catch (e: RemoteException) {
+            e.printStackTrace()
+            hideExportOverlay()
+            Toast.makeText(this, getString(R.string.export_failed), Toast.LENGTH_SHORT).show()
         }
     }
     
@@ -227,58 +303,12 @@ class PlaybackActivity : AppCompatActivity(), PlaybackService.PlaybackListener {
         exportOverlay.visibility = View.GONE
     }
 
-    override fun onStateChanged(isPlaying: Boolean, hasContent: Boolean, isSynthesizing: Boolean) {
-        runOnUiThread {
-            this.isPlaying = isPlaying
-            this.isServiceActive = isPlaying || isSynthesizing
-            
-            if (isPlaying) {
-                playStopButton.setImageResource(android.R.drawable.ic_media_pause)
-                stopButton.visibility = View.GONE
-                exportButton.visibility = View.GONE
-            } else if (isServiceActive) {
-                // Paused state
-                playStopButton.setImageResource(android.R.drawable.ic_media_play)
-                stopButton.visibility = View.VISIBLE
-                exportButton.visibility = View.VISIBLE
-                exportButton.isEnabled = true
-            } else {
-                // Stopped state
-                playStopButton.setImageResource(android.R.drawable.ic_media_play)
-                stopButton.visibility = View.VISIBLE
-                exportButton.visibility = View.VISIBLE
-                exportButton.isEnabled = true
-            }
-        }
-    }
-
-    override fun onProgress(current: Int, total: Int) {
-        runOnUiThread {
-            currentSentenceIndex = current
-            updateIndexState(current)
-            adapter.setCurrentIndex(current)
-            progressBar.max = total
-            progressBar.progress = current
-            
-            // Simple scroll to keep active sentence visible
-            sentencesList.smoothScrollToPosition(current)
-        }
-    }
-
-    override fun onPlaybackStopped() {
-        runOnUiThread {
-            isPlaying = false
-            isServiceActive = false
-            playStopButton.setImageResource(android.R.drawable.ic_media_play)
-            stopButton.visibility = View.VISIBLE
-            exportButton.visibility = View.VISIBLE
-        }
-    }
-    
     override fun onDestroy() {
         super.onDestroy()
         if (isBound) {
-            playbackService?.setListener(null)
+            try {
+                playbackService?.setListener(null)
+            } catch (e: RemoteException) { }
             unbindService(connection)
             isBound = false
         }

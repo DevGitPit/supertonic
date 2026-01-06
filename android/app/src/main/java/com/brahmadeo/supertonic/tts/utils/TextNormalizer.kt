@@ -273,7 +273,36 @@ class TextNormalizer {
         val pattern = Pattern.compile("(?<=[.!?])['\"”’]?\\s+(?=['\"“‘]?[A-Z])|(?<=[;—])\\s+")
         val rawSentences = protectedText.split(pattern)
         
-        return rawSentences.map { sentence ->
+        val refinedSentences = mutableListOf<String>()
+        val MAX_LENGTH = 200
+
+        for (raw in rawSentences) {
+            if (raw.length <= MAX_LENGTH) {
+                refinedSentences.add(raw)
+            } else {
+                // Split long sentences by comma if they are too long
+                val subParts = raw.split(Pattern.compile("(?<=,)\\s+"))
+                var currentPart = StringBuilder()
+                
+                for (part in subParts) {
+                    if (currentPart.length + part.length < MAX_LENGTH) {
+                        if (currentPart.isNotEmpty()) currentPart.append(" ")
+                        currentPart.append(part)
+                    } else {
+                        if (currentPart.isNotEmpty()) {
+                            refinedSentences.add(currentPart.toString())
+                            currentPart.clear()
+                        }
+                        currentPart.append(part)
+                    }
+                }
+                if (currentPart.isNotEmpty()) {
+                    refinedSentences.add(currentPart.toString())
+                }
+            }
+        }
+
+        return refinedSentences.map { sentence ->
             var restored = sentence
             abbreviations.forEachIndexed { index, abbr ->
                 val placeholder = "__ABBR${index}__"
