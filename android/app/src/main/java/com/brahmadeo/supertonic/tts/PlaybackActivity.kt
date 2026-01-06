@@ -108,9 +108,9 @@ class PlaybackActivity : AppCompatActivity() {
             runOnUiThread {
                 hideExportOverlay()
                 if (success) {
-                    Toast.makeText(this@PlaybackActivity, "Saved to $path", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@PlaybackActivity, getString(R.string.saved_to_fmt, path), Toast.LENGTH_LONG).show()
                 } else {
-                    Toast.makeText(this@PlaybackActivity, "Export Failed", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@PlaybackActivity, getString(R.string.export_failed), Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -291,7 +291,7 @@ class PlaybackActivity : AppCompatActivity() {
         } catch (e: RemoteException) {
             e.printStackTrace()
             hideExportOverlay()
-            Toast.makeText(this, "Export Failed (Remote Error)", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.export_failed), Toast.LENGTH_SHORT).show()
         }
     }
     

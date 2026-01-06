@@ -64,24 +64,18 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
 
     override fun onIsLanguageAvailable(lang: String?, country: String?, variant: String?): Int {
         val language = lang?.lowercase(Locale.ROOT) ?: return TextToSpeech.LANG_NOT_SUPPORTED
-        return if (language.startsWith("en")) {
-            if (country != null) {
-                if (country.equals("USA", true) || country.equals("US", true) || 
-                    country.equals("GBR", true) || country.equals("GB", true)) {
-                    TextToSpeech.LANG_COUNTRY_AVAILABLE
-                } else {
-                    TextToSpeech.LANG_AVAILABLE
-                }
-            } else {
-                TextToSpeech.LANG_AVAILABLE
-            }
+        val supportedLanguages = listOf("en", "ko", "es", "pt", "fr")
+        
+        return if (supportedLanguages.any { language.startsWith(it) }) {
+            TextToSpeech.LANG_AVAILABLE
         } else {
             TextToSpeech.LANG_NOT_SUPPORTED
         }
     }
 
     override fun onGetLanguage(): Array<String> {
-        return arrayOf("eng", "USA", "")
+        val locale = Locale.getDefault()
+        return arrayOf(locale.isO3Language, locale.isO3Country, "")
     }
 
     override fun onLoadLanguage(lang: String?, country: String?, variant: String?): Int {

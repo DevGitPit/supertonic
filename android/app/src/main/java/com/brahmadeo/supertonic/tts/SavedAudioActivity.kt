@@ -68,14 +68,14 @@ class SavedAudioActivity : AppCompatActivity() {
 
     private fun confirmDelete(file: File) {
         AlertDialog.Builder(this)
-            .setTitle("Delete Audio")
-            .setMessage("Are you sure you want to delete ${file.name}?")
-            .setPositiveButton("Delete") { _, _ ->
+            .setTitle(getString(R.string.delete_audio_title))
+            .setMessage(getString(R.string.delete_audio_message_fmt, file.name))
+            .setPositiveButton(getString(R.string.delete)) { _, _ ->
                 if (file.delete()) {
                     loadFiles()
                 }
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(getString(R.string.cancel), null)
             .show()
     }
 

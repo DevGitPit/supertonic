@@ -104,7 +104,7 @@ class LexiconActivity : AppCompatActivity() {
 
     private fun performExport() {
         if (rules.isEmpty()) {
-            Toast.makeText(this, "No rules to export", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.no_rules_export), Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -129,11 +129,11 @@ class LexiconActivity : AppCompatActivity() {
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            startActivity(Intent.createChooser(intent, "Export Lexicon"))
+            startActivity(Intent.createChooser(intent, getString(R.string.export_chooser_title)))
 
         } catch (e: Exception) {
             e.printStackTrace()
-            Toast.makeText(this, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.export_failed_fmt, e.message), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -161,7 +161,7 @@ class LexiconActivity : AppCompatActivity() {
             }
 
             if (importedItems.isEmpty()) {
-                Toast.makeText(this, "No valid rules found in file", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.no_valid_rules), Toast.LENGTH_SHORT).show()
                 return
             }
 
@@ -189,16 +189,16 @@ class LexiconActivity : AppCompatActivity() {
                 LexiconManager.reload(this)
                 loadRules()
                 MaterialAlertDialogBuilder(this)
-                    .setTitle("Import Complete")
-                    .setMessage("$addedCount new terms added.\n$updatedCount terms updated.")
-                    .setPositiveButton("OK", null)
+                    .setTitle(getString(R.string.import_complete_title))
+                    .setMessage(getString(R.string.import_stats_fmt, addedCount, updatedCount))
+                    .setPositiveButton(getString(R.string.ok), null)
                     .show()
             } else {
-                Toast.makeText(this, "All terms already exist and are up to date.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.import_no_changes), Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            Toast.makeText(this, "Import error: Invalid JSON file", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.import_error), Toast.LENGTH_LONG).show()
         }
     }
 
@@ -240,7 +240,7 @@ class LexiconActivity : AppCompatActivity() {
             if (replacement.isNotEmpty()) {
                 testPronunciation(replacement)
             } else {
-                Toast.makeText(this, "Enter replacement to test", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.enter_replacement_msg), Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -249,30 +249,13 @@ class LexiconActivity : AppCompatActivity() {
             val replacement = editReplacement.text.toString().trim()
             
             if (term.isEmpty() || replacement.isEmpty()) {
-                Toast.makeText(this, "Term and Replacement cannot be empty", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.empty_fields_msg), Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-
-            if (item != null) {
-                item.term = term
-                item.replacement = replacement
-                item.ignoreCase = switchIgnoreCase.isChecked
-            } else {
-                rules.add(LexiconItem(term = term, replacement = replacement, ignoreCase = switchIgnoreCase.isChecked))
-            }
-            
-            LexiconManager.save(this, rules)
-            LexiconManager.reload(this) // Ensure normalizer gets updated rules
-            loadRules()
-            dialog.dismiss()
-        }
-
-        dialog.show()
-    }
-
+...
     private fun testPronunciation(text: String) {
         if (!isBound || playbackService == null) {
-            Toast.makeText(this, "Engine not ready", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.engine_error), Toast.LENGTH_SHORT).show()
             return
         }
 
