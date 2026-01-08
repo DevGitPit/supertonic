@@ -47,6 +47,7 @@ class PlaybackActivity : AppCompatActivity() {
     private var currentVoicePath = ""
     private var currentSpeed = 1.0f
     private var currentSteps = 5
+    private var currentLang = "en"
     
     // UI State tracking
     private var isPlaying = false
@@ -57,6 +58,7 @@ class PlaybackActivity : AppCompatActivity() {
         const val EXTRA_VOICE_PATH = "extra_voice_path"
         const val EXTRA_SPEED = "extra_speed"
         const val EXTRA_STEPS = "extra_steps"
+        const val EXTRA_LANG = "extra_lang"
     }
 
     private val playbackListenerStub = object : IPlaybackListener.Stub() {
@@ -108,9 +110,9 @@ class PlaybackActivity : AppCompatActivity() {
             runOnUiThread {
                 hideExportOverlay()
                 if (success) {
-                    Toast.makeText(this@PlaybackActivity, "Saved to $path", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@PlaybackActivity, getString(R.string.saved_to_fmt, path), Toast.LENGTH_LONG).show()
                 } else {
-                    Toast.makeText(this@PlaybackActivity, "Export Failed", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@PlaybackActivity, getString(R.string.export_failed), Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -158,6 +160,7 @@ class PlaybackActivity : AppCompatActivity() {
         currentVoicePath = intent.getStringExtra(EXTRA_VOICE_PATH) ?: ""
         currentSpeed = intent.getFloatExtra(EXTRA_SPEED, 1.0f)
         currentSteps = intent.getIntExtra(EXTRA_STEPS, 5)
+        currentLang = intent.getStringExtra(EXTRA_LANG) ?: "en"
         
         if (intent.getBooleanExtra("is_resume", false) && currentText.isEmpty()) {
              val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
@@ -165,6 +168,7 @@ class PlaybackActivity : AppCompatActivity() {
              currentVoicePath = prefs.getString("last_voice_path", "") ?: ""
              currentSpeed = prefs.getFloat("last_speed", 1.0f)
              currentSteps = prefs.getInt("last_steps", 5)
+             currentLang = prefs.getString("last_lang", "en") ?: "en"
              currentSentenceIndex = prefs.getInt("last_index", 0)
         }
 
@@ -232,7 +236,7 @@ class PlaybackActivity : AppCompatActivity() {
         if (currentText.isEmpty()) return
         saveState()
         try {
-            playbackService?.synthesizeAndPlay(currentText, currentVoicePath, currentSpeed, currentSteps, 0)
+            playbackService?.synthesizeAndPlay(currentText, currentLang, currentVoicePath, currentSpeed, currentSteps, 0)
         } catch (e: RemoteException) {
             e.printStackTrace()
         }
@@ -242,7 +246,7 @@ class PlaybackActivity : AppCompatActivity() {
         if (currentText.isEmpty()) return
         saveState()
         try {
-            playbackService?.synthesizeAndPlay(currentText, currentVoicePath, currentSpeed, currentSteps, index)
+            playbackService?.synthesizeAndPlay(currentText, currentLang, currentVoicePath, currentSpeed, currentSteps, index)
         } catch (e: RemoteException) {
             e.printStackTrace()
         }
@@ -254,6 +258,7 @@ class PlaybackActivity : AppCompatActivity() {
             .putString("last_voice_path", currentVoicePath)
             .putFloat("last_speed", currentSpeed)
             .putInt("last_steps", currentSteps)
+            .putString("last_lang", currentLang)
             .putBoolean("is_playing", true)
             .apply()
     }
@@ -287,11 +292,11 @@ class PlaybackActivity : AppCompatActivity() {
         val file = File(appDir, filename)
         
         try {
-            playbackService?.exportAudio(currentText, currentVoicePath, currentSpeed, currentSteps, file.absolutePath)
+            playbackService?.exportAudio(currentText, currentLang, currentVoicePath, currentSpeed, currentSteps, file.absolutePath)
         } catch (e: RemoteException) {
             e.printStackTrace()
             hideExportOverlay()
-            Toast.makeText(this, "Export Failed (Remote Error)", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.export_failed), Toast.LENGTH_SHORT).show()
         }
     }
     

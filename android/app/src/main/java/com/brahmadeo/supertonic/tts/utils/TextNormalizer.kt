@@ -185,7 +185,14 @@ class TextNormalizer {
         }
     }
 
-    fun normalize(text: String): String {
+    fun normalize(text: String, lang: String = "en"): String {
+        // EARLY EXIT for non-English
+        // We skip Lexicon and all normalization for non-English languages for now
+        // to prevent English-specific rules from mangling other scripts (e.g. Korean).
+        if (!lang.lowercase().startsWith("en")) {
+            return text
+        }
+
         // Step -1: Apply User Lexicon
         val lexText = LexiconManager.apply(text)
 
@@ -268,9 +275,10 @@ class TextNormalizer {
         }
         
         // Split by:
-        // 1. Punctuation (.!?) followed by optional quote and space and Capital
+        // 1. Punctuation (.!?) followed by optional quote and space and Capital/Number/Unicode Letter
         // 2. Semi-colon or Em-dash followed by space
-        val pattern = Pattern.compile("(?<=[.!?])['\"”’]?\\s+(?=['\"“‘]?[A-Z])|(?<=[;—])\\s+")
+        // Changed [A-Z] to \\p{L} to support Unicode letters (like Hangul) starting a sentence
+        val pattern = Pattern.compile("(?<=[.!?])['\"”’]?\\s+(?=['\"“‘]?[\\p{L}\\d])|(?<=[;—])\\s+")
         val rawSentences = protectedText.split(pattern)
         
         val refinedSentences = mutableListOf<String>()

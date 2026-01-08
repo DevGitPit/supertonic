@@ -1,6 +1,6 @@
-// ============================================================================
+// ============================================================================ 
 // TTS Helper Module - All utility functions and structures
-// ============================================================================
+// ============================================================================ 
 
 use ndarray::{Array, Array3};
 use serde::{Deserialize, Serialize};
@@ -8,15 +8,22 @@ use serde_json;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
-use anyhow::{Result, Context};
+use anyhow::{Result, Context, bail};
 use unicode_normalization::UnicodeNormalization;
 use hound::{WavWriter, WavSpec, SampleFormat};
 use rand_distr::{Distribution, Normal};
 use regex::Regex;
 
-// ============================================================================
+// Available languages for multilingual TTS
+pub const AVAILABLE_LANGS: &[&str] = &["en", "ko", "es", "pt", "fr"];
+
+pub fn is_valid_lang(lang: &str) -> bool {
+    AVAILABLE_LANGS.contains(&lang)
+}
+
+// ============================================================================ 
 // Configuration Structures
-// ============================================================================
+// ============================================================================ 
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -45,9 +52,9 @@ pub fn load_cfgs<P: AsRef<Path>>(onnx_dir: P) -> Result<Config> {
     Ok(cfgs)
 }
 
-// ============================================================================
+// ============================================================================ 
 // Voice Style Data Structure
-// ============================================================================
+// ============================================================================ 
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VoiceStyleData {
@@ -63,9 +70,9 @@ pub struct StyleComponent {
     pub dtype: String,
 }
 
-// ============================================================================
+// ============================================================================ 
 // Unicode Text Processor
-// ============================================================================
+// ============================================================================ 
 
 pub struct UnicodeProcessor {
     indexer: Vec<i64>,
@@ -79,11 +86,11 @@ impl UnicodeProcessor {
         Ok(UnicodeProcessor { indexer })
     }
 
-    pub fn call(&self, text_list: &[String]) -> (Vec<Vec<i64>>, Array3<f32>) {
-        let processed_texts: Vec<String> = text_list
-            .iter()
-            .map(|t| preprocess_text(t))
-            .collect();
+    pub fn call(&self, text_list: &[String], lang_list: &[String]) -> Result<(Vec<Vec<i64>>, Array3<f32>)> {
+        let mut processed_texts: Vec<String> = Vec::new();
+        for (text, lang) in text_list.iter().zip(lang_list.iter()) {
+            processed_texts.push(preprocess_text(text, lang)?);
+        }
 
         let text_ids_lengths: Vec<usize> = processed_texts
             .iter()
@@ -98,9 +105,10 @@ impl UnicodeProcessor {
             let unicode_vals = text_to_unicode_values(text);
             for (j, &val) in unicode_vals.iter().enumerate() {
                 if val < self.indexer.len() {
-                    row[j] = self.indexer[val];
+                    let id = self.indexer[val];
+                    row[j] = if id == -1 { 0 } else { id };
                 } else {
-                    row[j] = -1;
+                    row[j] = 0; // Default to space for unknown
                 }
             }
             text_ids.push(row);
@@ -108,15 +116,13 @@ impl UnicodeProcessor {
 
         let text_mask = get_text_mask(&text_ids_lengths);
 
-        (text_ids, text_mask)
+        Ok((text_ids, text_mask))
     }
 }
 
-pub fn preprocess_text(text: &str) -> String {
-    // TODO: Need advanced normalizer for better performance
+pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
+    // Revert to NFKD normalization as required for Korean Jamo decomposition
     let mut text: String = text.nfkd().collect();
-
-    // FIXME: this should be fixed for non-English languages
 
     // Remove emojis (wide Unicode range)
     let emoji_pattern = Regex::new(r"[\x{1F600}-\x{1F64F}\x{1F300}-\x{1F5FF}\x{1F680}-\x{1F6FF}\x{1F700}-\x{1F77F}\x{1F780}-\x{1F7FF}\x{1F800}-\x{1F8FF}\x{1F900}-\x{1F9FF}\x{1FA00}-\x{1FA6F}\x{1FA70}-\x{1FAFF}\x{2600}-\x{26FF}\x{2700}-\x{27BF}\x{1F1E6}-\x{1F1FF}]+").unwrap();
@@ -127,7 +133,6 @@ pub fn preprocess_text(text: &str) -> String {
         ("–", "-"),      // en dash
         ("‑", "-"),      // non-breaking hyphen
         ("—", "-"),      // em dash
-        ("¯", " "),      // macron
         ("_", " "),      // underscore
         ("\u{201C}", "\""),     // left double quote
         ("\u{201D}", "\""),     // right double quote
@@ -148,10 +153,6 @@ pub fn preprocess_text(text: &str) -> String {
         text = text.replace(from, to);
     }
 
-    // Remove combining diacritics // FIXME: this should be fixed for non-English languages
-    let diacritics_pattern = Regex::new(r"[\u{0302}\u{0303}\u{0304}\u{0305}\u{0306}\u{0307}\u{0308}\u{030A}\u{030B}\u{030C}\u{0327}\u{0328}\u{0329}\u{032A}\u{032B}\u{032C}\u{032D}\u{032E}\u{032F}]").unwrap();
-    text = diacritics_pattern.replace_all(&text, "").to_string();
-
     // Remove special symbols
     let special_symbols = ["♥", "☆", "♡", "©", "\\"];
     for symbol in &special_symbols {
@@ -170,13 +171,13 @@ pub fn preprocess_text(text: &str) -> String {
     }
 
     // Fix spacing around punctuation
-    text = Regex::new(r" ,").unwrap().replace_all(&text, ",").to_string();
-    text = Regex::new(r" \.").unwrap().replace_all(&text, ".").to_string();
-    text = Regex::new(r" !").unwrap().replace_all(&text, "!").to_string();
-    text = Regex::new(r" \?").unwrap().replace_all(&text, "?").to_string();
-    text = Regex::new(r" ;").unwrap().replace_all(&text, ";").to_string();
-    text = Regex::new(r" :").unwrap().replace_all(&text, ":").to_string();
-    text = Regex::new(r" '").unwrap().replace_all(&text, "'").to_string();
+    text = Regex::new(r" , ").unwrap().replace_all(&text, ",").to_string();
+    text = Regex::new(r" \. ").unwrap().replace_all(&text, ".").to_string();
+    text = Regex::new(r" ! ").unwrap().replace_all(&text, "!").to_string();
+    text = Regex::new(r" \? ").unwrap().replace_all(&text, "?").to_string();
+    text = Regex::new(r" ; ").unwrap().replace_all(&text, ";").to_string();
+    text = Regex::new(r" : ").unwrap().replace_all(&text, ":").to_string();
+    text = Regex::new(r" ' ").unwrap().replace_all(&text, "'").to_string();
 
     // Remove duplicate quotes
     while text.contains("\"\"") {
@@ -195,13 +196,21 @@ pub fn preprocess_text(text: &str) -> String {
 
     // If text doesn't end with punctuation, quotes, or closing brackets, add a period
     if !text.is_empty() {
-        let ends_with_punct = Regex::new(r#"[.!?;:,'"\u{201C}\u{201D}\u{2018}\u{2019})\]}…。」』】〉》›»]$"#).unwrap();
+        let ends_with_punct = Regex::new(r#"[.!?;:,'\u{201C}\u{201D}\u{2018}\u{2019})\\]}}…。」』】〉》›»]$"#).unwrap();
         if !ends_with_punct.is_match(&text) {
             text.push('.');
         }
     }
 
-    text
+    // Validate language
+    if !is_valid_lang(lang) {
+        bail!("Invalid language: {}. Available: {:?}", lang, AVAILABLE_LANGS);
+    }
+
+    // Wrap text with language tags
+    text = format!("<{}>{}</{}>", lang, text, lang);
+
+    Ok(text)
 }
 
 pub fn text_to_unicode_values(text: &str) -> Vec<usize> {
@@ -279,9 +288,9 @@ pub fn sample_noisy_latent(
     (noisy_latent, latent_mask)
 }
 
-// ============================================================================
+// ============================================================================ 
 // WAV File I/O
-// ============================================================================
+// ============================================================================ 
 
 pub fn write_wav_file<P: AsRef<Path>>(
     filename: P,
@@ -307,9 +316,9 @@ pub fn write_wav_file<P: AsRef<Path>>(
     Ok(())
 }
 
-// ============================================================================
+// ============================================================================ 
 // Text Chunking
-// ============================================================================
+// ============================================================================ 
 
 const MAX_CHUNK_LENGTH: usize = 300;
 
@@ -488,9 +497,9 @@ fn split_sentences(text: &str) -> Vec<String> {
     }
 }
 
-// ============================================================================
+// ============================================================================ 
 // Utility Functions
-// ============================================================================
+// ============================================================================ 
 
 pub fn timer<F, T>(name: &str, f: F) -> Result<T>
 where
@@ -505,15 +514,12 @@ where
 }
 
 pub fn sanitize_filename(text: &str, max_len: usize) -> String {
-    let text = if text.len() > max_len {
-        &text[..max_len]
-    } else {
-        text
-    };
-
+    // Take first max_len characters (Unicode code points, not bytes)
     text.chars()
+        .take(max_len)
         .map(|c| {
-            if c.is_ascii_alphanumeric() {
+            // is_alphanumeric() works with all Unicode letters and digits
+            if c.is_alphanumeric() {
                 c
             } else {
                 '_'
@@ -522,9 +528,9 @@ pub fn sanitize_filename(text: &str, max_len: usize) -> String {
         .collect()
 }
 
-// ============================================================================
+// ============================================================================ 
 // ONNX Runtime Integration
-// ============================================================================
+// ============================================================================ 
 
 use ort::{
     session::Session,
@@ -570,6 +576,7 @@ impl TextToSpeech {
     fn _infer(
         &mut self,
         text_list: &[String],
+        lang_list: &[String],
         style: &Style,
         total_step: usize,
         speed: f32,
@@ -577,7 +584,7 @@ impl TextToSpeech {
         let bsz = text_list.len();
 
         // Process text
-        let (text_ids, text_mask) = self.text_processor.call(text_list);
+        let (text_ids, text_mask) = self.text_processor.call(text_list, lang_list)?;
         
         let text_ids_array = {
             let text_ids_shape = (bsz, text_ids[0].len());
@@ -676,6 +683,7 @@ impl TextToSpeech {
     pub fn call<F>(
         &mut self,
         text: &str,
+        lang: &str,
         style: &Style,
         total_step: usize,
         speed: f32,
@@ -683,7 +691,8 @@ impl TextToSpeech {
         mut callback: F,
     ) -> Result<(Vec<f32>, f32)> 
     where F: FnMut(usize, usize, Option<&[f32]>) -> bool {
-        let chunks = chunk_text(text, None);
+        let max_len = if lang == "ko" { 120 } else { 300 };
+        let chunks = chunk_text(text, Some(max_len));
         let num_chunks = chunks.len();
         
         let mut wav_cat: Vec<f32> = Vec::new();
@@ -695,7 +704,7 @@ impl TextToSpeech {
                 return Err(anyhow::anyhow!("Synthesis cancelled by user"));
             }
             
-            let (wav, duration) = self._infer(&[chunk.clone()], style, total_step, speed)?;
+            let (wav, duration) = self._infer(&[chunk.clone()], &[lang.to_string()], style, total_step, speed)?;
             
             let dur = duration[0];
             let wav_len = (self.sample_rate as f32 * dur) as usize;
@@ -726,17 +735,18 @@ impl TextToSpeech {
     pub fn batch(
         &mut self,
         text_list: &[String],
+        lang_list: &[String],
         style: &Style,
         total_step: usize,
         speed: f32,
     ) -> Result<(Vec<f32>, Vec<f32>)> {
-        self._infer(text_list, style, total_step, speed)
+        self._infer(text_list, lang_list, style, total_step, speed)
     }
 }
 
-// ============================================================================
+// ============================================================================ 
 // Component Loading Functions
-// ============================================================================
+// ============================================================================ 
 
 /// Load voice style from JSON files
 pub fn load_voice_style(voice_style_paths: &[String], verbose: bool) -> Result<Style> {
@@ -820,13 +830,13 @@ pub fn load_text_to_speech(onnx_dir: &str, use_gpu: bool) -> Result<TextToSpeech
     let vector_est_path = format!("{}/vector_estimator.onnx", onnx_dir);
     let vocoder_path = format!("{}/vocoder.onnx", onnx_dir);
 
-    let dp_ort = Session::builder()?
+    let dp_ort = Session::builder()? 
         .commit_from_file(&dp_path)?;
-    let text_enc_ort = Session::builder()?
+    let text_enc_ort = Session::builder()? 
         .commit_from_file(&text_enc_path)?;
-    let vector_est_ort = Session::builder()?
+    let vector_est_ort = Session::builder()? 
         .commit_from_file(&vector_est_path)?;
-    let vocoder_ort = Session::builder()?
+    let vocoder_ort = Session::builder()? 
         .commit_from_file(&vocoder_path)?;
 
     let unicode_indexer_path = format!("{}/unicode_indexer.json", onnx_dir);

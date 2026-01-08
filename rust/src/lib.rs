@@ -69,6 +69,7 @@ pub extern "system" fn Java_com_brahmadeo_supertonic_tts_SupertonicTTS_synthesiz
     instance: JObject,
     ptr: jlong,
     text: JString,
+    lang: JString,
     style_path: JString,
     speed: jfloat,
     buffer_seconds: jfloat,
@@ -77,6 +78,7 @@ pub extern "system" fn Java_com_brahmadeo_supertonic_tts_SupertonicTTS_synthesiz
     let engine = unsafe { &mut *(ptr as *mut SupertonicEngine) };
     
     let text: String = env.get_string(&text).expect("Couldn't get java string!").into();
+    let lang: String = env.get_string(&lang).expect("Couldn't get java string!").into();
     let style_path: String = env.get_string(&style_path).expect("Couldn't get java string!").into();
 
     engine.thermal.update(buffer_seconds, engine.last_rtf); 
@@ -93,7 +95,7 @@ pub extern "system" fn Java_com_brahmadeo_supertonic_tts_SupertonicTTS_synthesiz
     
     // Create a progress callback
     let mut last_progress_call = Instant::now();
-    let result = engine.tts.call(&text, &style, steps as usize, speed, 0.3, |curr, total, audio_chunk| {
+    let result = engine.tts.call(&text, &lang, &style, steps as usize, speed, 0.1, |curr, total, audio_chunk| {
         // Check for cancellation
         let is_cancelled = env.call_method(&instance, "isCancelled", "()Z", &[]).unwrap().z().unwrap();
         if is_cancelled {

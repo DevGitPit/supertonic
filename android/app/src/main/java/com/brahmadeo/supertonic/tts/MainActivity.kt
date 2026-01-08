@@ -39,6 +39,7 @@ import java.io.IOException
 class MainActivity : AppCompatActivity() {
 
     private lateinit var toolbar: MaterialToolbar
+    private lateinit var langSpinner: AutoCompleteTextView
     private lateinit var voiceSpinner: AutoCompleteTextView
     private lateinit var speedSeekBar: Slider
     private lateinit var speedValue: TextView
@@ -49,6 +50,7 @@ class MainActivity : AppCompatActivity() {
     
     private var currentSteps = 5
     private var selectedVoiceFile = "M1.json"
+    private var currentLang = "en"
     private var currentSpeed = 1.05f
 
     private var playbackService: IPlaybackService? = null
@@ -81,30 +83,17 @@ class MainActivity : AppCompatActivity() {
                 inputText.setText(selectedText)
                 
                 AlertDialog.Builder(this)
-                    .setTitle("Play Selected Text?")
-                    .setMessage("Would you like to start synthesis for this text immediately?")
-                    .setPositiveButton("Yes") { _, _ ->
+                    .setTitle(getString(R.string.play_selected_title))
+                    .setMessage(getString(R.string.play_selected_message))
+                    .setPositiveButton(getString(R.string.yes)) { _, _ ->
                         generateAndPlay(selectedText)
                     }
-                    .setNegativeButton("No", null)
+                    .setNegativeButton(getString(R.string.no), null)
                     .show()
             }
         }
     }
 
-    private val defaultVoiceNames = mapOf(
-        "M1.json" to "M1 - Lively, Upbeat",
-        "M2.json" to "M2 - Deep, Calm",
-        "M3.json" to "M3 - Polished, Authoritative",
-        "M4.json" to "M4 - Soft, Youthful",
-        "M5.json" to "M5 - Warm, Soothing",
-        "F1.json" to "F1 - Calm, Professional",
-        "F2.json" to "F2 - Bright, Playful",
-        "F3.json" to "F3 - Broadcast, Clear",
-        "F4.json" to "F4 - Crisp, Confident",
-        "F5.json" to "F5 - Kind, Gentle"
-    )
-    
     private var voiceFiles = mutableMapOf<String, String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -112,6 +101,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         toolbar = findViewById(R.id.topAppBar)
+        langSpinner = findViewById(R.id.langSpinner)
         voiceSpinner = findViewById(R.id.voiceSpinner)
         speedSeekBar = findViewById(R.id.speedSeekBar)
         speedValue = findViewById(R.id.speedValue)
@@ -128,11 +118,21 @@ class MainActivity : AppCompatActivity() {
             false
         }
 
+        // Auto-clear placeholder text on focus
+        val placeholder = "Hello world, this is Supertonic TTS on Android. Select a voice and speed below!"
+        inputText.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus && inputText.text.toString() == placeholder) {
+                inputText.setText("")
+            }
+        }
+
         // Load saved preferences
         val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
         currentSteps = prefs.getInt("diffusion_steps", 5)
         qualitySeekBar.value = currentSteps.toFloat()
         qualityValue.text = "$currentSteps steps"
+
+        currentLang = prefs.getString("selected_lang", "en") ?: "en"
 
         toolbar.setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
@@ -140,7 +140,7 @@ class MainActivity : AppCompatActivity() {
                     inputText.setText("")
                     val stopIntent = Intent(this, PlaybackService::class.java).apply { action = "STOP_PLAYBACK" }
                     startService(stopIntent)
-                    Toast.makeText(this, "Reset", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.action_reset), Toast.LENGTH_SHORT).show()
                     true
                 }
                 R.id.action_saved -> {
@@ -159,14 +159,15 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        setupLangSpinner()
         setupSpeedControl()
         setupQualityControl()
         checkNotificationPermission()
 
         // Explicitly disable and show loading state
         synthButton.isEnabled = false
-        synthButton.text = "Loading Engine..."
-        toolbar.title = "Initializing..."
+        synthButton.text = getString(R.string.loading_engine)
+        toolbar.title = getString(R.string.initializing)
 
         // Warm up the service process via private AIDL
         val bindIntent = Intent(this, PlaybackService::class.java)
@@ -194,20 +195,20 @@ class MainActivity : AppCompatActivity() {
                     }
                     
                     withContext(Dispatchers.Main) {
-                        toolbar.title = "Ready (SoC: $socName)"
-                        synthButton.text = "Synthesize"
+                        toolbar.title = getString(R.string.ready_soc_fmt, socName)
+                        synthButton.text = getString(R.string.synthesize_button)
                         synthButton.isEnabled = true
                     }
                 } else {
                     withContext(Dispatchers.Main) {
-                        toolbar.title = "Initialization Failed"
-                        synthButton.text = "Engine Error"
+                        toolbar.title = getString(R.string.init_failed)
+                        synthButton.text = getString(R.string.engine_error)
                     }
                 }
             } else {
                 withContext(Dispatchers.Main) {
-                    toolbar.title = "Failed to copy assets"
-                    synthButton.text = "Asset Error"
+                    toolbar.title = getString(R.string.asset_copy_failed)
+                    synthButton.text = getString(R.string.asset_error)
                 }
             }
         }
@@ -230,14 +231,14 @@ class MainActivity : AppCompatActivity() {
         
         if (!lastText.isNullOrEmpty() && isPlaying) {
             AlertDialog.Builder(this)
-                .setTitle("Resume Playback?")
-                .setMessage("Would you like to continue reading from where you left off?")
-                .setPositiveButton("Yes") { _, _ ->
+                .setTitle(getString(R.string.resume_title))
+                .setMessage(getString(R.string.resume_message))
+                .setPositiveButton(getString(R.string.yes)) { _, _ ->
                     val intent = Intent(this, PlaybackActivity::class.java)
                     intent.putExtra("is_resume", true)
                     startActivity(intent)
                 }
-                .setNegativeButton("No") { _, _ ->
+                .setNegativeButton(getString(R.string.no)) { _, _ ->
                     getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).edit()
                         .putBoolean("is_playing", false)
                         .apply()
@@ -263,14 +264,14 @@ class MainActivity : AppCompatActivity() {
             val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
             if (!sharedText.isNullOrEmpty()) {
                 inputText.setText(sharedText)
-                toolbar.title = "Shared Text"
+                toolbar.title = getString(R.string.shared_text)
             }
         } else {
             val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: intent.data?.getQueryParameter("text")
             
             if (!text.isNullOrEmpty()) {
                 inputText.setText(text)
-                toolbar.title = "Fetched Web Text"
+                toolbar.title = getString(R.string.fetched_web_text)
             }
         }
     }
@@ -294,19 +295,63 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupLangSpinner() {
+        val languages = linkedMapOf(
+            "Auto (English)" to "en",
+            "French" to "fr",
+            "Portuguese" to "pt",
+            "Spanish" to "es",
+            "Korean" to "ko"
+        )
+        val langNames = languages.keys.toList()
+        val adapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, langNames)
+        langSpinner.setAdapter(adapter)
+
+        val savedLangCode = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).getString("selected_lang", "en") ?: "en"
+        val savedLangName = languages.entries.find { it.value == savedLangCode }?.key ?: "Auto (English)"
+        langSpinner.setText(savedLangName, false)
+        currentLang = savedLangCode
+
+        langSpinner.onItemClickListener = AdapterView.OnItemClickListener { _, _, position, _ ->
+            val name = langNames[position]
+            currentLang = languages[name] ?: "en"
+            getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
+                .edit().putString("selected_lang", currentLang).apply()
+        }
+    }
+
     private fun setupVoiceSpinner() {
         voiceFiles.clear()
+        
+        // Define voices using resource IDs
+        val voiceResources = mapOf(
+            "M1.json" to R.string.voice_m1,
+            "M2.json" to R.string.voice_m2,
+            "M3.json" to R.string.voice_m3,
+            "M4.json" to R.string.voice_m4,
+            "M5.json" to R.string.voice_m5,
+            "F1.json" to R.string.voice_f1,
+            "F2.json" to R.string.voice_f2,
+            "F3.json" to R.string.voice_f3,
+            "F4.json" to R.string.voice_f4,
+            "F5.json" to R.string.voice_f5
+        )
+
+        // Populate map with localized strings
+        voiceResources.forEach { (filename, resId) ->
+            voiceFiles[getString(resId)] = filename
+        }
+
+        // Also check for any custom/extra voices in the directory not in our hardcoded list
         val voiceDir = File(filesDir, "voice_styles")
         if (voiceDir.exists()) {
             val files = voiceDir.listFiles { _, name -> name.endsWith(".json") }
             files?.forEach { file ->
-                val friendlyName = defaultVoiceNames[file.name] ?: file.name.removeSuffix(".json")
-                voiceFiles[friendlyName] = file.name
+                if (!voiceResources.containsKey(file.name)) {
+                    val friendlyName = file.name.removeSuffix(".json")
+                    voiceFiles[friendlyName] = file.name
+                }
             }
-        }
-        
-        if (voiceFiles.isEmpty()) {
-            defaultVoiceNames.forEach { (filename, name) -> voiceFiles[name] = filename }
         }
 
         val voiceNames = voiceFiles.keys.toList().sorted()
@@ -394,6 +439,7 @@ class MainActivity : AppCompatActivity() {
             putExtra(PlaybackActivity.EXTRA_VOICE_PATH, stylePath)
             putExtra(PlaybackActivity.EXTRA_SPEED, currentSpeed)
             putExtra(PlaybackActivity.EXTRA_STEPS, currentSteps)
+            putExtra(PlaybackActivity.EXTRA_LANG, currentLang)
         }
         startActivity(intent)
     }
