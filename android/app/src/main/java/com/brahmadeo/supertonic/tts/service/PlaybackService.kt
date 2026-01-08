@@ -23,6 +23,7 @@ import androidx.core.app.ServiceCompat
 import com.brahmadeo.supertonic.tts.MainActivity
 import com.brahmadeo.supertonic.tts.R
 import com.brahmadeo.supertonic.tts.SupertonicTTS
+import com.brahmadeo.supertonic.tts.utils.LanguageDetector
 import com.brahmadeo.supertonic.tts.utils.TextNormalizer
 import com.brahmadeo.supertonic.tts.utils.WavUtils
 import kotlinx.coroutines.*
@@ -36,8 +37,8 @@ import java.nio.ByteOrder
 class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.OnAudioFocusChangeListener {
 
     private val binder = object : IPlaybackService.Stub() {
-        override fun synthesizeAndPlay(text: String, stylePath: String, speed: Float, steps: Int, startIndex: Int) {
-            this@PlaybackService.synthesizeAndPlay(text, stylePath, speed, steps, startIndex)
+        override fun synthesizeAndPlay(text: String, lang: String, stylePath: String, speed: Float, steps: Int, startIndex: Int) {
+            this@PlaybackService.synthesizeAndPlay(text, lang, stylePath, speed, steps, startIndex)
         }
 
         override fun stop() {
@@ -52,8 +53,8 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
             this@PlaybackService.setListener(listener)
         }
 
-        override fun exportAudio(text: String, stylePath: String, speed: Float, steps: Int, outputPath: String) {
-            this@PlaybackService.exportAudio(text, stylePath, speed, steps, File(outputPath))
+        override fun exportAudio(text: String, lang: String, stylePath: String, speed: Float, steps: Int, outputPath: String) {
+            this@PlaybackService.exportAudio(text, lang, stylePath, speed, steps, File(outputPath))
         }
 
         override fun getCurrentIndex(): Int {
@@ -73,7 +74,6 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
     @Volatile private var isPlaying = false
     @Volatile private var isSynthesizing = false
     private val textNormalizer = TextNormalizer()
-    private var activeSessionId: Long = -1
     private var resumeOnFocusGain = false
     
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
@@ -84,7 +84,6 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
 
     private data class PlaybackItem(val index: Int, val data: ByteArray)
 
-    // State for resume/recovery if needed cross-process
     private var currentSentenceIndex: Int = 0
 
     companion object {
@@ -118,7 +117,6 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        SupertonicTTS.addProgressListener(this)
         com.brahmadeo.supertonic.tts.utils.LexiconManager.load(this)
         
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -128,58 +126,26 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
         mediaSession = MediaSessionCompat(this, "SupertonicMediaSession").apply {
             setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
             setCallback(object : MediaSessionCompat.Callback() {
-                override fun onPlay() { play() }
-                override fun onPause() { pause() }
-                override fun onStop() { stopPlayback() }
+                override fun onPlay() { this@PlaybackService.play() }
+                override fun onPause() { this@PlaybackService.pause() }
+                override fun onStop() { this@PlaybackService.stopPlayback() }
             })
             isActive = true
         }
 
-        // Cross-process engine init if needed
-        val modelPath = copyAssets()
+        val modelPath = File(filesDir, "onnx").absolutePath
         val libPath = applicationInfo.nativeLibraryDir + "/libonnxruntime.so"
-        if (modelPath != null) {
-            SupertonicTTS.initialize(modelPath, libPath)
-        }
-    }
-
-    private fun copyAssets(): String? {
-        val filesDir = filesDir
-        val targetDir = File(filesDir, "onnx")
-        val styleDir = File(filesDir, "voice_styles")
-        if (!targetDir.exists()) targetDir.mkdirs()
-        if (!styleDir.exists()) styleDir.mkdirs()
-        
-        try {
-            val assetManager = assets
-            val onnxFiles = assetManager.list("onnx") ?: return null
-            for (filename in onnxFiles) {
-                val file = File(targetDir, filename)
-                if (!file.exists()) {
-                    assetManager.open("onnx/$filename").use { input ->
-                        FileOutputStream(file).use { output -> input.copyTo(output) }
-                    }
-                }
-            }
-            val styleFiles = assetManager.list("voice_styles") ?: emptyArray()
-            for (filename in styleFiles) {
-                val file = File(styleDir, filename)
-                if (!file.exists()) {
-                    assetManager.open("voice_styles/$filename").use { input ->
-                        FileOutputStream(file).use { output -> input.copyTo(output) }
-                    }
-                }
-            }
-            return targetDir.absolutePath
-        } catch (e: IOException) {
-            Log.e(TAG, "Asset copy failed", e)
-            return null
-        }
+        SupertonicTTS.initialize(modelPath, libPath)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "STOP_PLAYBACK") {
             stopPlayback()
+        } else if (intent?.action == "RESET_ENGINE") {
+            SupertonicTTS.release()
+            val modelPath = File(filesDir, "onnx").absolutePath
+            val libPath = applicationInfo.nativeLibraryDir + "/libonnxruntime.so"
+            SupertonicTTS.initialize(modelPath, libPath)
         }
         return START_NOT_STICKY
     }
@@ -190,7 +156,7 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
 
     private var synthesisJob: Job? = null
 
-    fun synthesizeAndPlay(text: String, stylePath: String, speed: Float, steps: Int, startIndex: Int = 0) {
+    fun synthesizeAndPlay(text: String, lang: String, stylePath: String, speed: Float, steps: Int, startIndex: Int = 0) {
         serviceScope.launch {
             if (synthesisJob?.isActive == true) {
                 SupertonicTTS.setCancelled(true)
@@ -204,9 +170,119 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
             SupertonicTTS.setCancelled(false) 
             
             updatePlaybackState(PlaybackStateCompat.STATE_BUFFERING)
-            startForegroundService(getString(R.string.notif_synthesizing), false)
+            startForegroundService("Synthesizing...", false)
             notifyListenerState(false)
-...                startForegroundService(getString(R.string.notif_playing), true)
+            
+            wakeLock?.acquire(10 * 60 * 1000L)
+            
+            if (!requestAudioFocus()) {
+                Log.w(TAG, "Audio Focus denied")
+            }
+
+            synthesisJob = launch(Dispatchers.IO) {
+                val sentences = textNormalizer.splitIntoSentences(text)
+                val totalSentences = sentences.size
+                val channel = kotlinx.coroutines.channels.Channel<PlaybackItem>(2)
+
+                launch {
+                    for (index in startIndex until totalSentences) {
+                        if (SupertonicTTS.isCancelled() || !isActive) break
+                        while (!isPlaying && isSynthesizing && isActive) {
+                            delay(100)
+                        }
+                        if (SupertonicTTS.isCancelled() || !isActive || !isSynthesizing) break
+
+                        val sentence = sentences[index]
+                        
+                        // Per-sentence granular detection
+                        val sentenceLang = LanguageDetector.detect(sentence, lang)
+                        val normalizedText = textNormalizer.normalize(sentence, sentenceLang)
+                        
+                        val audioData = SupertonicTTS.generateAudio(normalizedText, sentenceLang, stylePath, speed, 0.0f, steps, null)
+                        
+                        if (audioData != null && audioData.isNotEmpty()) {
+                            val boostedData = applyVolumeBoost(audioData, VOLUME_BOOST_FACTOR)
+                            channel.send(PlaybackItem(index, boostedData))
+                        }
+                    }
+                    channel.close()
+                }
+
+                for (item in channel) {
+                    if (SupertonicTTS.isCancelled() || !isActive || !isSynthesizing) break
+                    withContext(Dispatchers.Main) {
+                        currentSentenceIndex = item.index
+                        try {
+                            listener?.onProgress(item.index, totalSentences)
+                        } catch (e: RemoteException) { listener = null }
+                    }
+                    playAudioDataBlocking(item.data)
+                }
+                
+                withContext(Dispatchers.Main) {
+                    if (isSynthesizing && isActive) {
+                        isSynthesizing = false
+                        try {
+                            listener?.onProgress(totalSentences, totalSentences)
+                        } catch (e: RemoteException) { listener = null }
+                        notifyListenerState(true)
+                        stopPlayback()
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun playAudioDataBlocking(data: ByteArray) {
+        if (!currentCoroutineContext().isActive) return
+        val rate = SupertonicTTS.getAudioSampleRate()
+        val minBufferSize = AudioTrack.getMinBufferSize(rate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT) * 4
+        val track = AudioTrack.Builder()
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+            .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(rate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+            .setBufferSizeInBytes(Math.max(minBufferSize, data.size))
+            .setTransferMode(AudioTrack.MODE_STATIC)
+            .build()
+            
+        audioTrack = track
+        track.write(data, 0, data.size)
+        
+        withContext(Dispatchers.Main) {
+            if (isPlaying) {
+                track.play()
+                notifyListenerState(true)
+                updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
+            }
+        }
+        
+        while (currentCoroutineContext().isActive && isSynthesizing) {
+            if (!isPlaying) {
+                if (track.playState == AudioTrack.PLAYSTATE_PLAYING) track.pause()
+                delay(100)
+                continue
+            } else {
+                if (track.playState == AudioTrack.PLAYSTATE_PAUSED || track.playState == AudioTrack.PLAYSTATE_STOPPED) track.play()
+            }
+            val head = track.playbackHeadPosition.toLong()
+            if (head >= data.size / 2) break
+            delay(50)
+        }
+        track.release()
+        audioTrack = null
+    }
+
+    override fun onProgress(sessionId: Long, current: Int, total: Int) {}
+    override fun onAudioChunk(sessionId: Long, data: ByteArray) {}
+
+    fun play() {
+        resumeOnFocusGain = false
+        if (!isPlaying) {
+            if (requestAudioFocus()) {
+                isPlaying = true
+                audioTrack?.play()
+                notifyListenerState(true)
+                updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
+                startForegroundService("Playing Audio", true)
             }
         }
     }
@@ -218,10 +294,95 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
             audioTrack?.pause()
             notifyListenerState(false)
             updatePlaybackState(PlaybackStateCompat.STATE_PAUSED)
-            updateNotification(getString(R.string.notif_paused), true)
+            updateNotification("Paused", true)
         }
     }
-...    fun exportAudio(text: String, stylePath: String, speed: Float, steps: Int, outputFile: File) {
+
+    fun stopPlayback(removeNotification: Boolean = true) {
+        try {
+            audioTrack?.stop()
+            audioTrack?.release()
+        } catch (e: Exception) { }
+        audioTrack = null
+        isPlaying = false
+        resumeOnFocusGain = false
+        notifyListenerState(false)
+        abandonAudioFocus()
+        if (wakeLock?.isHeld == true) wakeLock?.release()
+        if (removeNotification) {
+            try {
+                listener?.onPlaybackStopped()
+            } catch (e: RemoteException) { listener = null }
+            updatePlaybackState(PlaybackStateCompat.STATE_STOPPED)
+            stopForeground(true)
+        }
+    }
+
+    fun stopServicePlayback() {
+        serviceScope.launch {
+            SupertonicTTS.setCancelled(true)
+            synthesisJob?.cancelAndJoin()
+            isSynthesizing = false
+            stopPlayback()
+        }
+    }
+
+    private fun notifyListenerState(playing: Boolean) {
+        try {
+            listener?.onStateChanged(playing, audioTrack != null || isSynthesizing, isSynthesizing)
+        } catch (e: RemoteException) {
+            listener = null
+        }
+    }
+
+    private fun requestAudioFocus(): Boolean {
+        val attributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+            .build()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(attributes)
+                .setAcceptsDelayedFocusGain(true)
+                .setOnAudioFocusChangeListener(this)
+                .build()
+            return audioManager.requestAudioFocus(focusRequest!!) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        } else {
+            @Suppress("DEPRECATION")
+            return audioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        }
+    }
+    
+    private fun abandonAudioFocus() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(this)
+        }
+    }
+
+    override fun onAudioFocusChange(focusChange: Int) {
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_LOSS -> stopPlayback()
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                if (isPlaying) {
+                    resumeOnFocusGain = true
+                    isPlaying = false
+                    audioTrack?.pause()
+                    notifyListenerState(false)
+                    updatePlaybackState(PlaybackStateCompat.STATE_PAUSED)
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> audioTrack?.setVolume(0.2f)
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                audioTrack?.setVolume(1.0f)
+                if (resumeOnFocusGain) play()
+            }
+        }
+    }
+
+    fun exportAudio(text: String, lang: String, stylePath: String, speed: Float, steps: Int, outputFile: File) {
         serviceScope.launch {
             if (synthesisJob?.isActive == true) {
                 SupertonicTTS.setCancelled(true)
@@ -229,12 +390,67 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
             }
             stopPlayback()
             SupertonicTTS.setCancelled(false)
-            startForegroundService(getString(R.string.notif_exporting), false)
-...    private fun buildNotification(status: String, showControls: Boolean): android.app.Notification {
+            startForegroundService("Exporting Audio...", false)
+            launch(Dispatchers.IO) {
+                try {
+                    val sentences = textNormalizer.splitIntoSentences(text)
+                    val outputStream = ByteArrayOutputStream()
+                    var success = true
+                    for (sentence in sentences) {
+                        if (!isActive) { success = false; break }
+                        val sentenceLang = LanguageDetector.detect(sentence, lang)
+                        val normalizedText = textNormalizer.normalize(sentence, sentenceLang)
+                        val audioData = SupertonicTTS.generateAudio(normalizedText, sentenceLang, stylePath, speed, 0.0f, steps, null)
+                        if (audioData != null) {
+                            outputStream.write(applyVolumeBoost(audioData, VOLUME_BOOST_FACTOR))
+                        }
+                    }
+                    if (success && outputStream.size() > 0) {
+                        WavUtils.saveWav(outputFile, outputStream.toByteArray(), SupertonicTTS.getAudioSampleRate())
+                        withContext(Dispatchers.Main) {
+                            stopForeground(true)
+                            try { listener?.onExportComplete(true, outputFile.absolutePath) } catch(e: RemoteException){}
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            stopForeground(true)
+                            try { listener?.onExportComplete(false, outputFile.absolutePath) } catch(e: RemoteException){}
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        stopForeground(true)
+                        try { listener?.onExportComplete(false, outputFile.absolutePath) } catch(e: RemoteException){}
+                    }
+                }
+            }
+        }
+    }
+
+    private fun updatePlaybackState(state: Int) {
+        val playbackState = PlaybackStateCompat.Builder()
+            .setActions(PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_STOP)
+            .setState(state, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+            .build()
+        mediaSession.setPlaybackState(playbackState)
+    }
+
+    private fun startForegroundService(status: String, showControls: Boolean) {
+        val notification = buildNotification(status, showControls)
+        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK else 0)
+    }
+
+    private fun updateNotification(status: String, showControls: Boolean) {
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NOTIFICATION_ID, buildNotification(status, showControls))
+    }
+
+    private fun buildNotification(status: String, showControls: Boolean): android.app.Notification {
         val activityIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(this, 0, activityIntent, PendingIntent.FLAG_IMMUTABLE)
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.app_name))
+            .setContentTitle("Supertonic TTS")
             .setContentText(status)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
@@ -243,14 +459,14 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
 
         if (showControls) {
             if (isPlaying) {
-                builder.addAction(android.R.drawable.ic_media_pause, getString(R.string.notif_paused),
+                builder.addAction(android.R.drawable.ic_media_pause, "Pause",
                     androidx.media.session.MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_PAUSE))
             } else {
-                builder.addAction(android.R.drawable.ic_media_play, getString(R.string.yes), // Yes works as Play context here or I should have used action_play
+                builder.addAction(android.R.drawable.ic_media_play, "Play",
                     androidx.media.session.MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_PLAY))
             }
         } else {
-             builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.cancel),
+             builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop",
                 androidx.media.session.MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_STOP))
         }
         return builder.build()

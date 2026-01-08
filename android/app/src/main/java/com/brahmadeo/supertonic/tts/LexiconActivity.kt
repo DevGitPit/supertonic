@@ -252,7 +252,24 @@ class LexiconActivity : AppCompatActivity() {
                 Toast.makeText(this, getString(R.string.empty_fields_msg), Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-...
+
+            if (item != null) {
+                item.term = term
+                item.replacement = replacement
+                item.ignoreCase = switchIgnoreCase.isChecked
+            } else {
+                rules.add(LexiconItem(term = term, replacement = replacement, ignoreCase = switchIgnoreCase.isChecked))
+            }
+            
+            LexiconManager.save(this, rules)
+            LexiconManager.reload(this)
+            loadRules()
+            dialog.dismiss()
+        }
+
+        dialog.show()
+    }
+
     private fun testPronunciation(text: String) {
         if (!isBound || playbackService == null) {
             Toast.makeText(this, getString(R.string.engine_error), Toast.LENGTH_SHORT).show()
@@ -266,7 +283,7 @@ class LexiconActivity : AppCompatActivity() {
 
         try {
             playbackService?.stop()
-            playbackService?.synthesizeAndPlay(text, stylePath, 1.0f, steps, 0)
+            playbackService?.synthesizeAndPlay(text, "en", stylePath, 1.0f, steps, 0)
         } catch (e: RemoteException) {
             e.printStackTrace()
         }

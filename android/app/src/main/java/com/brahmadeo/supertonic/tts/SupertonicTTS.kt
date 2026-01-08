@@ -47,6 +47,8 @@ object SupertonicTTS {
     
     @Volatile
     private var currentSessionId: Long = 0
+    
+    private var currentTaskListener: ProgressListener? = null
 
     interface ProgressListener {
         fun onProgress(sessionId: Long, current: Int, total: Int)
@@ -64,13 +66,26 @@ object SupertonicTTS {
     // Called from JNI
     fun notifyProgress(current: Int, total: Int) {
         val sid = currentSessionId
-        for (l in listeners) l.onProgress(sid, current, total)
+        // Priority to task-specific listener
+        if (currentTaskListener != null) {
+            currentTaskListener?.onProgress(sid, current, total)
+        } else {
+            // Only notify global listeners if no specific task listener is set
+            for (l in listeners) l.onProgress(sid, current, total)
+        }
     }
 
     // Called from JNI
     fun notifyAudioChunk(data: ByteArray) {
         val sid = currentSessionId
-        for (l in listeners) l.onAudioChunk(sid, data)
+        // STRICT ISOLATION: Audio chunks ONLY go to the requester
+        if (currentTaskListener != null) {
+            currentTaskListener?.onAudioChunk(sid, data)
+        } else {
+            // Only if no specific task listener is active (e.g. legacy app call)
+            // we send to global listeners
+            for (l in listeners) l.onAudioChunk(sid, data)
+        }
     }
 
     @Volatile
@@ -86,13 +101,14 @@ object SupertonicTTS {
     }
 
     @Synchronized
-    fun generateAudio(text: String, lang: String, stylePath: String, speed: Float = 1.0f, bufferDuration: Float = 0.0f, steps: Int = 5): ByteArray? {
+    fun generateAudio(text: String, lang: String, stylePath: String, speed: Float = 1.0f, bufferDuration: Float = 0.0f, steps: Int = 5, listener: ProgressListener? = null): ByteArray? {
         if (nativePtr == 0L) {
             Log.e("SupertonicTTS", "Engine not initialized")
             return null
         }
         
         currentSessionId++ // New session for every sentence
+        currentTaskListener = listener
         
         try {
             val data = synthesize(nativePtr, text, lang, stylePath, speed, bufferDuration, steps)
@@ -100,6 +116,8 @@ object SupertonicTTS {
         } catch (e: Exception) {
             Log.e("SupertonicTTS", "Native synthesis exception: ${e.message}")
             return null
+        } finally {
+            currentTaskListener = null
         }
     }
 

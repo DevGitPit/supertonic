@@ -39,6 +39,7 @@ import java.io.IOException
 class MainActivity : AppCompatActivity() {
 
     private lateinit var toolbar: MaterialToolbar
+    private lateinit var langSpinner: AutoCompleteTextView
     private lateinit var voiceSpinner: AutoCompleteTextView
     private lateinit var speedSeekBar: Slider
     private lateinit var speedValue: TextView
@@ -49,6 +50,7 @@ class MainActivity : AppCompatActivity() {
     
     private var currentSteps = 5
     private var selectedVoiceFile = "M1.json"
+    private var currentLang = "en"
     private var currentSpeed = 1.05f
 
     private var playbackService: IPlaybackService? = null
@@ -99,6 +101,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         toolbar = findViewById(R.id.topAppBar)
+        langSpinner = findViewById(R.id.langSpinner)
         voiceSpinner = findViewById(R.id.voiceSpinner)
         speedSeekBar = findViewById(R.id.speedSeekBar)
         speedValue = findViewById(R.id.speedValue)
@@ -115,11 +118,21 @@ class MainActivity : AppCompatActivity() {
             false
         }
 
+        // Auto-clear placeholder text on focus
+        val placeholder = "Hello world, this is Supertonic TTS on Android. Select a voice and speed below!"
+        inputText.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus && inputText.text.toString() == placeholder) {
+                inputText.setText("")
+            }
+        }
+
         // Load saved preferences
         val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
         currentSteps = prefs.getInt("diffusion_steps", 5)
         qualitySeekBar.value = currentSteps.toFloat()
         qualityValue.text = "$currentSteps steps"
+
+        currentLang = prefs.getString("selected_lang", "en") ?: "en"
 
         toolbar.setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
@@ -146,6 +159,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        setupLangSpinner()
         setupSpeedControl()
         setupQualityControl()
         checkNotificationPermission()
@@ -281,6 +295,31 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupLangSpinner() {
+        val languages = linkedMapOf(
+            "Auto (English)" to "en",
+            "French" to "fr",
+            "Portuguese" to "pt",
+            "Spanish" to "es",
+            "Korean" to "ko"
+        )
+        val langNames = languages.keys.toList()
+        val adapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, langNames)
+        langSpinner.setAdapter(adapter)
+
+        val savedLangCode = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).getString("selected_lang", "en") ?: "en"
+        val savedLangName = languages.entries.find { it.value == savedLangCode }?.key ?: "Auto (English)"
+        langSpinner.setText(savedLangName, false)
+        currentLang = savedLangCode
+
+        langSpinner.onItemClickListener = AdapterView.OnItemClickListener { _, _, position, _ ->
+            val name = langNames[position]
+            currentLang = languages[name] ?: "en"
+            getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
+                .edit().putString("selected_lang", currentLang).apply()
+        }
+    }
+
     private fun setupVoiceSpinner() {
         voiceFiles.clear()
         
@@ -400,6 +439,7 @@ class MainActivity : AppCompatActivity() {
             putExtra(PlaybackActivity.EXTRA_VOICE_PATH, stylePath)
             putExtra(PlaybackActivity.EXTRA_SPEED, currentSpeed)
             putExtra(PlaybackActivity.EXTRA_STEPS, currentSteps)
+            putExtra(PlaybackActivity.EXTRA_LANG, currentLang)
         }
         startActivity(intent)
     }

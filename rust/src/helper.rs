@@ -1,6 +1,6 @@
-// ============================================================================
+// ============================================================================ 
 // TTS Helper Module - All utility functions and structures
-// ============================================================================
+// ============================================================================ 
 
 use ndarray::{Array, Array3};
 use serde::{Deserialize, Serialize};
@@ -21,9 +21,9 @@ pub fn is_valid_lang(lang: &str) -> bool {
     AVAILABLE_LANGS.contains(&lang)
 }
 
-// ============================================================================
+// ============================================================================ 
 // Configuration Structures
-// ============================================================================
+// ============================================================================ 
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -52,9 +52,9 @@ pub fn load_cfgs<P: AsRef<Path>>(onnx_dir: P) -> Result<Config> {
     Ok(cfgs)
 }
 
-// ============================================================================
+// ============================================================================ 
 // Voice Style Data Structure
-// ============================================================================
+// ============================================================================ 
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VoiceStyleData {
@@ -70,9 +70,9 @@ pub struct StyleComponent {
     pub dtype: String,
 }
 
-// ============================================================================
+// ============================================================================ 
 // Unicode Text Processor
-// ============================================================================
+// ============================================================================ 
 
 pub struct UnicodeProcessor {
     indexer: Vec<i64>,
@@ -105,9 +105,10 @@ impl UnicodeProcessor {
             let unicode_vals = text_to_unicode_values(text);
             for (j, &val) in unicode_vals.iter().enumerate() {
                 if val < self.indexer.len() {
-                    row[j] = self.indexer[val];
+                    let id = self.indexer[val];
+                    row[j] = if id == -1 { 0 } else { id };
                 } else {
-                    row[j] = -1;
+                    row[j] = 0; // Default to space for unknown
                 }
             }
             text_ids.push(row);
@@ -120,7 +121,7 @@ impl UnicodeProcessor {
 }
 
 pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
-    // TODO: Need advanced normalizer for better performance
+    // Revert to NFKD normalization as required for Korean Jamo decomposition
     let mut text: String = text.nfkd().collect();
 
     // Remove emojis (wide Unicode range)
@@ -170,13 +171,13 @@ pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
     }
 
     // Fix spacing around punctuation
-    text = Regex::new(r" ,").unwrap().replace_all(&text, ",").to_string();
-    text = Regex::new(r" \.").unwrap().replace_all(&text, ".").to_string();
-    text = Regex::new(r" !").unwrap().replace_all(&text, "!").to_string();
-    text = Regex::new(r" \?").unwrap().replace_all(&text, "?").to_string();
-    text = Regex::new(r" ;").unwrap().replace_all(&text, ";").to_string();
-    text = Regex::new(r" :").unwrap().replace_all(&text, ":").to_string();
-    text = Regex::new(r" '").unwrap().replace_all(&text, "'").to_string();
+    text = Regex::new(r" , ").unwrap().replace_all(&text, ",").to_string();
+    text = Regex::new(r" \. ").unwrap().replace_all(&text, ".").to_string();
+    text = Regex::new(r" ! ").unwrap().replace_all(&text, "!").to_string();
+    text = Regex::new(r" \? ").unwrap().replace_all(&text, "?").to_string();
+    text = Regex::new(r" ; ").unwrap().replace_all(&text, ";").to_string();
+    text = Regex::new(r" : ").unwrap().replace_all(&text, ":").to_string();
+    text = Regex::new(r" ' ").unwrap().replace_all(&text, "'").to_string();
 
     // Remove duplicate quotes
     while text.contains("\"\"") {
@@ -195,7 +196,7 @@ pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
 
     // If text doesn't end with punctuation, quotes, or closing brackets, add a period
     if !text.is_empty() {
-        let ends_with_punct = Regex::new(r#"[.!?;:,'"\u{201C}\u{201D}\u{2018}\u{2019})\]}…。」』】〉》›»]$"#).unwrap();
+        let ends_with_punct = Regex::new(r#"[.!?;:,'\u{201C}\u{201D}\u{2018}\u{2019})\\]}}…。」』】〉》›»]$"#).unwrap();
         if !ends_with_punct.is_match(&text) {
             text.push('.');
         }
@@ -287,9 +288,9 @@ pub fn sample_noisy_latent(
     (noisy_latent, latent_mask)
 }
 
-// ============================================================================
+// ============================================================================ 
 // WAV File I/O
-// ============================================================================
+// ============================================================================ 
 
 pub fn write_wav_file<P: AsRef<Path>>(
     filename: P,
@@ -315,9 +316,9 @@ pub fn write_wav_file<P: AsRef<Path>>(
     Ok(())
 }
 
-// ============================================================================
+// ============================================================================ 
 // Text Chunking
-// ============================================================================
+// ============================================================================ 
 
 const MAX_CHUNK_LENGTH: usize = 300;
 
@@ -496,9 +497,9 @@ fn split_sentences(text: &str) -> Vec<String> {
     }
 }
 
-// ============================================================================
+// ============================================================================ 
 // Utility Functions
-// ============================================================================
+// ============================================================================ 
 
 pub fn timer<F, T>(name: &str, f: F) -> Result<T>
 where
@@ -527,9 +528,9 @@ pub fn sanitize_filename(text: &str, max_len: usize) -> String {
         .collect()
 }
 
-// ============================================================================
+// ============================================================================ 
 // ONNX Runtime Integration
-// ============================================================================
+// ============================================================================ 
 
 use ort::{
     session::Session,
@@ -743,9 +744,9 @@ impl TextToSpeech {
     }
 }
 
-// ============================================================================
+// ============================================================================ 
 // Component Loading Functions
-// ============================================================================
+// ============================================================================ 
 
 /// Load voice style from JSON files
 pub fn load_voice_style(voice_style_paths: &[String], verbose: bool) -> Result<Style> {
@@ -829,13 +830,13 @@ pub fn load_text_to_speech(onnx_dir: &str, use_gpu: bool) -> Result<TextToSpeech
     let vector_est_path = format!("{}/vector_estimator.onnx", onnx_dir);
     let vocoder_path = format!("{}/vocoder.onnx", onnx_dir);
 
-    let dp_ort = Session::builder()?
+    let dp_ort = Session::builder()? 
         .commit_from_file(&dp_path)?;
-    let text_enc_ort = Session::builder()?
+    let text_enc_ort = Session::builder()? 
         .commit_from_file(&text_enc_path)?;
-    let vector_est_ort = Session::builder()?
+    let vector_est_ort = Session::builder()? 
         .commit_from_file(&vector_est_path)?;
-    let vocoder_ort = Session::builder()?
+    let vocoder_ort = Session::builder()? 
         .commit_from_file(&vocoder_path)?;
 
     let unicode_indexer_path = format!("{}/unicode_indexer.json", onnx_dir);

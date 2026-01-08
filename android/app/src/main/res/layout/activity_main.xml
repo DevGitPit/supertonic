@@ -81,6 +81,23 @@
                     android:paddingTop="16dp"
                     android:paddingBottom="88dp">
 
+                    <!-- Language Selector -->
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/langSpinnerLayout"
+                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="12dp"
+                        android:hint="Language Hint">
+
+                        <AutoCompleteTextView
+                            android:id="@+id/langSpinner"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="none"
+                            android:text="English" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                    
                     <!-- Voice Selector -->
                     <com.google.android.material.textfield.TextInputLayout
                         style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
@@ -116,7 +133,7 @@
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:gravity="end"
-                            android:text="1.0x"
+                            android:text="1.05x"
                             android:textAppearance="?attr/textAppearanceLabelLarge"/>
                     </LinearLayout>
 
@@ -124,10 +141,10 @@
                         android:id="@+id/speedSeekBar"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:valueFrom="0.5"
-                        android:valueTo="2.5"
+                        android:valueFrom="0.9"
+                        android:valueTo="1.5"
                         android:stepSize="0.05"
-                        android:value="1.0"/>
+                        android:value="1.05"/>
 
                     <!-- Quality Control -->
                     <LinearLayout
