@@ -525,9 +525,10 @@ TextToSpeech::SynthesisResult TextToSpeech::_infer(
     auto* dur_data = dp_outputs[0].GetTensorMutableData<float>();
     std::vector<float> duration(dur_data, dur_data + bsz);
     
-    // Apply speed factor to duration
+    // Apply speed factor to duration and add safety padding
+    // Padding prevents cutoff if the duration predictor underestimates
     for (auto& dur : duration) {
-        dur /= speed;
+        dur = (dur / speed) + 0.3f; 
     }
     
     // Create new tensors for text encoder (previous ones were moved)

@@ -609,9 +609,9 @@ impl TextToSpeech {
         let (_, duration_data) = dp_outputs["duration"].try_extract_tensor::<f32>()?;
         let mut duration: Vec<f32> = duration_data.to_vec();
         
-        // Apply speed factor to duration
+        // Apply speed factor to duration and add safety padding
         for dur in duration.iter_mut() {
-            *dur /= speed;
+            *dur = (*dur / speed) + 0.3;
         }
 
         // Encode text
@@ -704,11 +704,11 @@ impl TextToSpeech {
                 return Err(anyhow::anyhow!("Synthesis cancelled by user"));
             }
             
-            let (wav, duration) = self._infer(&[chunk.clone()], &[lang.to_string()], style, total_step, speed)?;
+            let (wav, _) = self._infer(&[chunk.clone()], &[lang.to_string()], style, total_step, speed)?;
             
-            let dur = duration[0];
-            let wav_len = (self.sample_rate as f32 * dur) as usize;
-            let wav_chunk = &wav[..wav_len.min(wav.len())];
+            // Use full vocoder output to prevent cutting off tails/words
+            let wav_chunk = wav.as_slice();
+            let dur = wav_chunk.len() as f32 / self.sample_rate as f32;
 
             // Send audio chunk
             if !callback(i, num_chunks, Some(wav_chunk)) {
