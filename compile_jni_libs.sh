@@ -25,8 +25,10 @@ cd rust
 export ORT_STRATEGY=system
 export ORT_LIB_LOCATION="$ONNX_ANDROID_PATH"
 
-# Ensure target is added
-rustup target add aarch64-linux-android
+# Ensure target is added if rustup exists
+if command -v rustup &> /dev/null; then
+    rustup target add aarch64-linux-android
+fi
 
 cargo build --release --target aarch64-linux-android
 
