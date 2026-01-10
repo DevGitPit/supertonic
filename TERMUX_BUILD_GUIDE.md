@@ -102,9 +102,11 @@ rustflags = ["-l", "log"]
 
 ### 6. Build APK
 Run the build. It will fail on the first try due to the `aapt2` binary issue.
+**Note:** The repository might not include the Gradle wrapper (`gradlew`). Use the system `gradle` command installed via Termux.
+
 ```bash
 cd android
-./gradlew assembleDebug
+gradle assembleDebug
 ```
 
 ### 7. Apply `aapt2` Fix
@@ -115,11 +117,11 @@ find ~/.gradle -name "aapt2" -type f -exec ln -sf $(which aapt2) {} \;
 
 ### 8. Build Again
 ```bash
-./gradlew assembleDebug
+gradle assembleDebug
 ```
 The APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
 
 ## Best Practices
-*   **Clean Build:** If you switch between Termux and PC, run `./gradlew clean` to avoid cache conflicts.
+*   **Clean Build:** If you switch between Termux and PC, run `gradle clean` to avoid cache conflicts.
 *   **Memory:** Termux can be memory constrained. If the Java daemon dies, try `export _JAVA_OPTIONS="-Xmx2g"`.
 *   **Symlinks:** Always check if native libs (`.so` files) are actually present in `src/main/jniLibs` if you aren't building them via Gradle.
