@@ -93,3 +93,8 @@ To build the debug APK:
 *   **UI Framework:** XML Layouts using **Material Components** (M3).
 *   **Threading:** Heavy operations (synthesis, asset copying) run on `Dispatchers.IO`.
 *   **Style:** Follows Material Design 3 guidelines (Semantic Colors, Shapes, Typography).
+
+## Known Issues & Fixes
+*   **Audio Cutoff (v2 Models):** The v2 Flow Matching models can sometimes underestimate sentence duration, causing the last word to be cut off.
+    *   *Fix Applied:* The native engine (`cpp/` and `rust/`) now adds a **0.3s safety padding** to the synthesis duration and plays the full generative buffer without truncation.
+    *   *Side Effect:* You might hear a faint echo or reverb tail at the end of sentences. This is preferable to cutting off words. To tune this, adjust the padding constant in `rust/src/helper.rs`.

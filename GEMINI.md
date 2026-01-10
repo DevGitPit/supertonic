@@ -35,6 +35,11 @@ The repository is organized by language/platform, each serving as a standalone e
     ```
     *Ensure the `assets` folder is populated before running any code.*
 
+### Troubleshooting Audio (v2)
+*   **Word Skipping / Cutoff:** If words are cut off at the end of sentences, this is due to the Flow Matching duration predictor underestimating the speech length. This is fixed in the engine by adding a **0.3s safety padding** to the generation duration.
+*   **Echoing / Hallucinations:** If you hear faint echoes or repetition at the end of sentences, the safety padding might be too aggressive for the specific voice/speed combination. The model fills the extra "canvas" with the nearest semantic content.
+    *   *Fix:* In `cpp/helper.cpp` (or `rust/src/helper.rs`), reduce the padding constant from `0.3f` to `0.15f` or `0.1f`.
+
 ### Quick Start Commands
 
 **Python**
