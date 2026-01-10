@@ -27,12 +27,16 @@ This guide documents the process of building the Supertonic Android app directly
 **Issue:** Standard NDK setups usually expect a specific toolchain path.
 **Fix:** Configure `.cargo/config.toml` to use the system `clang` provided by Termux instead of the NDK's prebuilt compiler.
 
+### 4. ONNX Runtime Dependency
+**Issue:** The `ort` crate tries to download binaries which may not be available or compatible with the Termux environment.
+**Fix:** Use the system strategy (`ORT_STRATEGY=system`) and point to a local ONNX Runtime Android build (e.g., from `onnxruntime-android`).
+
 ## Step-by-Step Build Instructions
 
 ### 1. Setup Environment
 ```bash
 pkg update
-pkg install openjdk-17 gradle android-tools git rust clang
+pkg install openjdk-17 gradle android-tools git rust clang wget unzip
 ```
 
 ### 2. Install Android SDK
@@ -47,7 +51,33 @@ Install required platforms:
 $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0"
 ```
 
-### 3. Patch Build Configuration
+### 3. Compile Native Libraries (Rust JNI)
+You must build the Rust library (`libsupertonic_tts.so`) before building the APK.
+
+1.  **Download ONNX Runtime Android:**
+    Get the `onnxruntime-android` package (aar or zip) and extract the `jni/arm64-v8a` folder.
+    Let's assume it's at `~/onnxruntime-android/jni/arm64-v8a`.
+
+2.  **Build Rust Library:**
+    ```bash
+    cd rust
+    # Point to your local ONNX Runtime libs
+    export ORT_STRATEGY=system
+    export ORT_LIB_LOCATION=$HOME/onnxruntime-android/jni/arm64-v8a
+
+    cargo build --release --target aarch64-linux-android
+    ```
+
+3.  **Install Libraries to Android Project:**
+    Create the JNI directory and copy the libs:
+    ```bash
+    mkdir -p ../android/app/src/main/jniLibs/arm64-v8a
+    cp target/aarch64-linux-android/release/libsupertonic_tts.so ../android/app/src/main/jniLibs/arm64-v8a/
+    cp $ORT_LIB_LOCATION/libonnxruntime.so ../android/app/src/main/jniLibs/arm64-v8a/
+    cd ..
+    ```
+
+### 4. Patch Build Configuration
 Edit `android/app/build.gradle`:
 ```gradle
 android {
@@ -62,7 +92,7 @@ dependencies {
 }
 ```
 
-### 4. Patch Rust Configuration
+### 5. Patch Rust Configuration
 Edit `rust/.cargo/config.toml` to use system clang:
 ```toml
 [target.aarch64-linux-android]
@@ -70,20 +100,20 @@ linker = "clang"
 rustflags = ["-l", "log"]
 ```
 
-### 5. Build
+### 6. Build APK
 Run the build. It will fail on the first try due to the `aapt2` binary issue.
 ```bash
 cd android
 ./gradlew assembleDebug
 ```
 
-### 6. Apply `aapt2` Fix
+### 7. Apply `aapt2` Fix
 Find the wrong binary and link the right one:
 ```bash
 find ~/.gradle -name "aapt2" -type f -exec ln -sf $(which aapt2) {} \;
 ```
 
-### 7. Build Again
+### 8. Build Again
 ```bash
 ./gradlew assembleDebug
 ```
