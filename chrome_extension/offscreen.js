@@ -1,5 +1,7 @@
 // offscreen.js - Fixed for Android Background Playback
 
+const LOG_PREFIX = '[OFFSCREEN]';
+
 // --- State ---
 let audioContext = null;
 let isStreaming = false;
@@ -32,6 +34,20 @@ let keepAliveWorklet = null;
 let silenceAudioElement = null;
 let tickResolvers = [];
 let lastTickTime = 0;
+
+// Idle Timer
+let idleTimer = null;
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+function resetIdleTimer() {
+    if (idleTimer) clearTimeout(idleTimer);
+    if (isStreaming && !isPaused) return; // Don't idle if streaming
+
+    idleTimer = setTimeout(() => {
+        console.log(`${LOG_PREFIX} Idle timeout reached, requesting cleanup`);
+        chrome.runtime.sendMessage({ type: 'CMD_OFFSCREEN_IDLE' }).catch(() => {});
+    }, IDLE_TIMEOUT_MS);
+}
 
 // Notify background that we are ready
 chrome.runtime.sendMessage({ type: 'OFFSCREEN_READY' }).catch(() => {});
@@ -243,6 +259,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 index: lastPlayedIndex,
                 engine: currentEngine
             });
+            resetIdleTimer();
             return true;
     }
 });
@@ -270,6 +287,7 @@ async function handleStreamRequest(payload) {
     }
     
     startStreaming(payload.index || 0);
+    resetIdleTimer();
 }
 
 function startStreaming(index) {
@@ -311,6 +329,7 @@ function resumePlayback() {
         else processFetchLoop(abortController.signal);
     }
     if (currentEngine !== 'system') scheduleAudio();
+    resetIdleTimer();
 }
 
 function pausePlayback() {
@@ -321,6 +340,7 @@ function pausePlayback() {
     if (abortController) abortController.abort();
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
     chrome.runtime.sendMessage({ type: 'PLAYBACK_FINISHED' });
+    resetIdleTimer();
 }
 
 function stopPlayback() {
@@ -333,6 +353,7 @@ function stopPlayback() {
     if (abortController) abortController.abort();
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none';
     chrome.runtime.sendMessage({ type: 'PLAYBACK_FINISHED' });
+    resetIdleTimer();
 }
 
 function seekTo(index) {

@@ -5,12 +5,10 @@ console.log('[BACKGROUND] Service worker started at', new Date().toISOString());
 
 const SERVER_URL = 'http://127.0.0.1:8080';
 const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
-const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 let creatingPromise = null;
 let creationTimeout = null;
 let activePollIntervals = new Set();
-let idleTimer = null;
 
 // Connection health check state
 let serverAvailable = false;
@@ -43,14 +41,6 @@ async function safeRuntimeMessage(message, retries = 3, delay = 100) {
     }
   }
   return null;
-}
-
-function resetIdleTimer() {
-    if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = setTimeout(async () => {
-        console.log('[BACKGROUND] Idle timeout reached, closing offscreen');
-        await closeOffscreen();
-    }, IDLE_TIMEOUT);
 }
 
 async function closeOffscreen() {
@@ -184,7 +174,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // Ensure offscreen is ready
         await new Promise(resolve => setTimeout(resolve, 200));
         await safeRuntimeMessage({ type: 'ACT_STREAM', payload: request.payload });
-        resetIdleTimer();
         sendResponse({ status: 'started' });
       } catch (err) {
         console.error('[BACKGROUND] CMD_START_STREAM error:', err);
@@ -200,7 +189,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       clearAllIntervals();
       chrome.tts.stop();
       await safeRuntimeMessage({ type: 'ACT_STOP' });
-      resetIdleTimer();
       if (request.type === 'CMD_FORCE_CLEANUP') await closeOffscreen();
       sendResponse({ status: 'stopped' });
     })();
@@ -210,7 +198,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // --- HANDLER: PROGRESS TRACKING ---
   if (request.type === 'UPDATE_PROGRESS') {
       chrome.storage.local.set({ savedIndex: request.index });
-      resetIdleTimer();
+      return false;
+  }
+
+  if (request.type === 'CMD_OFFSCREEN_IDLE') {
+      console.log('[BACKGROUND] Offscreen requested idle shutdown');
+      closeOffscreen();
       return false;
   }
 
@@ -222,10 +215,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.type === 'CMD_TTS_SPEAK') {
-    resetIdleTimer();
     handleSystemTTS(request);
     sendResponse({ status: 'queued' });
     return true;
+  }
+
+  // --- HANDLER: STATE REQUEST ---
+  // If offscreen is dead, we might get this here if no one else answers.
+  // Although usually offscreen answers. If we are here, it might be good to ensure we don't block.
+  if (request.type === 'CMD_GET_STATE') {
+      // If offscreen hasn't replied (which it should if it exists),
+      // we can assume it's not active or we are the only one receiving this.
+      // However, multiple listeners can exist.
+      // We'll leave it to popup to handle timeout/undefined.
+      return false;
   }
 });
 
