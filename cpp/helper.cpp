@@ -449,11 +449,12 @@ void TextToSpeech::sampleNoisyLatent(
         for (int d = 0; d < latent_dim; d++) {
             noisy_latent[b][d].resize(latent_len);
             for (int t = 0; t < latent_len; t++) {
-                noisy_latent[b][d][t] = dist(gen);
+                // Reduced temperature (0.667) improves stability and reduces word skipping
+                noisy_latent[b][d][t] = dist(gen) * 0.667f;
             }
         }
     }
-    
+
     latent_mask = getLatentMask(wav_lengths, base_chunk_size_, chunk_compress_factor_);
     
     // Apply mask
