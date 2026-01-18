@@ -676,7 +676,9 @@ document.addEventListener('DOMContentLoaded', function() {
       if (fluffManager.isActive || isPlaying) {
           cleanBtn.style.display = 'none';
       } else {
-          const hasText = textInput.innerText.trim().length > 0;
+          // Check for actual text content, ignoring whitespace/newlines
+          const text = textInput.innerText.trim();
+          const hasText = text.length > 0;
           cleanBtn.style.display = hasText ? 'flex' : 'none';
       }
   }
