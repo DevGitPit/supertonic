@@ -26,6 +26,8 @@ import com.brahmadeo.supertonic.tts.SupertonicTTS
 import com.brahmadeo.supertonic.tts.utils.LanguageDetector
 import com.brahmadeo.supertonic.tts.utils.TextNormalizer
 import com.brahmadeo.supertonic.tts.utils.WavUtils
+import com.brahmadeo.supertonic.tts.utils.QueueManager
+import com.brahmadeo.supertonic.tts.utils.QueueItem
 import kotlinx.coroutines.*
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -39,6 +41,18 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
     private val binder = object : IPlaybackService.Stub() {
         override fun synthesizeAndPlay(text: String, lang: String, stylePath: String, speed: Float, steps: Int, startIndex: Int) {
             this@PlaybackService.synthesizeAndPlay(text, lang, stylePath, speed, steps, startIndex)
+        }
+
+        override fun addToQueue(text: String, lang: String, stylePath: String, speed: Float, steps: Int, startIndex: Int) {
+            this@PlaybackService.addToQueue(text, lang, stylePath, speed, steps, startIndex)
+        }
+
+        override fun play() {
+            this@PlaybackService.play()
+        }
+
+        override fun pause() {
+            this@PlaybackService.pause()
         }
 
         override fun stop() {
@@ -154,6 +168,17 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
         return isPlaying || isSynthesizing
     }
 
+    fun addToQueue(text: String, lang: String, stylePath: String, speed: Float, steps: Int, startIndex: Int) {
+        QueueManager.add(QueueItem(
+            text = text,
+            lang = lang,
+            stylePath = stylePath,
+            speed = speed,
+            steps = steps,
+            startIndex = startIndex
+        ))
+    }
+
     private var synthesisJob: Job? = null
 
     fun synthesizeAndPlay(text: String, lang: String, stylePath: String, speed: Float, steps: Int, startIndex: Int = 0) {
@@ -226,7 +251,14 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
                             listener?.onProgress(totalSentences, totalSentences)
                         } catch (e: RemoteException) { listener = null }
                         notifyListenerState(true)
-                        stopPlayback()
+
+                        // Check queue for next item
+                        val nextItem = QueueManager.next()
+                        if (nextItem != null) {
+                            synthesizeAndPlay(nextItem.text, nextItem.lang, nextItem.stylePath, nextItem.speed, nextItem.steps, nextItem.startIndex)
+                        } else {
+                            stopPlayback()
+                        }
                     }
                 }
             }

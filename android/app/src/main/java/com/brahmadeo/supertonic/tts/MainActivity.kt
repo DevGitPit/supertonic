@@ -27,6 +27,7 @@ import androidx.core.content.ContextCompat
 import android.speech.tts.TextToSpeech
 import android.util.Log
 import com.brahmadeo.supertonic.tts.service.IPlaybackService
+import com.brahmadeo.supertonic.tts.service.IPlaybackListener
 import com.brahmadeo.supertonic.tts.service.PlaybackService
 import com.brahmadeo.supertonic.tts.utils.HistoryManager
 import com.google.android.material.appbar.MaterialToolbar
@@ -47,7 +48,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var qualityValue: TextView
     private lateinit var inputText: EditText
     private lateinit var synthButton: Button
-    
+    private lateinit var miniPlayerCard: com.google.android.material.card.MaterialCardView
+    private lateinit var miniPlayerText: TextView
+    private lateinit var miniPlayerPlayPause: com.google.android.material.button.MaterialButton
+
     private var currentSteps = 5
     private var selectedVoiceFile = "M1.json"
     private var currentLang = "en"
@@ -55,11 +59,43 @@ class MainActivity : AppCompatActivity() {
 
     private var playbackService: IPlaybackService? = null
     private var isBound = false
+    private var isPlaying = false
+
+    private val playbackListener = object : IPlaybackListener.Stub() {
+        override fun onStateChanged(isPlaying: Boolean, hasContent: Boolean, isSynthesizing: Boolean) {
+            runOnUiThread {
+                this@MainActivity.isPlaying = isPlaying
+                if (hasContent || isSynthesizing) {
+                    miniPlayerCard.visibility = View.VISIBLE
+                    miniPlayerPlayPause.setIconResource(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
+
+                    val lastText = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).getString("last_text", "")
+                    if (!lastText.isNullOrEmpty()) {
+                        miniPlayerText.text = lastText
+                    }
+                } else {
+                    miniPlayerCard.visibility = View.GONE
+                }
+            }
+        }
+
+        override fun onProgress(current: Int, total: Int) { }
+        override fun onPlaybackStopped() {
+            runOnUiThread {
+                miniPlayerCard.visibility = View.GONE
+                isPlaying = false
+            }
+        }
+        override fun onExportComplete(success: Boolean, path: String) { }
+    }
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(className: ComponentName, service: IBinder) {
             playbackService = IPlaybackService.Stub.asInterface(service)
             isBound = true
+            try {
+                playbackService?.setListener(playbackListener)
+            } catch (e: Exception) { e.printStackTrace() }
         }
 
         override fun onServiceDisconnected(arg0: ComponentName) {
@@ -109,6 +145,23 @@ class MainActivity : AppCompatActivity() {
         qualityValue = findViewById(R.id.qualityValue)
         inputText = findViewById(R.id.inputText)
         synthButton = findViewById(R.id.synthButton)
+        miniPlayerCard = findViewById(R.id.miniPlayerCard)
+        miniPlayerText = findViewById(R.id.miniPlayerText)
+        miniPlayerPlayPause = findViewById(R.id.miniPlayerPlayPause)
+
+        miniPlayerCard.setOnClickListener {
+            val intent = Intent(this, PlaybackActivity::class.java)
+            intent.flags = Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            startActivity(intent)
+        }
+
+        miniPlayerPlayPause.setOnClickListener {
+            if (playbackService?.isServiceActive == true) {
+                try {
+                    if (isPlaying) playbackService?.pause() else playbackService?.play()
+                } catch (e: Exception) { e.printStackTrace() }
+            }
+        }
 
         inputText.setOnTouchListener { v, event ->
             v.parent.requestDisallowInterceptTouchEvent(true)
@@ -151,6 +204,10 @@ class MainActivity : AppCompatActivity() {
                     historyLauncher.launch(Intent(this, HistoryActivity::class.java))
                     true
                 }
+                R.id.action_queue -> {
+                    startActivity(Intent(this, QueueActivity::class.java))
+                    true
+                }
                 R.id.action_lexicon -> {
                     startActivity(Intent(this, LexiconActivity::class.java))
                     true
@@ -174,6 +231,7 @@ class MainActivity : AppCompatActivity() {
         bindService(bindIntent, connection, Context.BIND_AUTO_CREATE)
         
         com.brahmadeo.supertonic.tts.utils.LexiconManager.load(this)
+        com.brahmadeo.supertonic.tts.utils.QueueManager.initialize(this)
 
         scope.launch(Dispatchers.IO) {
             val modelPath = copyAssets()
@@ -222,6 +280,15 @@ class MainActivity : AppCompatActivity() {
         
         handleIntent(intent)
         checkResumeState()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (isBound && playbackService != null) {
+            try {
+                playbackService?.setListener(playbackListener)
+            } catch (e: Exception) { e.printStackTrace() }
+        }
     }
 
     private fun checkResumeState() {
@@ -425,7 +492,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun generateAndPlay(text: String) {
         val stylePath = File(filesDir, "voice_styles/$selectedVoiceFile").absolutePath
-        
+
         if (!File(stylePath).exists()) {
              toolbar.subtitle = "Error: Voice style not found"
              return
@@ -434,6 +501,29 @@ class MainActivity : AppCompatActivity() {
         val voiceName = voiceSpinner.text.toString()
         HistoryManager.saveItem(this, text, voiceName)
 
+        try {
+            if (playbackService?.isServiceActive == true) {
+                AlertDialog.Builder(this)
+                    .setTitle(getString(R.string.playback_active_title))
+                    .setMessage(getString(R.string.playback_active_message))
+                    .setPositiveButton(getString(R.string.add_to_queue)) { _, _ ->
+                        playbackService?.addToQueue(text, currentLang, stylePath, currentSpeed, currentSteps, 0)
+                        Toast.makeText(this, getString(R.string.added_to_queue), Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton(getString(R.string.play_now)) { _, _ ->
+                        launchPlaybackActivity(text, stylePath)
+                    }
+                    .setNeutralButton(getString(R.string.cancel), null)
+                    .show()
+            } else {
+                launchPlaybackActivity(text, stylePath)
+            }
+        } catch (e: RemoteException) {
+            launchPlaybackActivity(text, stylePath)
+        }
+    }
+
+    private fun launchPlaybackActivity(text: String, stylePath: String) {
         val intent = Intent(this, PlaybackActivity::class.java).apply {
             putExtra(PlaybackActivity.EXTRA_TEXT, text)
             putExtra(PlaybackActivity.EXTRA_VOICE_PATH, stylePath)

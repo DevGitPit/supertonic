@@ -212,7 +212,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Since textInput is relative, el.offsetTop is already relative to it
                 const relativeTop = el.offsetTop;
                 const halfHeight = textInput.offsetHeight / 2;
-                textInput.scrollTo({ top: relativeTop - halfHeight, behavior: 'smooth' });
+                textInput.scrollTo({ top: relativeTop - halfHeight, behavior: 'auto' });
             }
         }
     }
@@ -314,6 +314,7 @@ document.addEventListener('DOMContentLoaded', function() {
       }
       
       // 2. Check Active Session (Offscreen)
+      updateCleanBtnVisibility();
       syncState();
   });
 
@@ -711,8 +712,10 @@ document.addEventListener('DOMContentLoaded', function() {
       const next = textInput.querySelector(`.sentence[data-index="${index}"]`);
       if (next) {
           next.classList.add('active');
-          const relativeTop = next.offsetTop - textInput.offsetTop;
-          textInput.scrollTo({ top: relativeTop - (textInput.offsetHeight / 3), behavior: 'smooth' });
+          // Since textInput is relative, next.offsetTop is already relative to the scrollable container
+          const relativeTop = next.offsetTop;
+          const halfHeight = textInput.offsetHeight / 2;
+          textInput.scrollTo({ top: relativeTop - halfHeight, behavior: 'auto' });
       }
   }
 

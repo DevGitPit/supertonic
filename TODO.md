@@ -20,20 +20,29 @@
     -   Disabled dangerous manual asset imports.
     -   Default disabled state for Synthesize button during engine init.
 
-## Version 1.2: Advanced Playback & Queuing - 🚀 PLANNED
+## Version 1.2: Chrome Extension Polish - ✅ COMPLETED
+*Goal: Align Chrome Extension features with Android app standards.*
+
+- [x] **[Extension] UI/UX Improvements**:
+    -   Hide Fetch/Clean buttons during playback; Send button stops playback.
+    -   Auto-exit Fluff Mode when Play is clicked.
+    -   Fixed scrolling jitter in Fluff Mode using internal container scrolling.
+    -   Updated speed slider to match Android (0.9x - 1.5x).
+
+## Version 1.3: Advanced Playback & Queuing - 🚀 PLANNED
 *Goal: Transform the app into a sequential reader with seamless navigation.*
 
-- [ ] **Sequential Queue System**:
+- [x] **Sequential Queue System**:
     -   Implement `QueueItem` data model (per-item voice/speed settings).
     -   Add auto-advance logic to `PlaybackService` to play the next queued item automatically.
     -   Add "Add to Queue" vs "Play Now" choice when initiating synthesis while audio is already active.
-- [ ] **Multi-Activity Navigation Bridge**:
+- [x] **Multi-Activity Navigation Bridge**:
     -   Implement "Now Playing" mini-player bar at the bottom of `MainActivity`.
     -   Allow switching between `MainActivity` (for editing/settings) and `PlaybackActivity` (for seeking/highlighting) using `REORDER_TO_FRONT` flags to prevent state reset.
-- [ ] **Playlist Management UI**:
+- [x] **Playlist Management UI**:
     -   Create `QueueActivity` to view pending tracks.
     -   Implement Drag & Drop reordering and Swipe-to-Delete for the queue.
-- [ ] **Enterprise-Grade Robustness**:
+- [x] **Enterprise-Grade Robustness**:
     -   **Storage-Backed Queue**: Cache queued text to disk to avoid `OutOfMemory` errors on massive playlists.
     -   **JNI Handshake**: Implement explicit teardown/re-init sequence between queued tracks to prevent native race conditions.
     -   **Queue Persistence**: Save the entire playlist to disk so it survives app restarts.

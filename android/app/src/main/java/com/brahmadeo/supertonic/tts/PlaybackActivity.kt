@@ -217,6 +217,17 @@ class PlaybackActivity : AppCompatActivity() {
         bindService(intent, connection, Context.BIND_AUTO_CREATE)
     }
     
+    override fun onResume() {
+        super.onResume()
+        if (isBound && playbackService != null) {
+            try {
+                playbackService?.setListener(playbackListenerStub)
+            } catch (e: RemoteException) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     private fun setupList(text: String) {
         val normalizer = TextNormalizer()
         val sentences = normalizer.splitIntoSentences(text)

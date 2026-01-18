@@ -17,6 +17,11 @@
         android:icon="@android:drawable/ic_menu_recent_history"
         app:showAsAction="ifRoom" />
     <item
+        android:id="@+id/action_queue"
+        android:title="@string/action_queue"
+        android:icon="@android:drawable/ic_menu_sort_by_size"
+        app:showAsAction="ifRoom" />
+    <item
         android:id="@+id/action_lexicon"
         android:title="@string/action_lexicon"
         android:icon="@android:drawable/ic_menu_sort_alphabetically"

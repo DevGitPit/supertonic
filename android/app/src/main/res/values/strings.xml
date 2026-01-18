@@ -25,6 +25,11 @@
     <string name="cancel">Cancel</string>
     <string name="delete">Delete</string>
     <string name="ok">OK</string>
+    <string name="playback_active_title">Playback Active</string>
+    <string name="playback_active_message">Audio is currently playing. Would you like to add this text to the queue or play it immediately?</string>
+    <string name="add_to_queue">Add to Queue</string>
+    <string name="play_now">Play Now</string>
+    <string name="added_to_queue">Added to queue</string>
 
     <!-- Playback Activity -->
     <string name="now_playing_title">Now Playing</string>
@@ -66,6 +71,7 @@
     <string name="action_reset">Reset</string>
     <string name="action_saved">Saved Audio</string>
     <string name="action_history">History</string>
+    <string name="action_queue">Queue</string>
     <string name="action_lexicon">Lexicon</string>
     <string name="action_import">Import JSON</string>
     <string name="action_export">Export JSON</string>
