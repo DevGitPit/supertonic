@@ -1,4 +1,5 @@
 use std::time::{Duration, Instant};
+#[allow(unused_imports)]
 use anyhow::Result;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -170,8 +171,9 @@ pub struct ThermalConfig {
     // Thermal budgets
     pub max_high_power_duration: Duration,
     pub cooldown_duration: Duration,
-    
+
     // Core selection strategy
+    #[allow(dead_code)]
     pub use_prime_core: bool,
     pub sustained_mode_cores: CoreSelection,
 }
@@ -181,7 +183,9 @@ pub enum CoreSelection {
     AllPerf,           // Use all performance cores
     SinglePerf,        // Use 1 performance core
     HybridPerfLittle,  // Mix of perf + little
+    #[allow(dead_code)]
     AllLittle,         // Use all little cores
+    #[allow(dead_code)]
     MinimalLittle,     // Use minimal little cores
 }
 
@@ -444,11 +448,12 @@ impl UnifiedThermalManager {
             }
         }
     }
-    
+
+    #[allow(dead_code)]
     pub fn get_thread_count(&self) -> usize {
         self.get_cores_for_mode().len().max(1)
     }
-    
+
     fn detect_throttling(&self) -> bool {
         if let Some(baseline) = self.baseline_rtf {
             if self.recent_rtf.len() >= 3 {
@@ -463,7 +468,8 @@ impl UnifiedThermalManager {
     pub fn get_soc_class(&self) -> SocClass {
         self.topology.soc_class
     }
-    
+
+    #[allow(dead_code)]
     pub fn get_current_mode(&self) -> ThermalMode {
         self.current_mode
     }

@@ -290,10 +290,11 @@ pub fn sample_noisy_latent(
     (noisy_latent, latent_mask)
 }
 
-// ============================================================================ 
+// ============================================================================
 // WAV File I/O
-// ============================================================================ 
+// ============================================================================
 
+#[allow(dead_code)]
 pub fn write_wav_file<P: AsRef<Path>>(
     filename: P,
     audio_data: &[f32],
@@ -499,10 +500,11 @@ fn split_sentences(text: &str) -> Vec<String> {
     }
 }
 
-// ============================================================================ 
+// ============================================================================
 // Utility Functions
-// ============================================================================ 
+// ============================================================================
 
+#[allow(dead_code)]
 pub fn timer<F, T>(name: &str, f: F) -> Result<T>
 where
     F: FnOnce() -> Result<T>,
@@ -515,6 +517,7 @@ where
     Ok(result)
 }
 
+#[allow(dead_code)]
 pub fn sanitize_filename(text: &str, max_len: usize) -> String {
     // Take first max_len characters (Unicode code points, not bytes)
     text.chars()
@@ -734,6 +737,7 @@ impl TextToSpeech {
         Ok((wav_cat, dur_cat))
     }
 
+    #[allow(dead_code)]
     pub fn batch(
         &mut self,
         text_list: &[String],
