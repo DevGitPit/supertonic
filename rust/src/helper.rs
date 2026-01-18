@@ -208,6 +208,7 @@ pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
     }
 
     // Wrap text with language tags
+    // Reverting to standard wrapping without extra padding as per reference implementation
     text = format!("<{}>{}</{}>", lang, text, lang);
 
     Ok(text)
@@ -610,9 +611,9 @@ impl TextToSpeech {
         let (_, duration_data) = dp_outputs["duration"].try_extract_tensor::<f32>()?;
         let mut duration: Vec<f32> = duration_data.to_vec();
         
-        // Apply speed factor to duration and add safety padding
+        // Apply speed factor to duration
         for dur in duration.iter_mut() {
-            *dur = (*dur / speed) + 0.3;
+            *dur /= speed;
         }
 
         // Encode text
