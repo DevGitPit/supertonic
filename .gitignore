@@ -86,3 +86,4 @@ py/convert_interactive.py
 
 # Dependencies
 cpp/onnxruntime-*/
+android/.kotlin/
