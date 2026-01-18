@@ -208,7 +208,11 @@ document.addEventListener('DOMContentLoaded', function() {
             const el = textInput.querySelector(`.line-wrapper[data-line="${suspect.index}"]`);
             if (el) {
                 el.classList.add('active');
-                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Use scrollTo to avoid scrolling the main page
+                // Since textInput is relative, el.offsetTop is already relative to it
+                const relativeTop = el.offsetTop;
+                const halfHeight = textInput.offsetHeight / 2;
+                textInput.scrollTo({ top: relativeTop - halfHeight, behavior: 'smooth' });
             }
         }
     }
@@ -420,8 +424,11 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   playPauseBtn.addEventListener('click', () => {
+      if (fluffManager.isActive) {
+          fluffManager.exitMode();
+      }
       if (playPauseBtn.classList.contains('playing')) {
-          stopPlayback(); 
+          stopPlayback();
       } else {
           const text = textInput.innerText.trim();
           if (!text) return;
@@ -465,6 +472,8 @@ document.addEventListener('DOMContentLoaded', function() {
   refreshServerBtn.addEventListener('click', checkServerStatus);
   
   sendToAppBtn.addEventListener('click', async () => {
+      // Stop playback immediately when sending
+      stopPlayback();
       statusBadge.textContent = "Processing...";
       let textToSend = textInput.innerText.trim();
       if (!textToSend) {
@@ -655,15 +664,16 @@ document.addEventListener('DOMContentLoaded', function() {
           playPauseBtn.classList.add('playing');
           statusBadge.textContent = paused ? "⏸️ Paused" : "🎧 Playing";
 
-          // Hide Fetch button ONLY if playing (show if paused)
+          // Hide Fetch button if active (Playing OR Paused) - Only Send remains
+          fetchBtn.style.display = 'none';
+
           if (playing) {
-              fetchBtn.style.display = 'none';
               settingsCard.style.opacity = '0.6';
               settingsCard.style.pointerEvents = 'none';
               serverControlsCard.style.opacity = '0.6';
               serverControlsCard.style.pointerEvents = 'none';
           } else {
-              fetchBtn.style.display = 'flex';
+              // Allow settings changes when paused
               settingsCard.style.opacity = '1';
               settingsCard.style.pointerEvents = 'auto';
               serverControlsCard.style.opacity = '1';
@@ -683,7 +693,8 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   function updateCleanBtnVisibility(isPlaying = false, isPaused = false) {
-      if (fluffManager.isActive || isPlaying) {
+      // Hide Clean button if Fluff Mode is active OR if session is active (Playing or Paused)
+      if (fluffManager.isActive || isPlaying || isPaused) {
           cleanBtn.style.display = 'none';
       } else {
           // Check for actual text content, ignoring whitespace/newlines
