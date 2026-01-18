@@ -45,6 +45,18 @@ else
     echo "    ! Warning: $BUILD_GRADLE not found."
 fi
 
+    # 4b. Patch gradle.properties to use system aapt2
+    echo "[4b/6] Configuring gradle.properties for system aapt2..."
+    GRADLE_PROPS="android/gradle.properties"
+    AAPT2_PATH=$(which aapt2)
+    if [ -f "$GRADLE_PROPS" ] && [ -n "$AAPT2_PATH" ]; then
+        # Remove any existing aapt2 override
+        sed -i '/android.aapt2FromMavenOverride/d' "$GRADLE_PROPS"
+        # Append the new override
+        echo "android.aapt2FromMavenOverride=$AAPT2_PATH" >> "$GRADLE_PROPS"
+        echo "    - Set aapt2 override to $AAPT2_PATH"
+    fi
+
 # 5. Patch Rust Config
 echo "[5/6] Patching Rust config for local clang..."
 RUST_CONFIG="rust/.cargo/config.toml"
@@ -57,21 +69,12 @@ EOF
     echo "    - Updated .cargo/config.toml"
 fi
 
-# 6. Pre-emptively fix aapt2 (The Magic Trick)
-echo "[6/6] Applying aapt2 fix..."
-# We run a dry-run build to force Gradle to download the (wrong) aapt2 binary
+# 6. Clean up gradle cache
+echo "[6/6] Cleaning up..."
+# We run a dry-run build to ensure dependencies are downloaded
 echo "    - Triggering Gradle dependency download (ignore failure)..."
 cd android
-./gradlew dependencies || true
-
-echo "    - Replacing x86 aapt2 with system binary..."
-TERMUX_AAPT2=$(which aapt2)
-# Find all aapt2 binaries in gradle cache and replace them
-find "$HOME/.gradle/caches" -name "aapt2" -type f | while read -r file; do
-    echo "      Replacing $file"
-    rm "$file"
-    ln -s "$TERMUX_AAPT2" "$file"
-done
+gradle dependencies || true
 
 echo ""
 echo "=== Setup Complete! ==="

@@ -75,10 +75,21 @@ Voices are treated as "Personas" that work across all supported languages.
 *   **JDK 17**.
 *   **Git LFS** (ensure `assets/` in the project root are downloaded).
 
+### Termux Setup (One-time)
+If building on Termux, run the setup script to install dependencies and configure the environment:
+```bash
+./setup_termux_build.sh
+```
+
 ### Build Commands
 To build the debug APK:
 ```bash
-./gradlew assembleDebug
+# First, ensure JNI libs are compiled
+./compile_jni_libs.sh
+
+# Then build the APK (using system gradle in Termux)
+cd android
+gradle assembleDebug
 ```
 
 ### Setup on Device
