@@ -21,7 +21,16 @@ document.addEventListener('DOMContentLoaded', function() {
   const fetchBtn = document.getElementById('fetchBtn');
   const refreshServerBtn = document.getElementById('refreshServerBtn');
   const sendToAppBtn = document.getElementById('sendToAppBtn');
-  
+
+  // Fluff Controls
+  const cleanBtn = document.getElementById('cleanBtn');
+  const fluffControls = document.getElementById('fluffControls');
+  const prevFluffBtn = document.getElementById('prevFluffBtn');
+  const nextFluffBtn = document.getElementById('nextFluffBtn');
+  const delFluffBtn = document.getElementById('delFluffBtn');
+  const delAllFluffBtn = document.getElementById('delAllFluffBtn');
+  const doneFluffBtn = document.getElementById('doneFluffBtn');
+
   // Progress Bar
   const playbackProgress = document.getElementById('playbackProgress');
   const progressCurrent = document.getElementById('progressCurrent');
@@ -70,11 +79,168 @@ document.addEventListener('DOMContentLoaded', function() {
       el.classList.add('slider-fill');
   }
 
+  // --- Fluff Manager ---
+  class FluffManager {
+    constructor() {
+        this.suspects = [];
+        this.currentIndex = -1;
+        this.originalHtml = '';
+        this.isActive = false;
+    }
+
+    autoClean(text) {
+        let cleaned = text;
+
+        // 1. Top to "Print this page"
+        const printPageRegex = /^[\s\S]*?Print this page/i;
+        if (printPageRegex.test(cleaned)) {
+            cleaned = cleaned.replace(printPageRegex, "").trim();
+        }
+
+        // 2. Bottom from "Copyright The Financial Times" to end
+        const footerRegex = /Copyright The Financial Times[\s\S]*$/i;
+        if (footerRegex.test(cleaned)) {
+            cleaned = cleaned.replace(footerRegex, "").trim();
+        }
+
+        return cleaned;
+    }
+
+    detectSuspects(text) {
+        const suspects = [];
+        const lines = text.split(/\n/);
+        let currentOffset = 0;
+
+        lines.forEach((line, index) => {
+            const trimmed = line.trim();
+            if (!trimmed) {
+                currentOffset += line.length + 1;
+                return;
+            }
+
+            let isSuspect = false;
+            let reason = "";
+
+            // Rule 1: Contains © or Copyright
+            if (trimmed.includes("©") || /Copyright/i.test(trimmed)) {
+                isSuspect = true;
+                reason = "Copyright/Symbol";
+            }
+
+            // Rule 2: "One line fluff"
+            const navKeywords = ["Sign In", "Subscribe", "Menu", "Skip to", "Accessibility help"];
+            if (navKeywords.some(kw => trimmed.toLowerCase().includes(kw.toLowerCase())) && trimmed.length < 50) {
+                 isSuspect = true;
+                 reason = "Navigation Keyword";
+            }
+
+            // Rule 3: Very short lines
+            if (trimmed.length < 20 && !/[.!?]$/.test(trimmed)) {
+                isSuspect = true;
+                reason = "Short Line";
+            }
+
+            if (isSuspect) {
+                suspects.push({
+                    text: line,
+                    trimmed: trimmed,
+                    index: index,
+                    reason: reason
+                });
+            }
+
+            currentOffset += line.length + 1;
+        });
+
+        return suspects;
+    }
+
+    enterMode(text) {
+        this.isActive = true;
+        let cleanedText = this.autoClean(text);
+        this.suspects = this.detectSuspects(cleanedText);
+        this.render(cleanedText);
+        textInput.contentEditable = false;
+        fluffControls.style.display = 'flex';
+        this.currentIndex = this.suspects.length > 0 ? 0 : -1;
+        this.updateHighlight();
+    }
+
+    render(text) {
+        const lines = text.split('\n');
+        const html = lines.map((line, i) => {
+            const isSuspect = this.suspects.some(s => s.index === i);
+            const suspectClass = isSuspect ? 'suspect-fluff' : '';
+            return `<div class="line-wrapper ${suspectClass}" data-line="${i}">${line || '<br>'}</div>`;
+        }).join('');
+        textInput.innerHTML = html;
+    }
+
+    updateHighlight() {
+        const prev = textInput.querySelector('.suspect-fluff.active');
+        if (prev) prev.classList.remove('active');
+
+        if (this.currentIndex >= 0 && this.currentIndex < this.suspects.length) {
+            const suspect = this.suspects[this.currentIndex];
+            const el = textInput.querySelector(`.line-wrapper[data-line="${suspect.index}"]`);
+            if (el) {
+                el.classList.add('active');
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+    }
+
+    next() {
+        if (this.suspects.length === 0) return;
+        this.currentIndex = (this.currentIndex + 1) % this.suspects.length;
+        this.updateHighlight();
+    }
+
+    prev() {
+        if (this.suspects.length === 0) return;
+        this.currentIndex = (this.currentIndex - 1 + this.suspects.length) % this.suspects.length;
+        this.updateHighlight();
+    }
+
+    deleteCurrent() {
+        if (this.currentIndex === -1 || this.suspects.length === 0) return;
+        const suspect = this.suspects[this.currentIndex];
+        const el = textInput.querySelector(`.line-wrapper[data-line="${suspect.index}"]`);
+        if (el) {
+            el.remove();
+            this.suspects.splice(this.currentIndex, 1);
+            if (this.currentIndex >= this.suspects.length) {
+                this.currentIndex = this.suspects.length - 1;
+            }
+            this.updateHighlight();
+        }
+    }
+
+    deleteAll() {
+        const els = textInput.querySelectorAll('.suspect-fluff');
+        els.forEach(el => el.remove());
+        this.suspects = [];
+        this.currentIndex = -1;
+    }
+
+    exitMode() {
+        this.isActive = false;
+        fluffControls.style.display = 'none';
+        textInput.contentEditable = true;
+        const cleanText = textInput.innerText;
+        textInput.innerText = cleanText;
+        chrome.storage.local.set({ savedText: cleanText });
+    }
+  }
+
+  const fluffManager = new FluffManager();
+
   // --- Initialization ---
   
-  // 1. Restore preferences
+      // 1. Restore preferences
   chrome.storage.local.get(['savedText', 'savedSpeed', 'savedStep', 'savedBuffer', 'savedVoice', 'savedEngine', 'savedIndex'], (result) => {
       if (result.savedText) textInput.innerText = result.savedText;
+
       if (result.savedSpeed) { 
           speedRange.value = result.savedSpeed; 
           speedValue.textContent = result.savedSpeed;
@@ -275,7 +441,7 @@ document.addEventListener('DOMContentLoaded', function() {
           } catch (e) {}
       }
       if (!textToSend) return;
-      
+
       const encodedText = encodeURIComponent(textToSend);
       const intentUri = `intent://send?text=${encodedText}#Intent;scheme=supertonic;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;S.android.intent.extra.TEXT=${encodedText};S.browser_fallback_url=https%3A%2F%2Fgithub.com%2F;end`;
       try {
@@ -288,6 +454,20 @@ document.addEventListener('DOMContentLoaded', function() {
           stopPlayback();
       } catch (e) { statusBadge.textContent = "Error"; }
   });
+
+  // Fluff Event Listeners
+  if (cleanBtn) {
+      cleanBtn.addEventListener('click', () => {
+          const text = textInput.innerText;
+          if (!text) return;
+          fluffManager.enterMode(text);
+      });
+  }
+  if (prevFluffBtn) prevFluffBtn.addEventListener('click', () => fluffManager.prev());
+  if (nextFluffBtn) nextFluffBtn.addEventListener('click', () => fluffManager.next());
+  if (delFluffBtn) delFluffBtn.addEventListener('click', () => fluffManager.deleteCurrent());
+  if (delAllFluffBtn) delAllFluffBtn.addEventListener('click', () => fluffManager.deleteAll());
+  if (doneFluffBtn) doneFluffBtn.addEventListener('click', () => fluffManager.exitMode());
 
   // --- Functions ---
 
