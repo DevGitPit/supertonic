@@ -318,5 +318,35 @@ class TextNormalizer {
             }
             restored.trim()
         }.filter { it.isNotEmpty() }
+
+        // Chunking Logic: Accumulate sentences up to MAX_LENGTH (300)
+        val chunkedSentences = mutableListOf<String>()
+        var currentChunk = StringBuilder()
+        val CHUNK_LIMIT = 300
+
+        for (sentence in refinedSentences) {
+            if (currentChunk.length + sentence.length + 1 <= CHUNK_LIMIT) {
+                if (currentChunk.isNotEmpty()) {
+                    currentChunk.append(" ")
+                }
+                currentChunk.append(sentence)
+            } else {
+                if (currentChunk.isNotEmpty()) {
+                    chunkedSentences.add(currentChunk.toString())
+                    currentChunk.clear()
+                }
+                // If a single sentence is huge (handled above but safety check), add it
+                if (sentence.length > CHUNK_LIMIT) {
+                    chunkedSentences.add(sentence)
+                } else {
+                    currentChunk.append(sentence)
+                }
+            }
+        }
+        if (currentChunk.isNotEmpty()) {
+            chunkedSentences.add(currentChunk.toString())
+        }
+
+        return chunkedSentences
     }
 }

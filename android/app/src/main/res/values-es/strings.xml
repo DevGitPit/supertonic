@@ -2,7 +2,7 @@
     <string name="app_name">Supertonic TTS</string>
     
     <!-- Main Activity -->
-    <string name="default_input_text">¡Hola mundo! Este es Supertonic TTS en Android. ¡Selecciona una voz y velocidad abajo!</string>
+    <string name="default_input_text">Hola mundo, esto es Supertonic TTS en Android. ¡Selecciona una voz y velocidad abajo!</string>
     <string name="voice_style_label">Estilo de Voz</string>
     <string name="speed_label">Velocidad</string>
     <string name="quality_label">Calidad</string>

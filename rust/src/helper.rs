@@ -124,7 +124,8 @@ pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
     // Revert to NFKD normalization as required for Korean Jamo decomposition
     let mut text: String = text.nfkd().collect();
 
-    // Remove emojis (wide Unicode range)
+    if lang == "en" {
+        // Remove emojis (wide Unicode range)
     let emoji_pattern = Regex::new(r"[\x{1F600}-\x{1F64F}\x{1F300}-\x{1F5FF}\x{1F680}-\x{1F6FF}\x{1F700}-\x{1F77F}\x{1F780}-\x{1F7FF}\x{1F800}-\x{1F8FF}\x{1F900}-\x{1F9FF}\x{1FA00}-\x{1FA6F}\x{1FA70}-\x{1FAFF}\x{2600}-\x{26FF}\x{2700}-\x{27BF}\x{1F1E6}-\x{1F1FF}]+").unwrap();
     text = emoji_pattern.replace_all(&text, "").to_string();
 
@@ -201,15 +202,17 @@ pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
             text.push('.');
         }
     }
-
-    // Validate language
-    if !is_valid_lang(lang) {
-        bail!("Invalid language: {}. Available: {:?}", lang, AVAILABLE_LANGS);
     }
 
-    // Wrap text with language tags
-    // Reverting to standard wrapping without extra padding as per reference implementation
-    text = format!("<{}>{}</{}>", lang, text, lang);
+    // Validate language
+    // if !is_valid_lang(lang) {
+    //    bail!("Invalid language: {}. Available: {:?}", lang, AVAILABLE_LANGS);
+    // }
+
+    // Wrap text with language tags - V2 needs tags, V1 (English) does not
+    if lang != "en" {
+        text = format!("<{}>{}</{}>", lang, text, lang);
+    }
 
     Ok(text)
 }
@@ -709,11 +712,16 @@ impl TextToSpeech {
                 return Err(anyhow::anyhow!("Synthesis cancelled by user"));
             }
             
-            let (wav, _) = self._infer(&[chunk.clone()], &[lang.to_string()], style, total_step, speed)?;
-            
-            // Use full vocoder output to prevent cutting off tails/words
-            let wav_chunk = wav.as_slice();
-            let dur = wav_chunk.len() as f32 / self.sample_rate as f32;
+            let (wav, duration) = self._infer(&[chunk.clone()], &[lang.to_string()], style, total_step, speed)?;
+
+            // Truncate audio based on predicted duration to remove trailing silence
+            let dur = duration[0];
+            let sample_count = (dur * self.sample_rate as f32) as usize;
+            let wav_chunk = if sample_count < wav.len() {
+                &wav[..sample_count]
+            } else {
+                &wav[..]
+            };
 
             // Send audio chunk
             if !callback(i, num_chunks, Some(wav_chunk)) {

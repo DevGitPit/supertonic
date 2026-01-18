@@ -47,7 +47,7 @@ class MainActivity : ComponentActivity() {
     private var selectedVoiceFile2State = mutableStateOf("M2.json")
     private var isMixingEnabledState = mutableStateOf(false)
     private var mixAlphaState = mutableFloatStateOf(0.5f)
-    private var currentSpeedState = mutableFloatStateOf(1.05f)
+    private var currentSpeedState = mutableFloatStateOf(1.1f)
     private var currentStepsState = mutableIntStateOf(5)
 
     // Mini Player State
@@ -58,12 +58,14 @@ class MainActivity : ComponentActivity() {
     // Data
     private val voiceFiles = mutableStateMapOf<String, String>()
     private val languages = mapOf(
-        "Auto (English)" to "en",
+        "English" to "en",
         "French" to "fr",
         "Portuguese" to "pt",
         "Spanish" to "es",
         "Korean" to "ko"
     )
+
+    private var currentModelVersion = "v1" // "v1" or "v2"
 
     // Service
     private var playbackService: IPlaybackService? = null
@@ -140,20 +142,24 @@ class MainActivity : ComponentActivity() {
         LexiconManager.load(this)
         QueueManager.initialize(this)
 
+        // Initial setup
+        val savedLang = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).getString("selected_lang", "en") ?: "en"
+        currentModelVersion = if (savedLang == "en") "v1" else "v2"
+
         // Asset Copy Task
         CoroutineScope(Dispatchers.IO).launch {
-            val modelPath = copyAssets()
+            copyAssets() // Now copies both v1 and v2
             withContext(Dispatchers.Main) {
                 setupVoicesMap()
             }
 
+            val modelPath = File(filesDir, "$currentModelVersion/onnx").absolutePath
             val libPath = applicationInfo.nativeLibraryDir + "/libonnxruntime.so"
 
-            if (modelPath != null) {
-                if (SupertonicTTS.initialize(modelPath, libPath)) {
-                    withContext(Dispatchers.Main) {
-                        isSynthesizingState.value = false // Enable button
-                    }
+            // Initialize with the correct model based on saved language
+            if (SupertonicTTS.initialize(modelPath, libPath)) {
+                withContext(Dispatchers.Main) {
+                    isSynthesizingState.value = false // Enable button
                 }
             }
         }
@@ -183,12 +189,17 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
+                // Get localized placeholder
+                val placeholder = getLocalizedResource(this, currentLangState.value, R.string.default_input_text)
+
                 MainScreen(
                     inputText = inputTextState.value,
                     onInputTextChange = { inputTextState.value = it },
+                    placeholderText = placeholder,
                     isSynthesizing = isSynthesizingState.value,
                     onSynthesizeClick = {
-                        if (inputTextState.value.isNotEmpty()) generateAndPlay(inputTextState.value)
+                        val textToPlay = inputTextState.value.ifEmpty { placeholder }
+                        generateAndPlay(textToPlay)
                     },
 
                     languages = languages,
@@ -196,6 +207,11 @@ class MainActivity : ComponentActivity() {
                     onLangChange = {
                         currentLangState.value = it
                         saveStringPref("selected_lang", it)
+                        
+                        val newVersion = if (it == "en") "v1" else "v2"
+                        if (newVersion != currentModelVersion) {
+                            switchModel(newVersion)
+                        }
                     },
 
                     voices = voiceFiles,
@@ -266,6 +282,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun getLocalizedResource(context: Context, localeCode: String, resId: Int): String {
+        val locale = java.util.Locale(localeCode)
+        val config = android.content.res.Configuration(context.resources.configuration)
+        config.setLocale(locale)
+        val localizedContext = context.createConfigurationContext(config)
+        return localizedContext.getString(resId)
+    }
+
     private fun loadPreferences() {
         val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
         currentStepsState.intValue = prefs.getInt("diffusion_steps", 5)
@@ -304,7 +328,8 @@ class MainActivity : ComponentActivity() {
             voiceFiles[getString(resId)] = filename
         }
 
-        val voiceDir = File(filesDir, "voice_styles")
+        // Check v1 dir for default listing (assuming same names in v2)
+        val voiceDir = File(filesDir, "v1/voice_styles")
         if (voiceDir.exists()) {
             val files = voiceDir.listFiles { _, name -> name.endsWith(".json") }
             files?.forEach { file ->
@@ -316,54 +341,76 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun copyAssets(): String? {
-        val filesDir = filesDir
-        val targetDir = File(filesDir, "onnx")
-        if (!targetDir.exists()) targetDir.mkdirs()
-
-        try {
-            val assetManager = assets
-            val onnxFiles = assetManager.list("onnx") ?: return null
-            for (filename in onnxFiles) {
-                val file = File(targetDir, filename)
-                val inFile = assetManager.open("onnx/$filename")
-                val outStream = FileOutputStream(file)
-                inFile.copyTo(outStream)
-                inFile.close()
-                outStream.close()
+    private fun copyAssets() {
+        val assetManager = assets
+        
+        fun copyDir(assetPath: String, targetDir: File) {
+            if (!targetDir.exists()) targetDir.mkdirs()
+            val files = assetManager.list(assetPath) ?: return
+            for (filename in files) {
+                val fullAssetPath = "$assetPath/$filename"
+                val subFiles = assetManager.list(fullAssetPath)
+                if (subFiles != null && subFiles.isNotEmpty()) {
+                    copyDir(fullAssetPath, File(targetDir, filename))
+                } else {
+                    val file = File(targetDir, filename)
+                    try {
+                        val inFile = assetManager.open(fullAssetPath)
+                        val outStream = FileOutputStream(file)
+                        inFile.copyTo(outStream)
+                        inFile.close()
+                        outStream.close()
+                    } catch (e: IOException) {
+                        // Ignore errors
+                    }
+                }
             }
+        }
 
-            val styleDir = File(filesDir, "voice_styles")
-            if (!styleDir.exists()) styleDir.mkdirs()
-            val styleFiles = assetManager.list("voice_styles") ?: emptyArray()
-             for (filename in styleFiles) {
-                val file = File(styleDir, filename)
-                val inFile = assetManager.open("voice_styles/$filename")
-                val outStream = FileOutputStream(file)
-                inFile.copyTo(outStream)
-                inFile.close()
-                outStream.close()
+        // Copy v1 and v2 folders
+        copyDir("v1", File(filesDir, "v1"))
+        copyDir("v2", File(filesDir, "v2"))
+    }
+
+    private fun switchModel(version: String) {
+        if (currentModelVersion == version) return
+        
+        currentModelVersion = version
+        isSynthesizingState.value = true // Disable UI during switch
+        
+        CoroutineScope(Dispatchers.IO).launch {
+            SupertonicTTS.release()
+            
+            val modelPath = File(filesDir, "$version/onnx").absolutePath
+            val libPath = applicationInfo.nativeLibraryDir + "/libonnxruntime.so"
+            
+            if (SupertonicTTS.initialize(modelPath, libPath)) {
+                withContext(Dispatchers.Main) {
+                    isSynthesizingState.value = false
+                    Toast.makeText(this@MainActivity, "Switched to model $version", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Failed to switch model", Toast.LENGTH_SHORT).show()
+                }
             }
-            return targetDir.absolutePath
-        } catch (e: IOException) {
-            return null
         }
     }
 
     private fun generateAndPlay(text: String) {
-        var stylePath = File(filesDir, "voice_styles/${selectedVoiceFileState.value}").absolutePath
+        var stylePath = File(filesDir, "$currentModelVersion/voice_styles/${selectedVoiceFileState.value}").absolutePath
         if (!File(stylePath).exists()) {
              Toast.makeText(this, "Voice style not found", Toast.LENGTH_SHORT).show()
              return
         }
 
         if (isMixingEnabledState.value) {
-            val stylePath2 = File(filesDir, "voice_styles/${selectedVoiceFile2State.value}").absolutePath
+            val stylePath2 = File(filesDir, "$currentModelVersion/voice_styles/${selectedVoiceFile2State.value}").absolutePath
             if (File(stylePath2).exists()) {
                 stylePath = "$stylePath;$stylePath2;${mixAlphaState.value}"
             }
         }
-
+        
         // Generate friendly voice name
         val v1Name = voiceFiles.entries.find { it.value == selectedVoiceFileState.value }?.key ?: "Voice 1"
         val v2Name = voiceFiles.entries.find { it.value == selectedVoiceFile2State.value }?.key ?: "Voice 2"
@@ -384,9 +431,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun addToQueue(text: String) {
-        var stylePath = File(filesDir, "voice_styles/${selectedVoiceFileState.value}").absolutePath
+        var stylePath = File(filesDir, "$currentModelVersion/voice_styles/${selectedVoiceFileState.value}").absolutePath
         if (isMixingEnabledState.value) {
-            val stylePath2 = File(filesDir, "voice_styles/${selectedVoiceFile2State.value}").absolutePath
+            val stylePath2 = File(filesDir, "$currentModelVersion/voice_styles/${selectedVoiceFile2State.value}").absolutePath
             stylePath = "$stylePath;$stylePath2;${mixAlphaState.value}"
         }
 
@@ -406,9 +453,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun playNow(text: String) {
-        var stylePath = File(filesDir, "voice_styles/${selectedVoiceFileState.value}").absolutePath
+        var stylePath = File(filesDir, "$currentModelVersion/voice_styles/${selectedVoiceFileState.value}").absolutePath
         if (isMixingEnabledState.value) {
-            val stylePath2 = File(filesDir, "voice_styles/${selectedVoiceFile2State.value}").absolutePath
+            val stylePath2 = File(filesDir, "$currentModelVersion/voice_styles/${selectedVoiceFile2State.value}").absolutePath
             stylePath = "$stylePath;$stylePath2;${mixAlphaState.value}"
         }
         launchPlaybackActivity(text, stylePath)

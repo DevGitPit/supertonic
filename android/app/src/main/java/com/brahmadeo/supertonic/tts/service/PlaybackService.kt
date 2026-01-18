@@ -148,7 +148,9 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
             isActive = true
         }
 
-        val modelPath = File(filesDir, "onnx").absolutePath
+        val savedLang = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).getString("selected_lang", "en") ?: "en"
+        val modelVersion = if (savedLang == "en") "v1" else "v2"
+        val modelPath = File(filesDir, "$modelVersion/onnx").absolutePath
         val libPath = applicationInfo.nativeLibraryDir + "/libonnxruntime.so"
         SupertonicTTS.initialize(modelPath, libPath)
     }
@@ -158,7 +160,9 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
             stopPlayback()
         } else if (intent?.action == "RESET_ENGINE") {
             SupertonicTTS.release()
-            val modelPath = File(filesDir, "onnx").absolutePath
+            val savedLang = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).getString("selected_lang", "en") ?: "en"
+            val modelVersion = if (savedLang == "en") "v1" else "v2"
+            val modelPath = File(filesDir, "$modelVersion/onnx").absolutePath
             val libPath = applicationInfo.nativeLibraryDir + "/libonnxruntime.so"
             SupertonicTTS.initialize(modelPath, libPath)
         }
@@ -219,11 +223,12 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
                         if (SupertonicTTS.isCancelled() || !isActive || !isSynthesizing) break
 
                         val sentence = sentences[index]
-                        
+
                         // Per-sentence granular detection
-                        val sentenceLang = LanguageDetector.detect(sentence, lang)
+                        // val sentenceLang = LanguageDetector.detect(sentence, lang)
+                        val sentenceLang = lang // Strict enforcement as per requirement
                         val normalizedText = textNormalizer.normalize(sentence, sentenceLang)
-                        
+
                         val audioData = SupertonicTTS.generateAudio(normalizedText, sentenceLang, stylePath, speed, 0.0f, steps, null)
                         
                         if (audioData != null && audioData.isNotEmpty()) {
@@ -432,7 +437,8 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
                     var success = true
                     for (sentence in sentences) {
                         if (!isActive) { success = false; break }
-                        val sentenceLang = LanguageDetector.detect(sentence, lang)
+                        // val sentenceLang = LanguageDetector.detect(sentence, lang)
+                        val sentenceLang = lang
                         val normalizedText = textNormalizer.normalize(sentence, sentenceLang)
                         val audioData = SupertonicTTS.generateAudio(normalizedText, sentenceLang, stylePath, speed, 0.0f, steps, null)
                         if (audioData != null) {

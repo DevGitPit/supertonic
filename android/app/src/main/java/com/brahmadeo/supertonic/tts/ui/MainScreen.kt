@@ -13,15 +13,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.brahmadeo.supertonic.tts.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     inputText: String,
     onInputTextChange: (String) -> Unit,
+    placeholderText: String,
     isSynthesizing: Boolean,
     onSynthesizeClick: () -> Unit,
 
@@ -80,7 +84,11 @@ fun MainScreen(
                         DropdownMenuItem(text = { Text("Saved Audio") }, onClick = { showMenu = false; onSavedAudioClick() })
                         DropdownMenuItem(text = { Text("History") }, onClick = { showMenu = false; onHistoryClick() })
                         DropdownMenuItem(text = { Text("Queue") }, onClick = { showMenu = false; onQueueClick() })
-                        DropdownMenuItem(text = { Text("Lexicon") }, onClick = { showMenu = false; onLexiconClick() })
+                        DropdownMenuItem(
+                            text = { Text("Lexicon") },
+                            onClick = { showMenu = false; onLexiconClick() },
+                            enabled = currentLangCode == "en"
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -109,13 +117,20 @@ fun MainScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // Text Input
+                var isFocused by remember { mutableStateOf(false) }
                 OutlinedTextField(
                     value = inputText,
                     onValueChange = onInputTextChange,
-                    label = { Text("Enter text") },
+                    placeholder = {
+                        if (!isFocused) {
+                            Text(placeholderText)
+                        }
+                    },
+                    label = { Text("Input") },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 200.dp),
+                        .heightIn(min = 200.dp)
+                        .onFocusChanged { isFocused = it.isFocused },
                     maxLines = 10
                 )
 
@@ -187,8 +202,8 @@ fun MainScreen(
                             Slider(
                                 value = speed,
                                 onValueChange = onSpeedChange,
-                                valueRange = 0.5f..2.0f,
-                                steps = 29
+                                valueRange = 0.9f..1.5f,
+                                steps = 11
                             )
                         }
 
