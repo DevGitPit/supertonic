@@ -1,5 +1,7 @@
 // offscreen.js - Fixed for Android Background Playback
 
+const LOG_PREFIX = '[Supertonic Offscreen]';
+
 // --- State ---
 let audioContext = null;
 let isStreaming = false;
@@ -74,6 +76,15 @@ async function initAudioContext() {
     const AudioCtor = window.AudioContext || window.webkitAudioContext;
     if (!audioContext) {
         audioContext = new AudioCtor({ sampleRate: 44100 });
+
+        // Listen for OS interruptions (e.g., incoming call, other media apps)
+        audioContext.onstatechange = () => {
+            console.log(`${LOG_PREFIX} AudioContext state changed to: ${audioContext.state}`);
+            if (audioContext.state === 'suspended' && isStreaming && !isPaused) {
+                // OS forced pause -> Update UI to paused state
+                pausePlayback();
+            }
+        };
     }
     if (audioContext.state === 'suspended') {
         await audioContext.resume();
@@ -101,17 +112,28 @@ async function createKeepAliveAudio() {
         
         const streamDestination = audioContext.createMediaStreamDestination();
         workletNode.connect(streamDestination);
-        
+
         silenceAudioElement = document.getElementById('silenceAnchor');
         if (silenceAudioElement) {
             silenceAudioElement.srcObject = streamDestination.stream;
-            silenceAudioElement.volume = 0.0; // Mute the silence stream
-            silenceAudioElement.muted = true;
+            // CRITICAL FIX: Volume must be > 0 and muted must be false for background playback
+            silenceAudioElement.volume = 0.0001;
+            silenceAudioElement.muted = false;
             silenceAudioElement.loop = true;
             silenceAudioElement.setAttribute('playsinline', '');
             silenceAudioElement.setAttribute('webkit-playsinline', '');
+
+            // Listen for OS/Browser pausing the audio
+            silenceAudioElement.addEventListener('pause', () => {
+                if (isStreaming && !isPaused) {
+                    console.log(`${LOG_PREFIX} Silence element paused by OS -> Updating state`);
+                    pausePlayback();
+                }
+            });
+
+            try { await silenceAudioElement.play(); } catch(e) {}
         }
-        
+
         keepAliveWorklet = workletNode;
     } catch (e) {
         setupLegacyKeepAlive();

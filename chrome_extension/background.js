@@ -5,12 +5,10 @@ console.log('[BACKGROUND] Service worker started at', new Date().toISOString());
 
 const SERVER_URL = 'http://127.0.0.1:8080';
 const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
-const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 let creatingPromise = null;
 let creationTimeout = null;
 let activePollIntervals = new Set();
-let idleTimer = null;
 
 // Connection health check state
 let serverAvailable = false;
@@ -27,15 +25,15 @@ async function safeRuntimeMessage(message, retries = 3, delay = 100) {
       return await chrome.runtime.sendMessage(message);
     } catch (error) {
       const errorMsg = error.message || '';
-      const isRetryable = errorMsg.includes('Could not establish connection') || 
+      const isRetryable = errorMsg.includes('Could not establish connection') ||
                          errorMsg.includes('Receiving end does not exist');
-      
+
       if (isRetryable && i < retries - 1) {
         console.log(`[BACKGROUND] Message retry ${i + 1}/${retries} for ${message.type}...`);
         await new Promise(resolve => setTimeout(resolve, delay * (i + 1)));
         continue;
       }
-      
+
       if (!isRetryable && !errorMsg.includes('Receiving end does not exist')) {
         console.warn('[BACKGROUND] Non-retryable message error:', error.message);
       }
@@ -45,24 +43,16 @@ async function safeRuntimeMessage(message, retries = 3, delay = 100) {
   return null;
 }
 
-function resetIdleTimer() {
-    if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = setTimeout(async () => {
-        console.log('[BACKGROUND] Idle timeout reached, closing offscreen');
-        await closeOffscreen();
-    }, IDLE_TIMEOUT);
-}
-
 async function closeOffscreen() {
     try {
         await safeRuntimeMessage({ type: 'CLEANUP' });
         // Small delay to allow offscreen to receive cleanup signal
         await new Promise(resolve => setTimeout(resolve, 300));
-        
+
         const existingContexts = await chrome.runtime.getContexts({
             contextTypes: ['OFFSCREEN_DOCUMENT']
         });
-        
+
         if (existingContexts.length > 0) {
             await chrome.offscreen.closeDocument();
             console.log('[BACKGROUND] Offscreen closed');
@@ -184,7 +174,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // Ensure offscreen is ready
         await new Promise(resolve => setTimeout(resolve, 200));
         await safeRuntimeMessage({ type: 'ACT_STREAM', payload: request.payload });
-        resetIdleTimer();
         sendResponse({ status: 'started' });
       } catch (err) {
         console.error('[BACKGROUND] CMD_START_STREAM error:', err);
@@ -193,14 +182,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     })();
     return true;
   }
-  
+
   // --- HANDLER: STOP ---
   if (request.type === 'CMD_STOP' || request.type === 'CMD_FORCE_CLEANUP') {
     (async () => {
       clearAllIntervals();
       chrome.tts.stop();
       await safeRuntimeMessage({ type: 'ACT_STOP' });
-      resetIdleTimer();
       if (request.type === 'CMD_FORCE_CLEANUP') await closeOffscreen();
       sendResponse({ status: 'stopped' });
     })();
@@ -210,7 +198,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // --- HANDLER: PROGRESS TRACKING ---
   if (request.type === 'UPDATE_PROGRESS') {
       chrome.storage.local.set({ savedIndex: request.index });
-      resetIdleTimer();
       return false;
   }
 
@@ -222,7 +209,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.type === 'CMD_TTS_SPEAK') {
-    resetIdleTimer();
     handleSystemTTS(request);
     sendResponse({ status: 'queued' });
     return true;
@@ -298,13 +284,6 @@ function handleSystemTTS(request) {
 // ==========================================
 // 7. LIFECYCLE
 // ==========================================
-
-// Close offscreen when extension is disabled
-if (chrome.management && chrome.management.onDisabled) {
-    chrome.management.onDisabled.addListener(async (info) => {
-      if (info.id === chrome.runtime.id) await closeOffscreen();
-    });
-}
 
 // Proper way to handle suspension in Chrome Extensions
 chrome.runtime.onSuspend.addListener(async () => {
