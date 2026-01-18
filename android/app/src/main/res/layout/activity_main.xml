@@ -114,6 +114,68 @@
                             android:text="M1 - Lively" />
                     </com.google.android.material.textfield.TextInputLayout>
 
+                    <!-- Voice Mixing Controls -->
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/mixSwitch"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/mix_voices_label"
+                        android:layout_marginBottom="8dp" />
+
+                    <LinearLayout
+                        android:id="@+id/mixingControls"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginBottom="12dp"
+                            android:hint="@string/voice_style_2_label">
+
+                            <AutoCompleteTextView
+                                android:id="@+id/voiceSpinner2"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="none"
+                                android:text="M2 - Deep" />
+                        </com.google.android.material.textfield.TextInputLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/mix_ratio_label"
+                                android:textAppearance="?attr/textAppearanceTitleSmall"/>
+
+                            <TextView
+                                android:id="@+id/mixValue"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:gravity="end"
+                                android:text="50%"
+                                android:textAppearance="?attr/textAppearanceLabelLarge"/>
+                        </LinearLayout>
+
+                        <com.google.android.material.slider.Slider
+                            android:id="@+id/mixSlider"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:valueFrom="0.0"
+                            android:valueTo="1.0"
+                            android:stepSize="0.1"
+                            android:value="0.5"/>
+                    </LinearLayout>
+
                     <!-- Speed Control -->
                     <LinearLayout
                         android:layout_width="match_parent"

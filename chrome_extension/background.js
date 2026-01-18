@@ -282,11 +282,21 @@ function handleSystemTTS(request) {
 }
 
 // ==========================================
-// 7. LIFECYCLE
+// 8. CONTEXT MENU
 // ==========================================
 
-// Proper way to handle suspension in Chrome Extensions
-chrome.runtime.onSuspend.addListener(async () => {
-  console.log('[BACKGROUND] Suspending, cleaning up');
-  await closeOffscreen();
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: "send-to-supertonic",
+    title: "Send to Supertonic TTS",
+    contexts: ["selection"]
+  });
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === "send-to-supertonic" && info.selectionText) {
+    chrome.storage.local.set({ savedText: info.selectionText }, () => {
+      console.log('[BACKGROUND] Saved selected text to storage');
+    });
+  }
 });

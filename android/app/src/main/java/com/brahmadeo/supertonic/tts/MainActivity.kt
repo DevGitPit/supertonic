@@ -51,9 +51,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var miniPlayerCard: com.google.android.material.card.MaterialCardView
     private lateinit var miniPlayerText: TextView
     private lateinit var miniPlayerPlayPause: com.google.android.material.button.MaterialButton
+    private lateinit var mixSwitch: com.google.android.material.materialswitch.MaterialSwitch
+    private lateinit var mixingControls: View
+    private lateinit var voiceSpinner2: AutoCompleteTextView
+    private lateinit var mixSlider: Slider
+    private lateinit var mixValue: TextView
 
     private var currentSteps = 5
     private var selectedVoiceFile = "M1.json"
+    private var selectedVoiceFile2 = "M2.json"
+    private var isMixingEnabled = false
+    private var mixAlpha = 0.5f
     private var currentLang = "en"
     private var currentSpeed = 1.05f
 
@@ -148,6 +156,11 @@ class MainActivity : AppCompatActivity() {
         miniPlayerCard = findViewById(R.id.miniPlayerCard)
         miniPlayerText = findViewById(R.id.miniPlayerText)
         miniPlayerPlayPause = findViewById(R.id.miniPlayerPlayPause)
+        mixSwitch = findViewById(R.id.mixSwitch)
+        mixingControls = findViewById(R.id.mixingControls)
+        voiceSpinner2 = findViewById(R.id.voiceSpinner2)
+        mixSlider = findViewById(R.id.mixSlider)
+        mixValue = findViewById(R.id.mixValue)
 
         miniPlayerCard.setOnClickListener {
             val intent = Intent(this, PlaybackActivity::class.java)
@@ -219,6 +232,7 @@ class MainActivity : AppCompatActivity() {
         setupLangSpinner()
         setupSpeedControl()
         setupQualityControl()
+        setupVoiceMixing()
         checkNotificationPermission()
 
         // Explicitly disable and show loading state
@@ -387,6 +401,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupVoiceMixing() {
+        mixSwitch.setOnCheckedChangeListener { _, isChecked ->
+            isMixingEnabled = isChecked
+            mixingControls.visibility = if (isChecked) View.VISIBLE else View.GONE
+        }
+
+        mixSlider.addOnChangeListener { _, value, _ ->
+            mixAlpha = value
+            val percent = (mixAlpha * 100).toInt()
+            mixValue.text = "$percent%"
+        }
+    }
+
     private fun setupVoiceSpinner() {
         voiceFiles.clear()
         
@@ -424,28 +451,47 @@ class MainActivity : AppCompatActivity() {
         val voiceNames = voiceFiles.keys.toList().sorted()
         val adapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, voiceNames)
         voiceSpinner.setAdapter(adapter)
-        
+        voiceSpinner2.setAdapter(adapter)
+
         val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
         val savedFile = prefs.getString("selected_voice", "M1.json")
         val savedName = voiceFiles.entries.find { it.value == savedFile }?.key ?: voiceNames.firstOrNull()
-        
+
         if (savedName != null) {
             voiceSpinner.setText(savedName, false)
             selectedVoiceFile = voiceFiles[savedName] ?: "M1.json"
         }
 
+        // Setup second spinner default (try to pick different from first if possible, or just M2)
+        val savedFile2 = prefs.getString("selected_voice_2", "M2.json")
+        val savedName2 = voiceFiles.entries.find { it.value == savedFile2 }?.key ?: voiceNames.getOrElse(1) { voiceNames.first() }
+
+        if (savedName2 != null) {
+            voiceSpinner2.setText(savedName2, false)
+            selectedVoiceFile2 = voiceFiles[savedName2] ?: "M2.json"
+        }
+
         voiceSpinner.onItemClickListener = AdapterView.OnItemClickListener { _, _, position, _ ->
             val name = voiceNames[position]
             val newVoice = voiceFiles[name] ?: "M1.json"
-            
+
             if (selectedVoiceFile != newVoice) {
                 selectedVoiceFile = newVoice
                 getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
                     .edit().putString("selected_voice", selectedVoiceFile).apply()
-                
+
+                // Only reset if NOT mixing, or maybe just let it be.
+                // With mixing, we might not need to reset engine strictly, but safe to do so.
                 val resetIntent = Intent(this, PlaybackService::class.java).apply { action = "RESET_ENGINE" }
                 startService(resetIntent)
             }
+        }
+
+        voiceSpinner2.onItemClickListener = AdapterView.OnItemClickListener { _, _, position, _ ->
+            val name = voiceNames[position]
+            selectedVoiceFile2 = voiceFiles[name] ?: "M2.json"
+            getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
+                .edit().putString("selected_voice_2", selectedVoiceFile2).apply()
         }
     }
 
@@ -491,14 +537,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun generateAndPlay(text: String) {
-        val stylePath = File(filesDir, "voice_styles/$selectedVoiceFile").absolutePath
+        var stylePath = File(filesDir, "voice_styles/$selectedVoiceFile").absolutePath
 
         if (!File(stylePath).exists()) {
              toolbar.subtitle = "Error: Voice style not found"
              return
         }
 
-        val voiceName = voiceSpinner.text.toString()
+        // Dynamic Voice Mixing Logic
+        if (isMixingEnabled) {
+            val stylePath2 = File(filesDir, "voice_styles/$selectedVoiceFile2").absolutePath
+            if (File(stylePath2).exists()) {
+                // Construct mixed path string: path1;path2;alpha
+                stylePath = "$stylePath;$stylePath2;$mixAlpha"
+            }
+        }
+
+        val voiceName = if (isMixingEnabled) {
+            "Mixed: ${voiceSpinner.text} + ${voiceSpinner2.text}"
+        } else {
+            voiceSpinner.text.toString()
+        }
+
         HistoryManager.saveItem(this, text, voiceName)
 
         try {
