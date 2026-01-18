@@ -409,10 +409,13 @@ class TextNormalizer {
             { pattern: /\b(Prof|Dr|Mr|Mrs|Ms)\.\s+/g, replacement: (match, title) => {
                 const titleMap = { 'Prof': 'Professor ', 'Dr': 'Doctor ', 'Mr': 'Mister ', 'Mrs': 'Missus ', 'Ms': 'Miss ' };
                 return titleMap[title];
-            }}
+            }},
+            // EM DASH NORMALIZATION
+            // Replace em dashes with comma to prevent hard pauses/sentence splitting
+            { pattern: /\s*[—]\s*/g, replacement: ', ' }
         ];
     }
-    
+
     normalize(text) {
         let normalized = text.replace(/([a-z])\.([A-Z])/g, '$1. $2').replace(/([a-z])([A-Z])/g, '$1 $2');
         normalized = this.currencyNormalizer.normalize(normalized);
@@ -581,7 +584,7 @@ function splitIntoSentences(text) {
     abbreviations.forEach((abbr, index) => {
         protectedText = protectedText.replace(new RegExp(abbr.replace('.', '\\.'), 'gi'), `__ABBR${index}__`);
     });
-    const sentenceRegex = /(?<=[.!?]['"”’)\}\]]*)\s+(?=['"“‘\(\{\[]*[A-Z])|(?<=[;—])\s+/;
+    const sentenceRegex = /(?<=[.!?]['"”’)\}\]]*)\s+(?=['"“‘\(\{\[]*[A-Z])|(?<=[;])\s+/;
     return protectedText.split(sentenceRegex).map((s, i) => {
         let restored = s.trim();
         abbreviations.forEach((abbr, index) => { restored = restored.replace(new RegExp(`__ABBR${index}__`, 'g'), abbr); });
