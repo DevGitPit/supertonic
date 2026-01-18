@@ -654,11 +654,21 @@ document.addEventListener('DOMContentLoaded', function() {
           stopIcon.style.display = 'block';
           playPauseBtn.classList.add('playing');
           statusBadge.textContent = paused ? "⏸️ Paused" : "🎧 Playing";
-          fetchBtn.style.display = 'none';
-          settingsCard.style.opacity = '0.6';
-          settingsCard.style.pointerEvents = 'none';
-          serverControlsCard.style.opacity = '0.6';
-          serverControlsCard.style.pointerEvents = 'none';
+
+          // Hide Fetch button ONLY if playing (show if paused)
+          if (playing) {
+              fetchBtn.style.display = 'none';
+              settingsCard.style.opacity = '0.6';
+              settingsCard.style.pointerEvents = 'none';
+              serverControlsCard.style.opacity = '0.6';
+              serverControlsCard.style.pointerEvents = 'none';
+          } else {
+              fetchBtn.style.display = 'flex';
+              settingsCard.style.opacity = '1';
+              settingsCard.style.pointerEvents = 'auto';
+              serverControlsCard.style.opacity = '1';
+              serverControlsCard.style.pointerEvents = 'auto';
+          }
       } else {
           playIcon.style.display = 'block';
           stopIcon.style.display = 'none';
