@@ -128,13 +128,13 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             // Rule 2: "One line fluff"
-            const navKeywords = ["Sign In", "Subscribe", "Menu", "Skip to", "Accessibility help"];
+            const navKeywords = ["Sign In", "Subscribe", "Menu", "Skip to", "Accessibility help", "Share this page", "Print this page"];
             if (navKeywords.some(kw => trimmed.toLowerCase().includes(kw.toLowerCase())) && trimmed.length < 50) {
                  isSuspect = true;
                  reason = "Navigation Keyword";
             }
 
-            // Rule 3: Very short lines
+            // Rule 3: Very short lines (Headers)
             if (trimmed.length < 20 && !/[.!?]$/.test(trimmed)) {
                 isSuspect = true;
                 reason = "Short Line";
@@ -152,7 +152,29 @@ document.addEventListener('DOMContentLoaded', function() {
             currentOffset += line.length + 1;
         });
 
-        return suspects;
+        // Rule 4: Lookahead Grouping
+        // If a "Short Line" suspect is followed by a "Title-like" line, make it a suspect too.
+        const additional = [];
+        suspects.forEach(s => {
+            if (s.reason === "Short Line") {
+                let nextIdx = s.index + 1;
+                while (nextIdx < lines.length && !lines[nextIdx].trim()) nextIdx++;
+                if (nextIdx < lines.length) {
+                    const nextTrimmed = lines[nextIdx].trim();
+                    const alreadySuspect = suspects.some(curr => curr.index === nextIdx);
+                    if (!alreadySuspect && nextTrimmed.length < 70 && !/[.!?]$/.test(nextTrimmed)) {
+                        additional.push({
+                            text: lines[nextIdx],
+                            trimmed: nextTrimmed,
+                            index: nextIdx,
+                            reason: "Header Context"
+                        });
+                    }
+                }
+            }
+        });
+
+        return [...suspects, ...additional].sort((a, b) => a.index - b.index);
     }
 
     enterMode(text) {
@@ -162,6 +184,7 @@ document.addEventListener('DOMContentLoaded', function() {
         this.render(cleanedText);
         textInput.contentEditable = false;
         fluffControls.style.display = 'flex';
+        updateCleanBtnVisibility();
         this.currentIndex = this.suspects.length > 0 ? 0 : -1;
         this.updateHighlight();
     }
@@ -227,9 +250,13 @@ document.addEventListener('DOMContentLoaded', function() {
         this.isActive = false;
         fluffControls.style.display = 'none';
         textInput.contentEditable = true;
+        isPlaybackMode = false;
+        editModeRadio.checked = true;
+        statusBadge.textContent = "✏️ Ready";
         const cleanText = textInput.innerText;
         textInput.innerText = cleanText;
         chrome.storage.local.set({ savedText: cleanText });
+        updateCleanBtnVisibility();
     }
   }
 
@@ -239,7 +266,10 @@ document.addEventListener('DOMContentLoaded', function() {
   
       // 1. Restore preferences
   chrome.storage.local.get(['savedText', 'savedSpeed', 'savedStep', 'savedBuffer', 'savedVoice', 'savedEngine', 'savedIndex'], (result) => {
-      if (result.savedText) textInput.innerText = result.savedText;
+      if (result.savedText) {
+          textInput.innerText = result.savedText;
+          updateCleanBtnVisibility();
+      }
 
       if (result.savedSpeed) { 
           speedRange.value = result.savedSpeed; 
@@ -403,7 +433,10 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   textInput.addEventListener('input', () => {
-      if (!isPlaybackMode) chrome.storage.local.set({ savedText: textInput.innerText });
+      if (!isPlaybackMode) {
+          chrome.storage.local.set({ savedText: textInput.innerText });
+          updateCleanBtnVisibility();
+      }
   });
   
   speedRange.addEventListener('input', () => {
@@ -423,6 +456,7 @@ document.addEventListener('DOMContentLoaded', function() {
               if (isPlaybackMode) enterEditMode();
               textInput.innerText = result[0].result.trim();
               chrome.storage.local.set({ savedText: textInput.innerText, savedIndex: 0 });
+              updateCleanBtnVisibility();
               statusBadge.textContent = "Fetched";
           }
       } catch (e) { statusBadge.textContent = "Error"; }
@@ -460,6 +494,8 @@ document.addEventListener('DOMContentLoaded', function() {
       cleanBtn.addEventListener('click', () => {
           const text = textInput.innerText;
           if (!text) return;
+          // Stop playback if active
+          stopPlayback(false);
           fluffManager.enterMode(text);
       });
   }
@@ -483,6 +519,7 @@ document.addEventListener('DOMContentLoaded', function() {
       statusBadge.textContent = "🎧 Ready";
       playbackProgress.style.display = 'flex';
       progressTotal.textContent = sentences.length;
+      updateCleanBtnVisibility();
   }
 
   function enterEditMode() {
@@ -491,6 +528,7 @@ document.addEventListener('DOMContentLoaded', function() {
       isPlaybackMode = false;
       editModeRadio.checked = true;
       statusBadge.textContent = "✏️ Edit Mode";
+      updateCleanBtnVisibility();
   }
 
   function seekTo(index) {
@@ -630,6 +668,16 @@ document.addEventListener('DOMContentLoaded', function() {
           settingsCard.style.pointerEvents = 'auto';
           serverControlsCard.style.opacity = '1';
           serverControlsCard.style.pointerEvents = 'auto';
+      }
+      updateCleanBtnVisibility(playing, paused);
+  }
+
+  function updateCleanBtnVisibility(isPlaying = false, isPaused = false) {
+      if (fluffManager.isActive || isPlaying) {
+          cleanBtn.style.display = 'none';
+      } else {
+          const hasText = textInput.innerText.trim().length > 0;
+          cleanBtn.style.display = hasText ? 'flex' : 'none';
       }
   }
 
