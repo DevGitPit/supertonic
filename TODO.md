@@ -49,5 +49,5 @@
 
 ## Future Backlog
 - [x] **[JNI] Dynamic Voice Mixing**: Allow blending two voice style JSONs (via `path1;path2;alpha` format).
-- [ ] **[UI] Material 3 Expressive Implementation**: Full migration of existing XML screens to Compose with Android 16 expressive tokens.
+- [x] **[UI] Material 3 Expressive Implementation**: Full migration of existing XML screens to Compose with Android 16 expressive tokens.
 - [x] **[Web] Content Selection Integration**: Right-click context menu to send specific text selections to the app.
