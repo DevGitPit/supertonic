@@ -359,7 +359,8 @@
         }
 
         #playbackProgress {
-            flex: 1;
+            width: 100%;
+            box-sizing: border-box;
             background: var(--bg-tertiary);
             border-radius: var(--radius-xl);
             padding: 0 16px;
@@ -367,6 +368,7 @@
             align-items: center;
             gap: 12px;
             height: 56px;
+            margin-bottom: 4px;
         }
         .progress-info {
             font-size: 13px;
@@ -488,11 +490,12 @@
             </div>
         </div>
         
+        <div id="playbackProgress" style="display: none;">
+            <div class="progress-info"><span id="progressCurrent">0</span> / <span id="progressTotal">0</span></div>
+            <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
+        </div>
+
         <div class="utility-buttons">
-            <div id="playbackProgress" style="display: none;">
-                <div class="progress-info"><span id="progressCurrent">0</span> / <span id="progressTotal">0</span></div>
-                <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
-            </div>
             <button id="fetchBtn" class="btn">
                 <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
                 Fetch
