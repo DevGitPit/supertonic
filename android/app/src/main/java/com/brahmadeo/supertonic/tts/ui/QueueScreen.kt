@@ -1,5 +1,3 @@
-package com.brahmadeo.supertonic.tts.ui
-
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -107,9 +105,9 @@ fun QueueItemRow(
     item: QueueItem,
     onDelete: () -> Unit
 ) {
-    val dismissState = rememberDismissState(
-        confirmValueChange = {
-            if (it == DismissValue.DismissedToStart) {
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { dismissValue ->
+            if (dismissValue == SwipeToDismissBoxValue.EndToStart) {
                 onDelete()
                 true
             } else {
@@ -118,15 +116,21 @@ fun QueueItemRow(
         }
     )
 
-    SwipeToDismiss(
+    SwipeToDismissBox(
         state = dismissState,
-        directions = setOf(DismissDirection.EndToStart),
-        background = {
+        enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = true,
+        backgroundContent = {
             val color by animateColorAsState(
-                if (dismissState.targetValue == DismissValue.DismissedToStart) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.background
+                if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart)
+                    MaterialTheme.colorScheme.errorContainer
+                else
+                    MaterialTheme.colorScheme.background,
+                label = "BackgroundColor"
             )
             val scale by animateFloatAsState(
-                if (dismissState.targetValue == DismissValue.DismissedToStart) 1f else 0.75f
+                if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) 1f else 0.75f,
+                label = "IconScale"
             )
 
             Box(
@@ -144,7 +148,7 @@ fun QueueItemRow(
                 )
             }
         },
-        dismissContent = {
+        content = {
             Card(
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainer
