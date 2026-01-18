@@ -822,6 +822,21 @@ pub fn load_voice_style(voice_style_paths: &[String], verbose: bool) -> Result<S
     })
 }
 
+/// Load and mix two voice styles
+pub fn load_and_mix_voice_styles(path1: &str, path2: &str, alpha: f32) -> Result<Style> {
+    let s1 = load_voice_style(&[path1.to_string()], false)?;
+    let s2 = load_voice_style(&[path2.to_string()], false)?;
+
+    if s1.ttl.dim() != s2.ttl.dim() || s1.dp.dim() != s2.dp.dim() {
+        anyhow::bail!("Voice style dimensions mismatch");
+    }
+
+    let ttl = &s1.ttl * (1.0 - alpha) + &s2.ttl * alpha;
+    let dp = &s1.dp * (1.0 - alpha) + &s2.dp * alpha;
+
+    Ok(Style { ttl, dp })
+}
+
 /// Load TTS components
 pub fn load_text_to_speech(onnx_dir: &str, use_gpu: bool) -> Result<TextToSpeech> {
     if use_gpu {

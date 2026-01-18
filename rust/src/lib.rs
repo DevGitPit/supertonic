@@ -8,7 +8,7 @@ use std::time::Instant;
 mod helper;
 mod thermal;
 
-use helper::{load_text_to_speech, load_voice_style, TextToSpeech};
+use helper::{load_text_to_speech, load_voice_style, load_and_mix_voice_styles, TextToSpeech};
 use thermal::{UnifiedThermalManager, SocClass};
 
 use std::panic;
@@ -81,13 +81,32 @@ pub extern "system" fn Java_com_brahmadeo_supertonic_tts_SupertonicTTS_synthesiz
     let lang: String = env.get_string(&lang).expect("Couldn't get java string!").into();
     let style_path: String = env.get_string(&style_path).expect("Couldn't get java string!").into();
 
-    engine.thermal.update(buffer_seconds, engine.last_rtf); 
+    engine.thermal.update(buffer_seconds, engine.last_rtf);
 
-    let style = match load_voice_style(&[style_path], false) {
-        Ok(s) => s,
-        Err(e) => {
-            log::error!("Failed to load voice style: {:?}", e);
+    let style = if style_path.contains(';') {
+        let parts: Vec<&str> = style_path.split(';').collect();
+        if parts.len() == 3 {
+            let p1 = parts[0];
+            let p2 = parts[1];
+            let alpha = parts[2].parse::<f32>().unwrap_or(0.5);
+            match load_and_mix_voice_styles(p1, p2, alpha) {
+                Ok(s) => s,
+                Err(e) => {
+                    log::error!("Failed to mix voice styles: {:?}", e);
+                    return env.new_byte_array(0).unwrap().into_raw();
+                }
+            }
+        } else {
+            log::error!("Invalid mix format. Expected: path1;path2;alpha");
             return env.new_byte_array(0).unwrap().into_raw();
+        }
+    } else {
+        match load_voice_style(&[style_path], false) {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("Failed to load voice style: {:?}", e);
+                return env.new_byte_array(0).unwrap().into_raw();
+            }
         }
     };
 
@@ -186,6 +205,20 @@ pub extern "system" fn Java_com_brahmadeo_supertonic_tts_SupertonicTTS_getSample
     if ptr == 0 { return 24000; }
     let engine = unsafe { &mut *(ptr as *mut SupertonicEngine) };
     engine.tts.sample_rate as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_brahmadeo_supertonic_tts_SupertonicTTS_reset(
+    _env: JNIEnv,
+    _class: JClass,
+    ptr: jlong,
+) {
+    if ptr != 0 {
+        let engine = unsafe { &mut *(ptr as *mut SupertonicEngine) };
+        // Reset thermal state or other buffers if needed
+        engine.last_rtf = 1.0;
+        log::info!("Engine state reset (JNI Handshake)");
+    }
 }
 
 #[no_mangle]

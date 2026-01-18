@@ -132,7 +132,8 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
         super.onCreate()
         createNotificationChannel()
         com.brahmadeo.supertonic.tts.utils.LexiconManager.load(this)
-        
+        com.brahmadeo.supertonic.tts.utils.QueueManager.initialize(this)
+
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
         wakeLock = powerManager.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Supertonic:PlaybackWakeLock")
@@ -255,6 +256,7 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
                         // Check queue for next item
                         val nextItem = QueueManager.next()
                         if (nextItem != null) {
+                            SupertonicTTS.reset() // Explicit JNI Handshake
                             synthesizeAndPlay(nextItem.text, nextItem.lang, nextItem.stylePath, nextItem.speed, nextItem.steps, nextItem.startIndex)
                         } else {
                             stopPlayback()

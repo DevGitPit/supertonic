@@ -19,6 +19,7 @@ object SupertonicTTS {
     private external fun getSocClass(ptr: Long): Int
     private external fun getSampleRate(ptr: Long): Int
     private external fun close(ptr: Long)
+    private external fun reset(ptr: Long)
 
     @Synchronized
     fun initialize(modelPath: String, libPath: String): Boolean {
@@ -139,6 +140,13 @@ object SupertonicTTS {
             Log.i("SupertonicTTS", "Releasing engine: $nativePtr")
             close(nativePtr)
             nativePtr = 0
+        }
+    }
+
+    @Synchronized
+    fun reset() {
+        if (nativePtr != 0L) {
+            reset(nativePtr)
         }
     }
 }

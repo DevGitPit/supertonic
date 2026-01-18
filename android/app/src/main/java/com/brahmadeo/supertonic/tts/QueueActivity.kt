@@ -50,13 +50,6 @@ class QueueActivity : AppCompatActivity() {
                 .setNegativeButton("No", null)
                 .show()
         }
-
-        // Listen for queue updates (e.g. if an item finishes playing while screen is open)
-        QueueManager.addListener { items ->
-            runOnUiThread {
-                adapter.updateData(items)
-            }
-        }
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
@@ -69,12 +62,6 @@ class QueueActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // Note: QueueManager needs a removeListener method or we risk leaks if not careful.
-        // For simplicity in this singleton implementation, we might just be adding listeners.
-        // Ideally QueueManager should support weak references or explicit removal.
-        // Let's add removeListener to QueueManager if not present, or just implement it here assuming it exists.
-        QueueManager.removeListener { /* We can't remove a lambda unless we stored the reference */ }
-        // To fix this properly, I should store the listener reference.
     }
 
     // Better listener handling
