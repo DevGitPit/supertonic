@@ -281,9 +281,11 @@ class TextNormalizer {
         // Split by:
         // 1. Punctuation (.!?) followed by optional quote and space and Capital/Number/Unicode Letter
         // 2. Semi-colon followed by space
-        // Changed [A-Z] to \\p{L} to support Unicode letters (like Hangul) starting a sentence
-        // REMOVED em-dash (—) from split pattern as it is now normalized to comma
-        val pattern = Pattern.compile("(?<=[.!?])['\"”’]?\\s+(?=['\"“‘]?[\\p{L}\\d])|(?<=[;])\\s+")
+        // FIXED: Quotes are now INSIDE the lookbehind so they aren't consumed by split
+        // OLD: (?<=[.!?])['"”’]?\\s+
+        // NEW: (?<=[.!?]['"”’]?)\\s+
+        // We also use a more specific lookahead to detect start of next sentence
+        val pattern = Pattern.compile("(?<=[.!?]['\"”’]?)\\s+(?=['\"“‘]?[\\p{L}\\d])|(?<=[;])\\s+")
         val rawSentences = protectedText.split(pattern)
         
         val refinedSentences = mutableListOf<String>()
@@ -315,7 +317,7 @@ class TextNormalizer {
             }
         }
 
-        return refinedSentences.map { sentence ->
+        val processedSentences = refinedSentences.map { sentence ->
             var restored = sentence
             abbreviations.forEachIndexed { index, abbr ->
                 val placeholder = "__ABBR${index}__"
@@ -325,11 +327,12 @@ class TextNormalizer {
         }.filter { it.isNotEmpty() }
 
         // Chunking Logic: Accumulate sentences up to MAX_LENGTH (300)
+        // FIXED: Removed premature 'return' that made this unreachable
         val chunkedSentences = mutableListOf<String>()
         var currentChunk = StringBuilder()
         val CHUNK_LIMIT = 300
 
-        for (sentence in refinedSentences) {
+        for (sentence in processedSentences) {
             if (currentChunk.length + sentence.length + 1 <= CHUNK_LIMIT) {
                 if (currentChunk.isNotEmpty()) {
                     currentChunk.append(" ")
