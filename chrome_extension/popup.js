@@ -88,99 +88,10 @@ document.addEventListener('DOMContentLoaded', function() {
         this.isActive = false;
     }
 
-    autoClean(text) {
-        let cleaned = text;
-
-        // 1. Top to "Print this page"
-        const printPageRegex = /^[\s\S]*?Print this page/i;
-        if (printPageRegex.test(cleaned)) {
-            cleaned = cleaned.replace(printPageRegex, "").trim();
-        }
-
-        // 2. Bottom from "Copyright The Financial Times" to end
-        const footerRegex = /Copyright The Financial Times[\s\S]*$/i;
-        if (footerRegex.test(cleaned)) {
-            cleaned = cleaned.replace(footerRegex, "").trim();
-        }
-
-        return cleaned;
-    }
-
-    detectSuspects(text) {
-        const suspects = [];
-        const lines = text.split(/\n/);
-        let currentOffset = 0;
-
-        lines.forEach((line, index) => {
-            const trimmed = line.trim();
-            if (!trimmed) {
-                currentOffset += line.length + 1;
-                return;
-            }
-
-            let isSuspect = false;
-            let reason = "";
-
-            // Rule 1: Contains © or Copyright
-            if (trimmed.includes("©") || /Copyright/i.test(trimmed)) {
-                isSuspect = true;
-                reason = "Copyright/Symbol";
-            }
-
-            // Rule 2: "One line fluff"
-            const navKeywords = ["Sign In", "Subscribe", "Menu", "Skip to", "Accessibility help", "Share this page", "Print this page"];
-            if (navKeywords.some(kw => trimmed.toLowerCase().includes(kw.toLowerCase())) && trimmed.length < 50) {
-                 isSuspect = true;
-                 reason = "Navigation Keyword";
-            }
-
-            // Rule 3: Very short lines (Headers)
-            if (trimmed.length < 20 && !/[.!?]$/.test(trimmed)) {
-                isSuspect = true;
-                reason = "Short Line";
-            }
-
-            if (isSuspect) {
-                suspects.push({
-                    text: line,
-                    trimmed: trimmed,
-                    index: index,
-                    reason: reason
-                });
-            }
-
-            currentOffset += line.length + 1;
-        });
-
-        // Rule 4: Lookahead Grouping
-        // If a "Short Line" suspect is followed by a "Title-like" line, make it a suspect too.
-        const additional = [];
-        suspects.forEach(s => {
-            if (s.reason === "Short Line") {
-                let nextIdx = s.index + 1;
-                while (nextIdx < lines.length && !lines[nextIdx].trim()) nextIdx++;
-                if (nextIdx < lines.length) {
-                    const nextTrimmed = lines[nextIdx].trim();
-                    const alreadySuspect = suspects.some(curr => curr.index === nextIdx);
-                    if (!alreadySuspect && nextTrimmed.length < 70 && !/[.!?]$/.test(nextTrimmed)) {
-                        additional.push({
-                            text: lines[nextIdx],
-                            trimmed: nextTrimmed,
-                            index: nextIdx,
-                            reason: "Header Context"
-                        });
-                    }
-                }
-            }
-        });
-
-        return [...suspects, ...additional].sort((a, b) => a.index - b.index);
-    }
-
     enterMode(text) {
         this.isActive = true;
-        let cleanedText = this.autoClean(text);
-        this.suspects = this.detectSuspects(cleanedText);
+        let cleanedText = textProcessor.autoClean(text);
+        this.suspects = textProcessor.detectFluffSuspects(cleanedText);
         this.render(cleanedText);
         textInput.contentEditable = false;
         fluffControls.style.display = 'flex';
@@ -265,6 +176,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   const fluffManager = new FluffManager();
+  const textProcessor = new TextProcessor();
 
   // --- Initialization ---
   
@@ -519,9 +431,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
   function enterPlaybackMode(text) {
       if (isPlaybackMode) return;
-      let fixedText = text.replace(/([a-z])\.([A-Z])/g, '$1. $2').replace(/([a-z])([A-Z])/g, '$1 $2');
-      const sentenceRegex = /(?<=[.!?]['"”’)\}\]]*)\s+(?=['"“‘\(\{\[]*[A-Z])|(?<=[;—])\s+/;
-      sentences = fixedText.split(sentenceRegex).map((s, i) => ({ text: s.trim(), index: i })).filter(s => s.text.length > 0);
+      const normalizedText = textProcessor.normalize(text);
+      sentences = textProcessor.splitIntoSentences(normalizedText);
       textInput.innerHTML = sentences.map((s, i) => `<span class="sentence" data-index="${i}">${s.text} </span>`).join('');
       textInput.contentEditable = false;
       isPlaybackMode = true;
