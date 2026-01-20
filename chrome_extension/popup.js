@@ -183,10 +183,11 @@ document.addEventListener('DOMContentLoaded', function() {
           return;
       }
 
-      // NORMALIZE BEFORE SENDING
-      // This ensures the app receives "clean" text ready for TTS (e.g. "500 dollars" instead of "$500")
-      // Remove this step if you want raw text sent to the app
-      const normalizedText = textProcessor.normalize(textToSend);
+      // NORMALIZE BEFORE SENDING - DISABLED
+      // The Android app already handles normalization (numbers, currency, etc).
+      // We send the "clean" text directly to avoid double-processing.
+      // const normalizedText = textProcessor.normalize(textToSend);
+      const normalizedText = textToSend;
 
       const encodedText = encodeURIComponent(normalizedText);
       const intentUri = `intent://send?text=${encodedText}#Intent;scheme=supertonic;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;S.android.intent.extra.TEXT=${encodedText};S.browser_fallback_url=https%3A%2F%2Fgithub.com%2F;end`;
