@@ -124,8 +124,7 @@ pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
     // Revert to NFKD normalization as required for Korean Jamo decomposition
     let mut text: String = text.nfkd().collect();
 
-    if lang == "en" {
-        // Remove emojis (wide Unicode range)
+    // Remove emojis (wide Unicode range)
     let emoji_pattern = Regex::new(r"[\x{1F600}-\x{1F64F}\x{1F300}-\x{1F5FF}\x{1F680}-\x{1F6FF}\x{1F700}-\x{1F77F}\x{1F780}-\x{1F7FF}\x{1F800}-\x{1F8FF}\x{1F900}-\x{1F9FF}\x{1FA00}-\x{1FA6F}\x{1FA70}-\x{1FAFF}\x{2600}-\x{26FF}\x{2700}-\x{27BF}\x{1F1E6}-\x{1F1FF}]+").unwrap();
     text = emoji_pattern.replace_all(&text, "").to_string();
 
@@ -133,7 +132,7 @@ pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
     let replacements = [
         ("–", "-"),      // en dash
         ("‑", "-"),      // non-breaking hyphen
-        ("—", ", "),     // em dash -> comma (Natural pause)
+        ("—", "-"),      // em dash
         ("_", " "),      // underscore
         ("\u{201C}", "\""),     // left double quote
         ("\u{201D}", "\""),     // right double quote
@@ -197,22 +196,19 @@ pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
 
     // If text doesn't end with punctuation, quotes, or closing brackets, add a period
     if !text.is_empty() {
-        let ends_with_punct = Regex::new(r#"[.!?;:,'"\u{201C}\u{201D}\u{2018}\u{2019})\\]}}…。」』】〉》›»]$"#).unwrap();
+        let ends_with_punct = Regex::new(r#"[.!?;:,'\u{201C}\u{201D}\u{2018}\u{2019})\\]}}…。」』】〉》›»]$"#).unwrap();
         if !ends_with_punct.is_match(&text) {
             text.push('.');
         }
     }
-    }
 
     // Validate language
-    // if !is_valid_lang(lang) {
-    //    bail!("Invalid language: {}. Available: {:?}", lang, AVAILABLE_LANGS);
-    // }
-
-    // Wrap text with language tags - V2 needs tags, V1 (English) does not
-    if lang != "en" {
-        text = format!("<{}>{}</{}>", lang, text, lang);
+    if !is_valid_lang(lang) {
+        bail!("Invalid language: {}. Available: {:?}", lang, AVAILABLE_LANGS);
     }
+
+    // Wrap text with language tags
+    text = format!("<{}>{}</{}>", lang, text, lang);
 
     Ok(text)
 }
@@ -262,8 +258,7 @@ pub fn sample_noisy_latent(
 
     let mut noisy_latent = Array3::<f32>::zeros((bsz, latent_dim_val, latent_len));
 
-    // Reduced temperature (0.667) improves stability and reduces word skipping/hallucinations
-    let normal = Normal::new(0.0, 0.667).unwrap();
+    let normal = Normal::new(0.0, 1.0).unwrap();
     let mut rng = rand::thread_rng();
 
     for b in 0..bsz {
@@ -293,11 +288,10 @@ pub fn sample_noisy_latent(
     (noisy_latent, latent_mask)
 }
 
-// ============================================================================
+// ============================================================================ 
 // WAV File I/O
-// ============================================================================
+// ============================================================================ 
 
-#[allow(dead_code)]
 pub fn write_wav_file<P: AsRef<Path>>(
     filename: P,
     audio_data: &[f32],
@@ -458,12 +452,9 @@ pub fn chunk_text(text: &str, max_len: Option<usize>) -> Vec<String> {
 
 fn split_sentences(text: &str) -> Vec<String> {
     // Rust's regex doesn't support lookbehind, so we use a simpler approach
-    // Split on sentence boundaries (., !, ?, ;) followed by optional quote/bracket and space
-    // Added support for:
-    // - Semicolon (;) as splitter
-    // - Optional closing quotes/brackets after punctuation
-    let re = Regex::new(r"([.!?]['\u{2019}\u{201D}\u{0022}\)\}\]]?)\s+").unwrap();
-
+    // Split on sentence boundaries and then check if they're abbreviations
+    let re = Regex::new(r"([.!?])\s+").unwrap();
+    
     // Find all matches
     let matches: Vec<_> = re.find_iter(text).collect();
     if matches.is_empty() {
@@ -506,11 +497,10 @@ fn split_sentences(text: &str) -> Vec<String> {
     }
 }
 
-// ============================================================================
+// ============================================================================ 
 // Utility Functions
-// ============================================================================
+// ============================================================================ 
 
-#[allow(dead_code)]
 pub fn timer<F, T>(name: &str, f: F) -> Result<T>
 where
     F: FnOnce() -> Result<T>,
@@ -523,7 +513,6 @@ where
     Ok(result)
 }
 
-#[allow(dead_code)]
 pub fn sanitize_filename(text: &str, max_len: usize) -> String {
     // Take first max_len characters (Unicode code points, not bytes)
     text.chars()
@@ -716,15 +705,10 @@ impl TextToSpeech {
             }
             
             let (wav, duration) = self._infer(&[chunk.clone()], &[lang.to_string()], style, total_step, speed)?;
-
-            // Truncate audio based on predicted duration to remove trailing silence
+            
             let dur = duration[0];
-            let sample_count = (dur * self.sample_rate as f32) as usize;
-            let wav_chunk = if sample_count < wav.len() {
-                &wav[..sample_count]
-            } else {
-                &wav[..]
-            };
+            let wav_len = (self.sample_rate as f32 * dur) as usize;
+            let wav_chunk = &wav[..wav_len.min(wav.len())];
 
             // Send audio chunk
             if !callback(i, num_chunks, Some(wav_chunk)) {
@@ -748,7 +732,6 @@ impl TextToSpeech {
         Ok((wav_cat, dur_cat))
     }
 
-    #[allow(dead_code)]
     pub fn batch(
         &mut self,
         text_list: &[String],
@@ -833,21 +816,6 @@ pub fn load_voice_style(voice_style_paths: &[String], verbose: bool) -> Result<S
     })
 }
 
-/// Load and mix two voice styles
-pub fn load_and_mix_voice_styles(path1: &str, path2: &str, alpha: f32) -> Result<Style> {
-    let s1 = load_voice_style(&[path1.to_string()], false)?;
-    let s2 = load_voice_style(&[path2.to_string()], false)?;
-
-    if s1.ttl.dim() != s2.ttl.dim() || s1.dp.dim() != s2.dp.dim() {
-        anyhow::bail!("Voice style dimensions mismatch");
-    }
-
-    let ttl = &s1.ttl * (1.0 - alpha) + &s2.ttl * alpha;
-    let dp = &s1.dp * (1.0 - alpha) + &s2.dp * alpha;
-
-    Ok(Style { ttl, dp })
-}
-
 /// Load TTS components
 pub fn load_text_to_speech(onnx_dir: &str, use_gpu: bool) -> Result<TextToSpeech> {
     if use_gpu {
@@ -882,4 +850,19 @@ pub fn load_text_to_speech(onnx_dir: &str, use_gpu: bool) -> Result<TextToSpeech
         vector_est_ort,
         vocoder_ort,
     ))
+}
+
+/// Load and mix two voice styles
+pub fn load_and_mix_voice_styles(path1: &str, path2: &str, alpha: f32) -> Result<Style> {
+    let s1 = load_voice_style(&[path1.to_string()], false)?;
+    let s2 = load_voice_style(&[path2.to_string()], false)?;
+
+    if s1.ttl.dim() != s2.ttl.dim() || s1.dp.dim() != s2.dp.dim() {
+        anyhow::bail!("Voice style dimensions mismatch");
+    }
+
+    let ttl = &s1.ttl * (1.0 - alpha) + &s2.ttl * alpha;
+    let dp = &s1.dp * (1.0 - alpha) + &s2.dp * alpha;
+
+    Ok(Style { ttl, dp })
 }

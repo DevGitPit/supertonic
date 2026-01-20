@@ -66,7 +66,7 @@ class MainActivity : ComponentActivity() {
         "Korean" to "ko"
     )
 
-    private var currentModelVersion = "v1" // "v1" or "v2"
+    private var currentModelVersion = "v2" // "v1" or "v2"
 
     // Service
     private var playbackService: IPlaybackService? = null
@@ -146,7 +146,7 @@ class MainActivity : ComponentActivity() {
 
         // Initial setup
         val savedLang = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).getString("selected_lang", "en") ?: "en"
-        currentModelVersion = if (savedLang == "en") "v1" else "v2"
+        currentModelVersion = "v2"
 
         // Asset Copy Task
         CoroutineScope(Dispatchers.IO).launch {
@@ -210,11 +210,6 @@ class MainActivity : ComponentActivity() {
                     onLangChange = {
                         currentLangState.value = it
                         saveStringPref("selected_lang", it)
-                        
-                        val newVersion = if (it == "en") "v1" else "v2"
-                        if (newVersion != currentModelVersion) {
-                            switchModel(newVersion)
-                        }
                     },
 
                     voices = voiceFiles,
@@ -370,8 +365,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Copy v1 and v2 folders
-        copyDir("v1", File(filesDir, "v1"))
+        // Copy v2 folder only
         copyDir("v2", File(filesDir, "v2"))
     }
 

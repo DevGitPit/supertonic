@@ -51,7 +51,7 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
             copyAssets()
             val prefs = getSharedPreferences("SupertonicPrefs", android.content.Context.MODE_PRIVATE)
             val savedLang = prefs.getString("selected_lang", "en") ?: "en"
-            val modelVersion = if (savedLang == "en") "v1" else "v2"
+            val modelVersion = "v2"
 
             val modelPath = File(filesDir, "$modelVersion/onnx").absolutePath
             val libPath = applicationInfo.nativeLibraryDir + "/libonnxruntime.so"
@@ -218,7 +218,7 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
 
         val prefs = getSharedPreferences("SupertonicPrefs", android.content.Context.MODE_PRIVATE)
         val savedLang = prefs.getString("selected_lang", "en") ?: "en"
-        val modelVersion = if (savedLang == "en") "v1" else "v2"
+        val modelVersion = "v2"
 
         val stylePath = File(filesDir, "$modelVersion/voice_styles/$voiceFile").absolutePath
         val steps = prefs.getInt("diffusion_steps", 5)
