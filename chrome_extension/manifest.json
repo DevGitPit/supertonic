@@ -12,22 +12,18 @@
     "scripting",
     "activeTab",
     "storage",
-    "tts",
-    "offscreen",
     "contextMenus"
   ],
-  "host_permissions": [
-    "http://127.0.0.1:8080/*"
-  ],
+  "host_permissions": [],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Supertonic TTS"
+    "default_title": "Supertonic Text Collector"
   },
   "background": {
     "service_worker": "background.js"
   },
   "web_accessible_resources": [{
-    "resources": ["icons/*.png", "worklet.js", "offscreen.html", "offscreen.js", "currencyNormalizer.js", "textProcessor.js"],
+    "resources": ["icons/*.png", "currencyNormalizer.js", "textProcessor.js"],
     "matches": ["<all_urls>"]
   }]
 }

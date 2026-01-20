@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#ffffff">
-    <title>Supertonic TTS</title>
+    <title>Supertonic Collector</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -25,7 +25,7 @@
             --md-sys-color-outline: #6F7979;
             --md-sys-color-outline-variant: #BEC9C8;
             --md-sys-color-error: #BA1A1A;
-            
+
             --bg-primary: var(--md-sys-color-surface);
             --bg-secondary: var(--md-sys-color-surface-container-low);
             --bg-tertiary: var(--md-sys-color-surface-container);
@@ -98,7 +98,7 @@
             flex: 1;
             min-height: 0;
         }
-        
+
         /* Top App Bar Style */
         .top-bar {
             display: flex;
@@ -108,7 +108,7 @@
             gap: 12px;
             height: 64px;
         }
-        
+
         #statusBadge {
             font-size: 14px;
             font-weight: 600;
@@ -140,7 +140,7 @@
             color: var(--md-sys-color-on-secondary);
             font-weight: 600;
         }
-        
+
         #textInput {
             position: relative;
             width: 100%;
@@ -169,63 +169,7 @@
             background: var(--bg-secondary);
             box-shadow: none;
         }
-        
-        /* Sentence Highlighting */
-        .sentence {
-            cursor: pointer;
-            border-radius: 12px;
-            padding: 4px 6px;
-            margin: 0 -2px;
-            display: inline;
-            transition: var(--transition);
-            box-decoration-break: clone;
-            -webkit-box-decoration-break: clone;
-        }
-        .sentence:hover { 
-            background-color: rgba(0, 106, 106, 0.08);
-        }
-        .sentence.active {
-            background-color: var(--highlight-bg);
-            color: var(--highlight-text) !important;
-            font-weight: 600;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-        }
 
-        .playback-controls {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 8px 0;
-            flex-shrink: 0;
-        }
-        
-        #playPauseBtn {
-            width: 84px;
-            height: 84px;
-            border-radius: 28px;
-            border: none;
-            cursor: pointer;
-            background: var(--button-bg);
-            color: var(--button-text);
-            box-shadow: 0 8px 24px rgba(0, 106, 106, 0.3);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            transition: var(--transition);
-        }
-        #playPauseBtn:hover {
-            box-shadow: 0 12px 32px rgba(0, 106, 106, 0.4);
-            transform: scale(1.05);
-        }
-        #playPauseBtn:active { transform: scale(0.95); }
-        #playPauseBtn:disabled { 
-            background: var(--bg-tertiary); 
-            color: var(--text-tertiary);
-            box-shadow: none; 
-        }
-        
-        .icon { fill: currentColor; width: 40px; height: 40px; }
-        
         .card {
             background: var(--bg-tertiary);
             border-radius: var(--radius-xl);
@@ -234,98 +178,6 @@
             flex-direction: column;
             gap: 12px;
             flex-shrink: 0;
-        }
-        .control-group {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 16px;
-        }
-        .control-group label {
-            font-size: 14px;
-            font-weight: 600;
-            color: var(--text-secondary);
-            flex: 1;
-        }
-        
-        select {
-            flex: 2;
-            background-color: var(--bg-secondary);
-            color: var(--text-primary);
-            border: 1px solid var(--border-color);
-            padding: 12px 36px 12px 16px; /* Increased right padding for arrow */
-            border-radius: var(--radius-s);
-            font-size: 14px;
-            font-weight: 500;
-            appearance: none;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23666666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: right 10px center;
-            background-size: 18px;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            overflow: hidden;
-            max-width: 200px;
-        }
-
-        input[type="range"] {
-            -webkit-appearance: none;
-            appearance: none;
-            flex: 2;
-            height: 32px;
-            background-color: var(--md-sys-color-outline-variant); /* Track background */
-            background-image: linear-gradient(var(--md-sys-color-primary), var(--md-sys-color-primary));
-            background-repeat: no-repeat;
-            background-size: 0% 100%; /* Dynamic fill */
-            border-radius: 0px;
-            cursor: pointer;
-            outline: none;
-            border: none;
-        }
-
-        /* Webkit Track (Chrome/Safari) */
-        input[type="range"]::-webkit-slider-runnable-track {
-            height: 6px;
-            background: transparent;
-            border: none;
-        }
-        
-        /* Webkit Thumb - 4px Wide Sharp Stick */
-        input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 4px;
-            height: 24px;
-            border-radius: 0px !important;
-            background: var(--md-sys-color-primary);
-            margin-top: -9px;
-            box-shadow: none;
-            border: none;
-        }
-
-        /* Firefox Track */
-        input[type="range"]::-moz-range-track {
-            height: 6px;
-            background: transparent;
-            border: none;
-        }
-
-        /* Firefox Thumb - 4px Wide Sharp Stick */
-        input[type="range"]::-moz-range-thumb {
-            width: 4px;
-            height: 24px;
-            border-radius: 0px !important;
-            background: var(--md-sys-color-primary);
-            border: none;
-            box-shadow: none;
-        }
-
-        input[type="range"]:active::-webkit-slider-thumb { transform: scaleX(1.5); filter: brightness(1.2); }
-        input[type="range"]:active::-moz-range-thumb { transform: scaleX(1.5); filter: brightness(1.2); }
-
-        /* Slider Fill class is now integrated into the base selector */
-        .slider-fill {
-            /* Handled by background-image/size on input[type="range"] */
         }
 
         .utility-buttons {
@@ -352,44 +204,11 @@
             transition: var(--transition);
         }
         .btn:active { transform: scale(0.96); }
-        
+
         #sendToAppBtn {
             background: var(--md-sys-color-primary-container);
             color: var(--md-sys-color-on-primary-container);
             flex: 1.2;
-        }
-
-        #playbackProgress {
-            width: 100%;
-            box-sizing: border-box;
-            background: var(--bg-tertiary);
-            border-radius: var(--radius-xl);
-            padding: 0 16px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            height: 56px;
-            margin-bottom: 4px;
-        }
-        .progress-info {
-            font-size: 13px;
-            font-weight: 700;
-            color: var(--text-primary);
-            min-width: 50px;
-        }
-        .progress-track {
-            flex: 1;
-            height: 8px;
-            background: var(--md-sys-color-outline-variant);
-            border-radius: 4px;
-            overflow: hidden;
-        }
-        .progress-fill {
-            height: 100%;
-            background: var(--button-bg);
-            width: 0%;
-            transition: width 0.4s ease-out;
-            border-radius: 4px;
         }
 
         .theme-toggle {
@@ -406,7 +225,7 @@
             color: var(--text-primary);
             border: 1px solid var(--border-color);
         }
-        
+
         .auto-icon, .sun-icon, .moon-icon { display: none; }
         [data-theme-mode="auto"] .auto-icon,
         [data-theme-mode="light"] .sun-icon,
@@ -431,17 +250,13 @@
 <body>
     <div class="main-container">
         <div class="top-bar">
-            <div class="segmented-control">
-                <input type="radio" name="mode" id="editMode" value="edit" checked>
-                <label for="editMode">Edit</label>
-                <input type="radio" name="mode" id="playbackMode" value="playback">
-                <label for="playbackMode">Read</label>
-            </div>
-            
+            <!-- Simplified Header -->
+            <div style="font-weight: 700; font-size: 18px; color: var(--text-primary);">Supertonic</div>
+
             <div id="statusBadge">✏️ Ready</div>
 
             <button id="theme-toggle" class="theme-toggle">
-                <!-- Auto Icon (Stroke-based half circle) -->
+                <!-- Auto Icon -->
                 <svg class="auto-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="12" cy="12" r="10"/>
                     <path d="M12 2a10 10 0 0 1 0 20V2z" fill="currentColor" stroke="none"/>
@@ -453,49 +268,6 @@
 
         <div id="textInput" contenteditable="true" spellcheck="false" placeholder="Enter or paste text here..."></div>
 
-        <div class="playback-controls">
-            <button id="playPauseBtn" title="Play">
-                <svg id="playIcon" class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                <svg id="stopIcon" class="icon" viewBox="0 0 24 24" style="display: none;"><path d="M6 6h12v12H6z"/></svg>
-            </button>
-        </div>
-
-        <div class="card" id="settingsCard">
-            <div class="control-group">
-                <label>Engine</label>
-                <div class="segmented-control" style="width: auto; flex: 2;">
-                    <input type="radio" name="engine" id="engineSystem" value="system" checked>
-                    <label for="engineSystem" style="padding: 8px 16px;">System</label>
-                    <input type="radio" name="engine" id="engineServer" value="supertonic">
-                    <label for="engineServer" style="padding: 8px 16px;">Server</label>
-                </div>
-            </div>
-            <div class="control-group">
-                <label for="voiceSelect">Voice</label>
-                <select id="voiceSelect"></select>
-            </div>
-            <div class="control-group">
-                <label for="speedRange">Speed (<span id="speedValue">1.05</span>x)</label>
-                <input type="range" id="speedRange" min="0.9" max="1.5" step="0.05" value="1.05">
-            </div>
-        </div>
-        
-        <div class="card" id="serverControlsCard" style="display: none;">
-             <div class="control-group">
-                <label for="stepRange">Steps (<span id="stepValue">5</span>)</label>
-                <input type="range" id="stepRange" min="1" max="10" step="1" value="5">
-            </div>
-            <div class="control-group">
-                <label for="bufferRange">Buffer (<span id="bufferValue">2</span>)</label>
-                <input type="range" id="bufferRange" min="1" max="10" step="1" value="2">
-            </div>
-        </div>
-        
-        <div id="playbackProgress" style="display: none;">
-            <div class="progress-info"><span id="progressCurrent">0</span> / <span id="progressTotal">0</span></div>
-            <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
-        </div>
-
         <div class="utility-buttons">
             <button id="fetchBtn" class="btn">
                 <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
@@ -504,9 +276,6 @@
             <button id="cleanBtn" class="btn" style="background-color: var(--md-sys-color-secondary); flex: 0.8; display: none;">
                 <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2.29 11.29l-1.41 1.41L12 12.41l-3.29 3.29-1.41-1.41L10.59 11 7.29 7.71l1.41-1.41L12 9.59l3.29-3.29 1.41 1.41L13.41 11l3.3 3.29z"/></svg>
                 Clean
-            </button>
-            <button id="refreshServerBtn" class="btn" style="display:none; background: #FF9800; color: white;">
-                <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
             </button>
             <button id="sendToAppBtn" class="btn">
                 <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14zM16 13h-3V8h-2v5H8l4 4 4-4z"/></svg>
@@ -526,8 +295,6 @@
             </div>
             <button id="doneFluffBtn" class="btn" style="height: 40px; flex: 0; background: var(--bg-secondary); color: var(--text-primary);">Done</button>
         </div>
-
-        <div id="serverStatusMsg" style="display: none;"></div>
     </div>
     <script src="textProcessor.js"></script>
     <script src="popup.js"></script>

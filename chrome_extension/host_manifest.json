@@ -1,9 +1,0 @@
-{
-  "name": "com.supertonic.tts",
-  "description": "Supertonic TTS Host",
-  "path": "/data/data/com.termux/files/home/supertonic/cpp/build/start_host.sh",
-  "type": "stdio",
-  "allowed_origins": [
-    "chrome-extension://<YOUR_EXTENSION_ID_HERE>/"
-  ]
-}

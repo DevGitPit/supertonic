@@ -19,7 +19,6 @@ document.addEventListener('DOMContentLoaded', function() {
   // --- UI Elements ---
   const textInput = document.getElementById('textInput');
   const fetchBtn = document.getElementById('fetchBtn');
-  const refreshServerBtn = document.getElementById('refreshServerBtn');
   const sendToAppBtn = document.getElementById('sendToAppBtn');
 
   // Fluff Controls
@@ -31,341 +30,125 @@ document.addEventListener('DOMContentLoaded', function() {
   const delAllFluffBtn = document.getElementById('delAllFluffBtn');
   const doneFluffBtn = document.getElementById('doneFluffBtn');
 
-  // Progress Bar
-  const playbackProgress = document.getElementById('playbackProgress');
-  const progressCurrent = document.getElementById('progressCurrent');
-  const progressTotal = document.getElementById('progressTotal');
-  const progressFill = document.getElementById('progressFill');
-
-  // Controls
-  const playPauseBtn = document.getElementById('playPauseBtn');
-  const playIcon = document.getElementById('playIcon');
-  const stopIcon = document.getElementById('stopIcon');
-  
-  const voiceSelect = document.getElementById('voiceSelect');
-  const speedRange = document.getElementById('speedRange');
-  const speedValue = document.getElementById('speedValue');
-  
-  const stepRange = document.getElementById('stepRange');
-  const stepValue = document.getElementById('stepValue');
-  const bufferRange = document.getElementById('bufferRange');
-  const bufferValue = document.getElementById('bufferValue');
-  
   const statusBadge = document.getElementById('statusBadge');
-  const serverStatusMsg = document.getElementById('serverStatusMsg');
-  const serverControlsCard = document.getElementById('serverControlsCard');
-  
-  // Radios
-  const editModeRadio = document.getElementById('editMode');
-  const playbackModeRadio = document.getElementById('playbackMode');
-  const engineSystemRadio = document.getElementById('engineSystem');
-  const engineServerRadio = document.getElementById('engineServer');
 
   // --- State ---
-  let isPlaybackMode = false;
-  let currentSentenceIndex = 0;
-  let sentences = []; 
-  let currentEngine = 'system'; 
-  let serverAvailable = false;
-  
-  // --- Slider Fill Helper ---
-  function updateSliderFill(el) {
-      if (!el) return;
-      const min = el.min || 0;
-      const max = el.max || 100;
-      const val = el.value;
-      const percentage = (val - min) / (max - min) * 100;
-      el.style.backgroundSize = percentage + '% 100%';
-      el.classList.add('slider-fill');
-  }
+  let isEditMode = true;
 
   // --- Fluff Manager ---
+  // Uses TextProcessor for detection
   class FluffManager {
-    constructor() {
-        this.suspects = [];
-        this.currentIndex = -1;
-        this.originalHtml = '';
-        this.isActive = false;
-    }
+      constructor() {
+          this.suspects = [];
+          this.currentIndex = -1;
+          this.isActive = false;
+      }
 
-    enterMode(text) {
-        this.isActive = true;
-        let cleanedText = textProcessor.autoClean(text);
-        this.suspects = textProcessor.detectFluffSuspects(cleanedText);
-        this.render(cleanedText);
-        textInput.contentEditable = false;
-        fluffControls.style.display = 'flex';
-        updateCleanBtnVisibility();
-        this.currentIndex = this.suspects.length > 0 ? 0 : -1;
-        this.updateHighlight();
-    }
+      enterMode(text) {
+          this.isActive = true;
+          let cleanedText = textProcessor.autoClean(text);
+          this.suspects = textProcessor.detectFluffSuspects(cleanedText);
+          this.render(cleanedText);
+          textInput.contentEditable = false;
+          fluffControls.style.display = 'flex';
+          updateCleanBtnVisibility();
+          this.currentIndex = this.suspects.length > 0 ? 0 : -1;
+          this.updateHighlight();
+          statusBadge.textContent = "🧹 Cleaning";
+      }
 
-    render(text) {
-        const lines = text.split('\n');
-        const html = lines.map((line, i) => {
-            const isSuspect = this.suspects.some(s => s.index === i);
-            const suspectClass = isSuspect ? 'suspect-fluff' : '';
-            return `<div class="line-wrapper ${suspectClass}" data-line="${i}">${line || '<br>'}</div>`;
-        }).join('');
-        textInput.innerHTML = html;
-    }
+      render(text) {
+          const lines = text.split('\n');
+          const html = lines.map((line, i) => {
+              const isSuspect = this.suspects.some(s => s.index === i);
+              const suspectClass = isSuspect ? 'suspect-fluff' : '';
+              return `<div class="line-wrapper ${suspectClass}" data-line="${i}">${line || '<br>'}</div>`;
+          }).join('');
+          textInput.innerHTML = html;
+      }
 
-    updateHighlight() {
-        const prev = textInput.querySelector('.suspect-fluff.active');
-        if (prev) prev.classList.remove('active');
+      updateHighlight() {
+          const prev = textInput.querySelector('.suspect-fluff.active');
+          if (prev) prev.classList.remove('active');
 
-        if (this.currentIndex >= 0 && this.currentIndex < this.suspects.length) {
-            const suspect = this.suspects[this.currentIndex];
-            const el = textInput.querySelector(`.line-wrapper[data-line="${suspect.index}"]`);
-            if (el) {
-                el.classList.add('active');
-                // Use scrollTo to avoid scrolling the main page
-                // Since textInput is relative, el.offsetTop is already relative to it
-                const relativeTop = el.offsetTop;
-                const halfHeight = textInput.offsetHeight / 2;
-                textInput.scrollTo({ top: relativeTop - halfHeight, behavior: 'auto' });
-            }
-        }
-    }
+          if (this.currentIndex >= 0 && this.currentIndex < this.suspects.length) {
+              const suspect = this.suspects[this.currentIndex];
+              const el = textInput.querySelector(`.line-wrapper[data-line="${suspect.index}"]`);
+              if (el) {
+                  el.classList.add('active');
+                  const relativeTop = el.offsetTop;
+                  const halfHeight = textInput.offsetHeight / 2;
+                  textInput.scrollTo({ top: relativeTop - halfHeight, behavior: 'auto' });
+              }
+          }
+      }
 
-    next() {
-        if (this.suspects.length === 0) return;
-        this.currentIndex = (this.currentIndex + 1) % this.suspects.length;
-        this.updateHighlight();
-    }
+      next() {
+          if (this.suspects.length === 0) return;
+          this.currentIndex = (this.currentIndex + 1) % this.suspects.length;
+          this.updateHighlight();
+      }
 
-    prev() {
-        if (this.suspects.length === 0) return;
-        this.currentIndex = (this.currentIndex - 1 + this.suspects.length) % this.suspects.length;
-        this.updateHighlight();
-    }
+      prev() {
+          if (this.suspects.length === 0) return;
+          this.currentIndex = (this.currentIndex - 1 + this.suspects.length) % this.suspects.length;
+          this.updateHighlight();
+      }
 
-    deleteCurrent() {
-        if (this.currentIndex === -1 || this.suspects.length === 0) return;
-        const suspect = this.suspects[this.currentIndex];
-        const el = textInput.querySelector(`.line-wrapper[data-line="${suspect.index}"]`);
-        if (el) {
-            el.remove();
-            this.suspects.splice(this.currentIndex, 1);
-            if (this.currentIndex >= this.suspects.length) {
-                this.currentIndex = this.suspects.length - 1;
-            }
-            this.updateHighlight();
-        }
-    }
+      deleteCurrent() {
+          if (this.currentIndex === -1 || this.suspects.length === 0) return;
+          const suspect = this.suspects[this.currentIndex];
+          const el = textInput.querySelector(`.line-wrapper[data-line="${suspect.index}"]`);
+          if (el) {
+              el.remove();
+              this.suspects.splice(this.currentIndex, 1);
+              if (this.currentIndex >= this.suspects.length) {
+                  this.currentIndex = this.suspects.length - 1;
+              }
+              this.updateHighlight();
+          }
+      }
 
-    deleteAll() {
-        const els = textInput.querySelectorAll('.suspect-fluff');
-        els.forEach(el => el.remove());
-        this.suspects = [];
-        this.currentIndex = -1;
-    }
+      deleteAll() {
+          const els = textInput.querySelectorAll('.suspect-fluff');
+          els.forEach(el => el.remove());
+          this.suspects = [];
+          this.currentIndex = -1;
+      }
 
-    exitMode() {
-        this.isActive = false;
-        fluffControls.style.display = 'none';
-        textInput.contentEditable = true;
-        isPlaybackMode = false;
-        editModeRadio.checked = true;
-        statusBadge.textContent = "✏️ Ready";
-        const cleanText = textInput.innerText;
-        textInput.innerText = cleanText;
-        chrome.storage.local.set({ savedText: cleanText });
-        updateCleanBtnVisibility();
-    }
+      exitMode() {
+          this.isActive = false;
+          fluffControls.style.display = 'none';
+          textInput.contentEditable = true;
+          statusBadge.textContent = "✏️ Ready";
+
+          // Get text back from the div wrappers
+          const cleanText = textInput.innerText;
+          textInput.innerText = cleanText;
+          chrome.storage.local.set({ savedText: cleanText });
+          updateCleanBtnVisibility();
+      }
   }
 
   const fluffManager = new FluffManager();
   const textProcessor = new TextProcessor();
 
   // --- Initialization ---
-  
-      // 1. Restore preferences
-  chrome.storage.local.get(['savedText', 'savedSpeed', 'savedStep', 'savedBuffer', 'savedVoice', 'savedEngine', 'savedIndex'], (result) => {
+
+  // Restore preferences
+  chrome.storage.local.get(['savedText'], (result) => {
       if (result.savedText) {
           textInput.innerText = result.savedText;
           updateCleanBtnVisibility();
       }
-
-      if (result.savedSpeed) { 
-          speedRange.value = result.savedSpeed; 
-          speedValue.textContent = result.savedSpeed;
-          updateSliderFill(speedRange);
-      }
-      if (result.savedStep) { 
-          stepRange.value = result.savedStep; 
-          stepValue.textContent = result.savedStep;
-          updateSliderFill(stepRange);
-      }
-      if (result.savedBuffer) { 
-          bufferRange.value = result.savedBuffer; 
-          bufferValue.textContent = result.savedBuffer;
-          updateSliderFill(bufferRange);
-      }
-      
-      if (result.savedEngine) {
-          currentEngine = result.savedEngine;
-          if (currentEngine === 'supertonic') {
-              engineServerRadio.checked = true;
-          } else {
-              engineSystemRadio.checked = true;
-          }
-      } else {
-          engineSystemRadio.checked = true; // Default
-      }
-
-      if (result.savedIndex !== undefined) {
-          currentSentenceIndex = result.savedIndex;
-      }
-      
-      updateEngineUI();
-      
-      // Restore voice (delayed)
-      if (result.savedVoice) {
-          setTimeout(() => { voiceSelect.value = result.savedVoice; }, 100);
-      }
-      
-      // 2. Check Active Session (Offscreen)
-      updateCleanBtnVisibility();
-      syncState();
   });
-
-  // --- Sync Helper ---
-  function syncState() {
-      chrome.runtime.sendMessage({ type: 'CMD_GET_STATE' }, (state) => {
-          if (chrome.runtime.lastError || !state) {
-              // If not streaming but we have a saved index, prepare the UI
-              if (currentSentenceIndex > 0 && textInput.innerText.trim()) {
-                  enterPlaybackMode(textInput.innerText.trim());
-                  highlightSentence(currentSentenceIndex);
-                  updateProgressUI(currentSentenceIndex, sentences.length);
-              }
-              return;
-          }
-          
-          // Sync engine state
-          if (state.engine) {
-              currentEngine = state.engine;
-              if (currentEngine === 'supertonic') engineServerRadio.checked = true;
-              else engineSystemRadio.checked = true;
-              updateEngineUI();
-          }
-          
-          if (state.isStreaming || state.isPaused) {
-              const currentUiText = textInput.innerText.trim();
-              const stateText = state.text || "";
-              
-              if (!isPlaybackMode || currentUiText !== stateText) {
-                  isPlaybackMode = false;
-                  textInput.innerText = stateText;
-                  enterPlaybackMode(stateText);
-              }
-              
-              currentSentenceIndex = state.index;
-              highlightSentence(state.index);
-              updateProgressUI(state.index, sentences.length);
-              
-              if (state.voice) {
-                   setTimeout(() => { voiceSelect.value = state.voice; }, 500); 
-              }
-              if (state.speed) { 
-                  speedRange.value = state.speed; 
-                  speedValue.textContent = state.speed;
-                  updateSliderFill(speedRange);
-              }
-              
-              updateUIState(state.isStreaming, state.isPaused);
-              if (state.isStreaming || state.isPaused) {
-                  playbackProgress.style.display = 'flex';
-                  progressTotal.textContent = sentences.length;
-              }
-          }
-      });
-  }
-
-  // --- Auto-Sync ---
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) syncState(); });
-  window.addEventListener('focus', () => { syncState(); });
-
-  // --- Message Listeners ---
-  chrome.runtime.onMessage.addListener((msg) => {
-      if (msg.type === 'UPDATE_PROGRESS') {
-          if (isPlaybackMode) {
-              currentSentenceIndex = msg.index;
-              highlightSentence(msg.index);
-              updateProgressUI(msg.index, sentences.length);
-          }
-      } else if (msg.type === 'PLAYBACK_FINISHED') {
-          onPlaybackFinished();
-      } else if (msg.type === 'VOICE_CHANGED' || msg.type === 'ENGINE_CHANGED') {
-          updateEngineUI();
-      }
-  });
-
-  setInterval(() => { if (currentEngine === 'system') updateEngineUI(); }, 5000);
 
   // --- Event Listeners ---
 
-  editModeRadio.addEventListener('change', () => { if (editModeRadio.checked) enterEditMode(); });
-  playbackModeRadio.addEventListener('change', () => { if (playbackModeRadio.checked) enterPlaybackMode(textInput.innerText.trim()); });
-
-  engineSystemRadio.addEventListener('change', () => {
-      if (engineSystemRadio.checked) {
-          currentEngine = 'system';
-          chrome.storage.local.set({ savedEngine: 'system' });
-          updateEngineUI();
-          stopPlayback(false);
-      }
-  });
-  engineServerRadio.addEventListener('change', () => {
-      if (engineServerRadio.checked) {
-          currentEngine = 'supertonic';
-          chrome.storage.local.set({ savedEngine: 'supertonic' });
-          updateEngineUI();
-          stopPlayback(false);
-      }
-  });
-
-  textInput.addEventListener('click', (e) => {
-      if (isPlaybackMode && e.target.classList.contains('sentence')) {
-          const newIndex = parseInt(e.target.dataset.index);
-          if (!isNaN(newIndex)) {
-              highlightSentence(newIndex);
-              seekTo(newIndex);
-          }
-      }
-  });
-
-  playPauseBtn.addEventListener('click', () => {
-      if (fluffManager.isActive) {
-          fluffManager.exitMode();
-      }
-      if (playPauseBtn.classList.contains('playing')) {
-          stopPlayback();
-      } else {
-          const text = textInput.innerText.trim();
-          if (!text) return;
-          if (!isPlaybackMode) enterPlaybackMode(text);
-          
-          if (currentEngine === 'system') startSystemPlayback(currentSentenceIndex);
-          else startServerPlayback(currentSentenceIndex);
-      }
-  });
-
   textInput.addEventListener('input', () => {
-      if (!isPlaybackMode) {
-          chrome.storage.local.set({ savedText: textInput.innerText });
-          updateCleanBtnVisibility();
-      }
+      chrome.storage.local.set({ savedText: textInput.innerText });
+      updateCleanBtnVisibility();
   });
-  
-  speedRange.addEventListener('input', () => {
-      speedValue.textContent = speedRange.value;
-      updateSliderFill(speedRange);
-      chrome.storage.local.set({ savedSpeed: speedRange.value });
-  });
-  
-  voiceSelect.addEventListener('change', () => { chrome.storage.local.set({ savedVoice: voiceSelect.value }); });
 
   fetchBtn.addEventListener('click', async () => {
       statusBadge.textContent = "Fetching...";
@@ -373,22 +156,20 @@ document.addEventListener('DOMContentLoaded', function() {
           const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
           const result = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => document.body.innerText });
           if (result?.[0]?.result) {
-              if (isPlaybackMode) enterEditMode();
               textInput.innerText = result[0].result.trim();
-              chrome.storage.local.set({ savedText: textInput.innerText, savedIndex: 0 });
+              chrome.storage.local.set({ savedText: textInput.innerText });
               updateCleanBtnVisibility();
               statusBadge.textContent = "Fetched";
+              setTimeout(() => { statusBadge.textContent = "✏️ Ready"; }, 2000);
           }
       } catch (e) { statusBadge.textContent = "Error"; }
   });
-  
-  refreshServerBtn.addEventListener('click', checkServerStatus);
-  
+
   sendToAppBtn.addEventListener('click', async () => {
-      // Stop playback immediately when sending
-      stopPlayback();
       statusBadge.textContent = "Processing...";
       let textToSend = textInput.innerText.trim();
+
+      // Auto-fetch if empty
       if (!textToSend) {
           try {
               const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -396,18 +177,29 @@ document.addEventListener('DOMContentLoaded', function() {
               if (result?.[0]?.result) textToSend = result[0].result.trim();
           } catch (e) {}
       }
-      if (!textToSend) return;
 
-      const encodedText = encodeURIComponent(textToSend);
+      if (!textToSend) {
+          statusBadge.textContent = "No Text";
+          return;
+      }
+
+      // NORMALIZE BEFORE SENDING
+      // This ensures the app receives "clean" text ready for TTS (e.g. "500 dollars" instead of "$500")
+      // Remove this step if you want raw text sent to the app
+      const normalizedText = textProcessor.normalize(textToSend);
+
+      const encodedText = encodeURIComponent(normalizedText);
       const intentUri = `intent://send?text=${encodedText}#Intent;scheme=supertonic;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;S.android.intent.extra.TEXT=${encodedText};S.browser_fallback_url=https%3A%2F%2Fgithub.com%2F;end`;
+
       try {
           const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
           await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: (uri) => {
               const link = document.createElement('a');
               link.href = uri; link.click();
           }, args: [intentUri] });
+
           statusBadge.textContent = "Sent";
-          stopPlayback();
+          setTimeout(() => { statusBadge.textContent = "✏️ Ready"; }, 2000);
       } catch (e) { statusBadge.textContent = "Error"; }
   });
 
@@ -416,8 +208,6 @@ document.addEventListener('DOMContentLoaded', function() {
       cleanBtn.addEventListener('click', () => {
           const text = textInput.innerText;
           if (!text) return;
-          // Stop playback if active
-          stopPlayback(false);
           fluffManager.enterMode(text);
       });
   }
@@ -429,211 +219,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // --- Functions ---
 
-  function enterPlaybackMode(text) {
-      if (isPlaybackMode) return;
-      const normalizedText = textProcessor.normalize(text);
-      sentences = textProcessor.splitIntoSentences(normalizedText);
-      textInput.innerHTML = sentences.map((s, i) => `<span class="sentence" data-index="${i}">${s.text} </span>`).join('');
-      textInput.contentEditable = false;
-      isPlaybackMode = true;
-      playbackModeRadio.checked = true;
-      statusBadge.textContent = "🎧 Ready";
-      playbackProgress.style.display = 'flex';
-      progressTotal.textContent = sentences.length;
-      updateCleanBtnVisibility();
-  }
-
-  function enterEditMode() {
-      stopPlayback(true);
-      textInput.contentEditable = true;
-      isPlaybackMode = false;
-      editModeRadio.checked = true;
-      statusBadge.textContent = "✏️ Edit Mode";
-      updateCleanBtnVisibility();
-  }
-
-  function seekTo(index) {
-      currentSentenceIndex = index;
-      chrome.storage.local.set({ savedIndex: index });
-      if (currentEngine === 'system') startSystemPlayback(index);
-      else startServerPlayback(index);
-  }
-
-  function updateEngineUI() {
-      const currentVal = voiceSelect.value;
-      voiceSelect.innerHTML = "";
-      if (currentEngine === 'system') {
-          serverControlsCard.style.display = "none";
-          const englishVoices = window.speechSynthesis.getVoices().filter(v => v.lang.startsWith('en'));
-          if (englishVoices.length === 0) {
-              window.speechSynthesis.onvoiceschanged = () => updateEngineUI();
-              voiceSelect.add(new Option("Loading...", ""));
-          } else {
-              englishVoices.forEach(v => voiceSelect.add(new Option(`${v.name}`, v.name)));
-              if (currentVal) voiceSelect.value = currentVal;
-          }
-      } else {
-          serverControlsCard.style.display = "flex";
-          checkServerStatus();
-      }
-  }
-
-  function checkServerStatus() {
-      if (currentEngine !== 'supertonic') return;
-      playPauseBtn.disabled = true; // Disable until we confirm status
-      fetch('http://127.0.0.1:8080/synthesize', { method: 'OPTIONS' })
-      .then(resp => {
-          if (resp.ok) {
-              serverAvailable = true;
-              voiceSelect.innerHTML = "";
-              
-              const voices = [
-                  { id: "M1", name: "Alex - Lively" },
-                  { id: "M2", name: "James - Deep" },
-                  { id: "M3", name: "Robert - Polished" },
-                  { id: "M4", name: "Sam - Soft" },
-                  { id: "M5", name: "Daniel - Warm" },
-                  { id: "F1", name: "Sarah - Calm" },
-                  { id: "F2", name: "Lily - Bright" },
-                  { id: "F3", name: "Jessica - Clear" },
-                  { id: "F4", name: "Olivia - Crisp" },
-                  { id: "F5", name: "Emily - Kind" }
-              ];
-
-              voices.forEach(v => voiceSelect.add(new Option(v.name, v.id + ".json")));
-              
-              // Restore saved voice if it exists in the new list
-              chrome.storage.local.get(['savedVoice'], (result) => {
-                  if (result.savedVoice) voiceSelect.value = result.savedVoice;
-                  if (!voiceSelect.value && voiceSelect.options.length > 0) {
-                      voiceSelect.selectedIndex = 0;
-                  }
-                  playPauseBtn.disabled = false;
-              });
-          }
-      }).catch(() => {
-          serverAvailable = false;
-          playPauseBtn.disabled = true;
-          voiceSelect.innerHTML = "<option>Unavailable</option>";
-      });
-  }
-
-  function startServerPlayback(startIndex = 0) {
-      updateUIState(true);
-      chrome.runtime.sendMessage({
-          type: 'CMD_START_STREAM',
-          payload: {
-              text: textInput.innerText,
-              sentences: sentences,
-              voice: voiceSelect.value,
-              speed: parseFloat(speedRange.value),
-              index: startIndex,
-              engine: 'supertonic'
-          }
-      });
-  }
-  
-  function startSystemPlayback(startIndex = 0) {
-      updateUIState(true);
-      chrome.runtime.sendMessage({
-          type: 'CMD_START_STREAM',
-          payload: {
-              text: textInput.innerText,
-              sentences: sentences,
-              voice: voiceSelect.value,
-              speed: parseFloat(speedRange.value),
-              index: startIndex,
-              engine: 'system'
-          }
-      });
-  }
-
-  function stopPlayback(fullReset = false) {
-      chrome.runtime.sendMessage({ type: 'CMD_STOP' });
-      onPlaybackFinished(fullReset);
-  }
-  
-  function onPlaybackFinished(fullReset = false) {
-      updateUIState(false);
-      if (fullReset) {
-          sentences = [];
-          currentSentenceIndex = 0;
-          chrome.storage.local.set({ savedIndex: 0 });
-          statusBadge.textContent = "✏️ Ready";
-      } else {
-          statusBadge.textContent = "⏸️ Paused";
-      }
-  }
-  
-  function updateUIState(playing, paused = false) {
-      const settingsCard = document.getElementById('settingsCard');
-      const serverControlsCard = document.getElementById('serverControlsCard');
-      const active = playing || paused;
-
-      if (active) {
-          playIcon.style.display = 'none';
-          stopIcon.style.display = 'block';
-          playPauseBtn.classList.add('playing');
-          statusBadge.textContent = paused ? "⏸️ Paused" : "🎧 Playing";
-
-          // Hide Fetch button if active (Playing OR Paused) - Only Send remains
-          fetchBtn.style.display = 'none';
-
-          if (playing) {
-              settingsCard.style.opacity = '0.6';
-              settingsCard.style.pointerEvents = 'none';
-              serverControlsCard.style.opacity = '0.6';
-              serverControlsCard.style.pointerEvents = 'none';
-          } else {
-              // Allow settings changes when paused
-              settingsCard.style.opacity = '1';
-              settingsCard.style.pointerEvents = 'auto';
-              serverControlsCard.style.opacity = '1';
-              serverControlsCard.style.pointerEvents = 'auto';
-          }
-      } else {
-          playIcon.style.display = 'block';
-          stopIcon.style.display = 'none';
-          playPauseBtn.classList.remove('playing');
-          fetchBtn.style.display = 'flex';
-          settingsCard.style.opacity = '1';
-          settingsCard.style.pointerEvents = 'auto';
-          serverControlsCard.style.opacity = '1';
-          serverControlsCard.style.pointerEvents = 'auto';
-      }
-      updateCleanBtnVisibility(playing, paused);
-  }
-
-  function updateCleanBtnVisibility(isPlaying = false, isPaused = false) {
-      // Hide Clean button if Fluff Mode is active OR if session is active (Playing or Paused)
-      if (fluffManager.isActive || isPlaying || isPaused) {
+  function updateCleanBtnVisibility() {
+      if (fluffManager.isActive) {
           cleanBtn.style.display = 'none';
       } else {
-          // Check for actual text content, ignoring whitespace/newlines
           const text = textInput.innerText.trim();
           const hasText = text.length > 0;
           cleanBtn.style.display = hasText ? 'flex' : 'none';
       }
-  }
-
-  function highlightSentence(index) {
-      if (!isPlaybackMode) return;
-      const prev = textInput.querySelector('.sentence.active');
-      if (prev) prev.classList.remove('active');
-      const next = textInput.querySelector(`.sentence[data-index="${index}"]`);
-      if (next) {
-          next.classList.add('active');
-          // Since textInput is relative, next.offsetTop is already relative to the scrollable container
-          const relativeTop = next.offsetTop;
-          const halfHeight = textInput.offsetHeight / 2;
-          textInput.scrollTo({ top: relativeTop - halfHeight, behavior: 'auto' });
-      }
-  }
-
-  function updateProgressUI(current, total) {
-      if (!isPlaybackMode) return;
-      progressCurrent.textContent = current + 1;
-      if (total > 0) progressFill.style.width = `${((current + 1) / total) * 100}%`;
   }
 
   // --- Theme Manager ---
