@@ -23,6 +23,10 @@ class TextNormalizer {
             rulesList.add(Rule(Pattern.compile(regex, Pattern.CASE_INSENSITIVE), replacement))
         }
 
+        // EM DASH NORMALIZATION (Priority: High)
+        // Replace em dashes with comma to prevent hard pauses/sentence splitting
+        addStr("\\s*[—]\\s*", ", ")
+
         // EMERGENCY NUMBERS (Priority: Highest)
         addStr("\\b911\\b", "nine one one")
         addLambda("\\b(999|112|000)\\b") { m -> 
@@ -276,9 +280,10 @@ class TextNormalizer {
         
         // Split by:
         // 1. Punctuation (.!?) followed by optional quote and space and Capital/Number/Unicode Letter
-        // 2. Semi-colon or Em-dash followed by space
+        // 2. Semi-colon followed by space
         // Changed [A-Z] to \\p{L} to support Unicode letters (like Hangul) starting a sentence
-        val pattern = Pattern.compile("(?<=[.!?])['\"”’]?\\s+(?=['\"“‘]?[\\p{L}\\d])|(?<=[;—])\\s+")
+        // REMOVED em-dash (—) from split pattern as it is now normalized to comma
+        val pattern = Pattern.compile("(?<=[.!?])['\"”’]?\\s+(?=['\"“‘]?[\\p{L}\\d])|(?<=[;])\\s+")
         val rawSentences = protectedText.split(pattern)
         
         val refinedSentences = mutableListOf<String>()
