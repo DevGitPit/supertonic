@@ -39,7 +39,8 @@ class MainActivity : ComponentActivity() {
 
     // UI State
     private var inputTextState = mutableStateOf("")
-    private var isSynthesizingState = mutableStateOf(true) // Start disabled (loading)
+    private var isInitializingState = mutableStateOf(true)
+    private var isSynthesizingState = mutableStateOf(false)
 
     // Settings State
     private var currentLangState = mutableStateOf("en")
@@ -79,6 +80,7 @@ class MainActivity : ComponentActivity() {
         override fun onStateChanged(isPlaying: Boolean, hasContent: Boolean, isSynthesizing: Boolean) {
             runOnUiThread {
                 miniPlayerIsPlayingState.value = isPlaying
+                isSynthesizingState.value = isSynthesizing
                 if (hasContent || isSynthesizing) {
                     showMiniPlayerState.value = true
                     val lastText = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).getString("last_text", "")
@@ -159,7 +161,7 @@ class MainActivity : ComponentActivity() {
             // Initialize with the correct model based on saved language
             if (SupertonicTTS.initialize(modelPath, libPath)) {
                 withContext(Dispatchers.Main) {
-                    isSynthesizingState.value = false // Enable button
+                    isInitializingState.value = false // Enable button
                 }
             }
         }
@@ -196,6 +198,7 @@ class MainActivity : ComponentActivity() {
                     inputText = inputTextState.value,
                     onInputTextChange = { inputTextState.value = it },
                     placeholderText = placeholder,
+                    isInitializing = isInitializingState.value,
                     isSynthesizing = isSynthesizingState.value,
                     onSynthesizeClick = {
                         val textToPlay = inputTextState.value.ifEmpty { placeholder }
@@ -376,7 +379,7 @@ class MainActivity : ComponentActivity() {
         if (currentModelVersion == version) return
         
         currentModelVersion = version
-        isSynthesizingState.value = true // Disable UI during switch
+        isInitializingState.value = true // Disable UI during switch
         
         CoroutineScope(Dispatchers.IO).launch {
             SupertonicTTS.release()

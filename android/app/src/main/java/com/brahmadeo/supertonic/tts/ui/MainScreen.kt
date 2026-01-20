@@ -26,6 +26,7 @@ fun MainScreen(
     inputText: String,
     onInputTextChange: (String) -> Unit,
     placeholderText: String,
+    isInitializing: Boolean,
     isSynthesizing: Boolean,
     onSynthesizeClick: () -> Unit,
 
@@ -98,13 +99,20 @@ fun MainScreen(
             )
         },
         floatingActionButton = {
+            val buttonText = when {
+                isInitializing -> "Initializing..."
+                isSynthesizing -> "Synthesizing..."
+                else -> "Synthesize"
+            }
+            val isLoading = isInitializing || isSynthesizing
+
             ExtendedFloatingActionButton(
                 onClick = onSynthesizeClick,
-                text = { Text(if (isSynthesizing) "Synthesizing..." else "Synthesize") },
+                text = { Text(buttonText) },
                 icon = { Icon(painterResource(android.R.drawable.ic_btn_speak_now), contentDescription = null) },
                 expanded = true,
-                containerColor = if (isSynthesizing) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.primaryContainer,
-                contentColor = if (isSynthesizing) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimaryContainer
+                containerColor = if (isLoading) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.primaryContainer,
+                contentColor = if (isLoading) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimaryContainer
             )
         }
     ) { paddingValues ->

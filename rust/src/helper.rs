@@ -133,7 +133,7 @@ pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
     let replacements = [
         ("–", "-"),      // en dash
         ("‑", "-"),      // non-breaking hyphen
-        ("—", "-"),      // em dash
+        ("—", ", "),     // em dash -> comma (Natural pause)
         ("_", " "),      // underscore
         ("\u{201C}", "\""),     // left double quote
         ("\u{201D}", "\""),     // right double quote
@@ -197,7 +197,7 @@ pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
 
     // If text doesn't end with punctuation, quotes, or closing brackets, add a period
     if !text.is_empty() {
-        let ends_with_punct = Regex::new(r#"[.!?;:,'\u{201C}\u{201D}\u{2018}\u{2019})\\]}}…。」』】〉》›»]$"#).unwrap();
+        let ends_with_punct = Regex::new(r#"[.!?;:,'"\u{201C}\u{201D}\u{2018}\u{2019})\\]}}…。」』】〉》›»]$"#).unwrap();
         if !ends_with_punct.is_match(&text) {
             text.push('.');
         }
@@ -458,9 +458,12 @@ pub fn chunk_text(text: &str, max_len: Option<usize>) -> Vec<String> {
 
 fn split_sentences(text: &str) -> Vec<String> {
     // Rust's regex doesn't support lookbehind, so we use a simpler approach
-    // Split on sentence boundaries and then check if they're abbreviations
-    let re = Regex::new(r"([.!?])\s+").unwrap();
-    
+    // Split on sentence boundaries (., !, ?, ;) followed by optional quote/bracket and space
+    // Added support for:
+    // - Semicolon (;) as splitter
+    // - Optional closing quotes/brackets after punctuation
+    let re = Regex::new(r"([.!?]['\u{2019}\u{201D}\u{0022}\)\}\]]?)\s+").unwrap();
+
     // Find all matches
     let matches: Vec<_> = re.find_iter(text).collect();
     if matches.is_empty() {
