@@ -43,6 +43,10 @@
             android:parentActivityName=".MainActivity"
             android:label="History" />
 
+        <activity android:name=".QueueActivity"
+            android:parentActivityName=".MainActivity"
+            android:label="Queue" />
+
         <activity android:name=".SavedAudioActivity"
             android:parentActivityName=".MainActivity"
             android:label="Saved Audio" />

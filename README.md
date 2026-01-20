@@ -182,6 +182,13 @@ open ExampleiOSApp.xcodeproj
 - In Xcode: Targets → ExampleiOSApp → Signing: select your Team
 - Choose your iPhone as run destination → Build & Run
 
+**Android App** ([Details](android/GEMINI.md))
+```bash
+# Termux Build
+./setup_termux_build.sh
+./compile_jni_libs.sh
+cd android && gradle assembleDebug
+```
 
 ### Technical Details
 

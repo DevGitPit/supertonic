@@ -1,6 +1,6 @@
 // offscreen.js - Fixed for Android Background Playback
 
-const LOG_PREFIX = '[OFFSCREEN]';
+const LOG_PREFIX = '[Supertonic Offscreen]';
 
 // --- State ---
 let audioContext = null;
@@ -90,6 +90,15 @@ async function initAudioContext() {
     const AudioCtor = window.AudioContext || window.webkitAudioContext;
     if (!audioContext) {
         audioContext = new AudioCtor({ sampleRate: 44100 });
+
+        // Listen for OS interruptions (e.g., incoming call, other media apps)
+        audioContext.onstatechange = () => {
+            console.log(`${LOG_PREFIX} AudioContext state changed to: ${audioContext.state}`);
+            if (audioContext.state === 'suspended' && isStreaming && !isPaused) {
+                // OS forced pause -> Update UI to paused state
+                pausePlayback();
+            }
+        };
     }
     if (audioContext.state === 'suspended') {
         await audioContext.resume();
@@ -117,17 +126,28 @@ async function createKeepAliveAudio() {
         
         const streamDestination = audioContext.createMediaStreamDestination();
         workletNode.connect(streamDestination);
-        
+
         silenceAudioElement = document.getElementById('silenceAnchor');
         if (silenceAudioElement) {
             silenceAudioElement.srcObject = streamDestination.stream;
-            silenceAudioElement.volume = 0.0; // Mute the silence stream
-            silenceAudioElement.muted = true;
+            // CRITICAL FIX: Volume must be > 0 and muted must be false for background playback
+            silenceAudioElement.volume = 0.0001;
+            silenceAudioElement.muted = false;
             silenceAudioElement.loop = true;
             silenceAudioElement.setAttribute('playsinline', '');
             silenceAudioElement.setAttribute('webkit-playsinline', '');
+
+            // Listen for OS/Browser pausing the audio
+            silenceAudioElement.addEventListener('pause', () => {
+                if (isStreaming && !isPaused) {
+                    console.log(`${LOG_PREFIX} Silence element paused by OS -> Updating state`);
+                    pausePlayback();
+                }
+            });
+
+            try { await silenceAudioElement.play(); } catch(e) {}
         }
-        
+
         keepAliveWorklet = workletNode;
     } catch (e) {
         setupLegacyKeepAlive();
@@ -282,8 +302,9 @@ async function handleStreamRequest(payload) {
     if (payload.sentences && Array.isArray(payload.sentences) && payload.sentences.length > 0) {
         currentSentences = payload.sentences;
     } else if (!sameText || currentSentences.length === 0) {
-        const normalizedText = normalizer.normalize(currentText);
-        currentSentences = splitIntoSentences(normalizedText);
+        // Use TextProcessor for normalization and splitting
+        const normalizedText = textProcessor.normalize(currentText);
+        currentSentences = textProcessor.splitIntoSentences(normalizedText);
     }
     
     startStreaming(payload.index || 0);
@@ -367,64 +388,9 @@ function stopAllAudioSources() {
 }
 
 /**
- * Enhanced TextNormalizer with comprehensive rule set
+ * TextProcessor instance
  */
-class TextNormalizer {
-    constructor() {
-        this.currencyNormalizer = new CurrencyNormalizer();
-        this.rules = this.initializeRules();
-    }
-    
-    initializeRules() {
-        return [
-            { pattern: /\b911\b/g, replacement: 'nine one one' },
-            { pattern: /\b(999|112|000)\b/g, replacement: (match, num) => num.split('').join(' ') },
-            { pattern: /\b(\d+(?:\.\d+)?)\s*m\b(?=[^a-zA-Z]|$)/g, replacement: (match, amount) => amount === '1' ? '1 meter' : `${amount} meters` },
-            { pattern: /\b(\d+(?:\.\d+)?)(km|mi)\b/gi, replacement: (match, amount, unit) => {
-                const unitMap = { 'km': 'kilometers', 'mi': 'miles' };
-                return `${amount.replace('.', ' point ')} ${unitMap[unit.toLowerCase()]}`;
-            }},
-            { pattern: /\b(\d+(?:\.\d+)?)h\b/gi, replacement: (match, amount) => amount === '1' ? '1 hour' : `${amount.replace('.', ' point ')} hours` },
-            { pattern: /\b(\d+(?:\.\d+)?)\s*(?:M|mn)\b/g, replacement: '$1 million' },
-            { pattern: /\b(\d+(?:\.\d+)?)\s*(?:B|bn)\b/g, replacement: '$1 billion' },
-            { pattern: /\b(\d+(?:\.\d+)?)%/g, replacement: '$1 percent' },
-            // YEARS
-            // 2000-2009 (Priority over general split)
-            {
-                pattern: /\b200(\d)\b/g,
-                replacement: (match, digit) => {
-                    return digit === '0' ? 'two thousand' : `two thousand ${digit}`;
-                }
-            },
-            // 1900-1909
-            {
-                pattern: /\b190(\d)\b/g,
-                replacement: (match, digit) => {
-                     return digit === '0' ? 'nineteen hundred' : `nineteen oh ${digit}`;
-                }
-            },
-            // General four-digit years (1998, 2025)
-            { pattern: /\b(19|20)(\d{2})\b(?!s)/g, replacement: '$1 $2' },
-            { pattern: /\b(Prof|Dr|Mr|Mrs|Ms)\.\s+/g, replacement: (match, title) => {
-                const titleMap = { 'Prof': 'Professor ', 'Dr': 'Doctor ', 'Mr': 'Mister ', 'Mrs': 'Missus ', 'Ms': 'Miss ' };
-                return titleMap[title];
-            }}
-        ];
-    }
-    
-    normalize(text) {
-        let normalized = text.replace(/([a-z])\.([A-Z])/g, '$1. $2').replace(/([a-z])([A-Z])/g, '$1 $2');
-        normalized = this.currencyNormalizer.normalize(normalized);
-        this.rules.forEach(rule => {
-            normalized = normalized.replace(rule.pattern, rule.replacement);
-        });
-        if (typeof NumberUtils !== 'undefined') {
-            normalized = normalized.replace(/\b\d+(?:\.\d+)?\b/g, (match) => NumberUtils.convertDouble(match));
-        }
-        return normalized;
-    }
-}
-const normalizer = new TextNormalizer();
+const textProcessor = new TextProcessor();
 
 // --- Loops ---
 
@@ -438,7 +404,7 @@ async function processSystemLoop(signal) {
         chrome.runtime.sendMessage({ type: 'UPDATE_PROGRESS', index: lastPlayedIndex });
         
         try {
-            await speakSystemSentence(normalizer.normalize(sentenceObj.text), signal);
+            await speakSystemSentence(textProcessor.normalize(sentenceObj.text), signal);
             if (!signal.aborted && isStreaming) fetchIndex++;
             await new Promise(resolve => setTimeout(resolve, 150));
         } catch (e) {
@@ -486,7 +452,7 @@ async function processFetchLoop(signal) {
         if (audioQueue.length > 10) { await waitForTick(); continue; }
         
         try {
-            const response = await sendSynthesizeRequest(normalizer.normalize(currentSentences[fetchIndex].text), signal);
+            const response = await sendSynthesizeRequest(textProcessor.normalize(currentSentences[fetchIndex].text), signal);
             if (response.audio) {
                 const buffer = await decodeAudio(response.audio, response.sample_rate);
                 audioQueue.push({ buffer: buffer, index: fetchIndex });
@@ -572,18 +538,4 @@ function decodeAudio(base64, sampleRate) {
     const buffer = audioContext.createBuffer(1, f32.length, sampleRate || 44100);
     buffer.getChannelData(0).set(f32);
     return buffer;
-}
-
-function splitIntoSentences(text) {
-    const abbreviations = ['Mr.', 'Mrs.', 'Dr.', 'Ms.', 'Prof.', 'Sr.', 'Jr.', 'etc.', 'vs.', 'e.g.', 'i.e.'];
-    let protectedText = text;
-    abbreviations.forEach((abbr, index) => {
-        protectedText = protectedText.replace(new RegExp(abbr.replace('.', '\\.'), 'gi'), `__ABBR${index}__`);
-    });
-    const sentenceRegex = /(?<=[.!?]['"”’)\}\]]*)\s+(?=['"“‘\(\{\[]*[A-Z])|(?<=[;—])\s+/;
-    return protectedText.split(sentenceRegex).map((s, i) => {
-        let restored = s.trim();
-        abbreviations.forEach((abbr, index) => { restored = restored.replace(new RegExp(`__ABBR${index}__`, 'g'), abbr); });
-        return { text: restored, index: i };
-    }).filter(s => s.text.length > 0);
 }

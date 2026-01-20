@@ -21,7 +21,16 @@ document.addEventListener('DOMContentLoaded', function() {
   const fetchBtn = document.getElementById('fetchBtn');
   const refreshServerBtn = document.getElementById('refreshServerBtn');
   const sendToAppBtn = document.getElementById('sendToAppBtn');
-  
+
+  // Fluff Controls
+  const cleanBtn = document.getElementById('cleanBtn');
+  const fluffControls = document.getElementById('fluffControls');
+  const prevFluffBtn = document.getElementById('prevFluffBtn');
+  const nextFluffBtn = document.getElementById('nextFluffBtn');
+  const delFluffBtn = document.getElementById('delFluffBtn');
+  const delAllFluffBtn = document.getElementById('delAllFluffBtn');
+  const doneFluffBtn = document.getElementById('doneFluffBtn');
+
   // Progress Bar
   const playbackProgress = document.getElementById('playbackProgress');
   const progressCurrent = document.getElementById('progressCurrent');
@@ -70,11 +79,114 @@ document.addEventListener('DOMContentLoaded', function() {
       el.classList.add('slider-fill');
   }
 
+  // --- Fluff Manager ---
+  class FluffManager {
+    constructor() {
+        this.suspects = [];
+        this.currentIndex = -1;
+        this.originalHtml = '';
+        this.isActive = false;
+    }
+
+    enterMode(text) {
+        this.isActive = true;
+        let cleanedText = textProcessor.autoClean(text);
+        this.suspects = textProcessor.detectFluffSuspects(cleanedText);
+        this.render(cleanedText);
+        textInput.contentEditable = false;
+        fluffControls.style.display = 'flex';
+        updateCleanBtnVisibility();
+        this.currentIndex = this.suspects.length > 0 ? 0 : -1;
+        this.updateHighlight();
+    }
+
+    render(text) {
+        const lines = text.split('\n');
+        const html = lines.map((line, i) => {
+            const isSuspect = this.suspects.some(s => s.index === i);
+            const suspectClass = isSuspect ? 'suspect-fluff' : '';
+            return `<div class="line-wrapper ${suspectClass}" data-line="${i}">${line || '<br>'}</div>`;
+        }).join('');
+        textInput.innerHTML = html;
+    }
+
+    updateHighlight() {
+        const prev = textInput.querySelector('.suspect-fluff.active');
+        if (prev) prev.classList.remove('active');
+
+        if (this.currentIndex >= 0 && this.currentIndex < this.suspects.length) {
+            const suspect = this.suspects[this.currentIndex];
+            const el = textInput.querySelector(`.line-wrapper[data-line="${suspect.index}"]`);
+            if (el) {
+                el.classList.add('active');
+                // Use scrollTo to avoid scrolling the main page
+                // Since textInput is relative, el.offsetTop is already relative to it
+                const relativeTop = el.offsetTop;
+                const halfHeight = textInput.offsetHeight / 2;
+                textInput.scrollTo({ top: relativeTop - halfHeight, behavior: 'auto' });
+            }
+        }
+    }
+
+    next() {
+        if (this.suspects.length === 0) return;
+        this.currentIndex = (this.currentIndex + 1) % this.suspects.length;
+        this.updateHighlight();
+    }
+
+    prev() {
+        if (this.suspects.length === 0) return;
+        this.currentIndex = (this.currentIndex - 1 + this.suspects.length) % this.suspects.length;
+        this.updateHighlight();
+    }
+
+    deleteCurrent() {
+        if (this.currentIndex === -1 || this.suspects.length === 0) return;
+        const suspect = this.suspects[this.currentIndex];
+        const el = textInput.querySelector(`.line-wrapper[data-line="${suspect.index}"]`);
+        if (el) {
+            el.remove();
+            this.suspects.splice(this.currentIndex, 1);
+            if (this.currentIndex >= this.suspects.length) {
+                this.currentIndex = this.suspects.length - 1;
+            }
+            this.updateHighlight();
+        }
+    }
+
+    deleteAll() {
+        const els = textInput.querySelectorAll('.suspect-fluff');
+        els.forEach(el => el.remove());
+        this.suspects = [];
+        this.currentIndex = -1;
+    }
+
+    exitMode() {
+        this.isActive = false;
+        fluffControls.style.display = 'none';
+        textInput.contentEditable = true;
+        isPlaybackMode = false;
+        editModeRadio.checked = true;
+        statusBadge.textContent = "✏️ Ready";
+        const cleanText = textInput.innerText;
+        textInput.innerText = cleanText;
+        chrome.storage.local.set({ savedText: cleanText });
+        updateCleanBtnVisibility();
+    }
+  }
+
+  const fluffManager = new FluffManager();
+  const textProcessor = new TextProcessor();
+
   // --- Initialization ---
   
-  // 1. Restore preferences
+      // 1. Restore preferences
   chrome.storage.local.get(['savedText', 'savedSpeed', 'savedStep', 'savedBuffer', 'savedVoice', 'savedEngine', 'savedIndex'], (result) => {
-      if (result.savedText) textInput.innerText = result.savedText;
+      if (result.savedText) {
+          textInput.innerText = result.savedText;
+          updateCleanBtnVisibility();
+      }
+
       if (result.savedSpeed) { 
           speedRange.value = result.savedSpeed; 
           speedValue.textContent = result.savedSpeed;
@@ -114,6 +226,7 @@ document.addEventListener('DOMContentLoaded', function() {
       }
       
       // 2. Check Active Session (Offscreen)
+      updateCleanBtnVisibility();
       syncState();
   });
 
@@ -224,8 +337,11 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   playPauseBtn.addEventListener('click', () => {
+      if (fluffManager.isActive) {
+          fluffManager.exitMode();
+      }
       if (playPauseBtn.classList.contains('playing')) {
-          stopPlayback(); 
+          stopPlayback();
       } else {
           const text = textInput.innerText.trim();
           if (!text) return;
@@ -237,7 +353,10 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   textInput.addEventListener('input', () => {
-      if (!isPlaybackMode) chrome.storage.local.set({ savedText: textInput.innerText });
+      if (!isPlaybackMode) {
+          chrome.storage.local.set({ savedText: textInput.innerText });
+          updateCleanBtnVisibility();
+      }
   });
   
   speedRange.addEventListener('input', () => {
@@ -257,6 +376,7 @@ document.addEventListener('DOMContentLoaded', function() {
               if (isPlaybackMode) enterEditMode();
               textInput.innerText = result[0].result.trim();
               chrome.storage.local.set({ savedText: textInput.innerText, savedIndex: 0 });
+              updateCleanBtnVisibility();
               statusBadge.textContent = "Fetched";
           }
       } catch (e) { statusBadge.textContent = "Error"; }
@@ -265,6 +385,8 @@ document.addEventListener('DOMContentLoaded', function() {
   refreshServerBtn.addEventListener('click', checkServerStatus);
   
   sendToAppBtn.addEventListener('click', async () => {
+      // Stop playback immediately when sending
+      stopPlayback();
       statusBadge.textContent = "Processing...";
       let textToSend = textInput.innerText.trim();
       if (!textToSend) {
@@ -275,7 +397,7 @@ document.addEventListener('DOMContentLoaded', function() {
           } catch (e) {}
       }
       if (!textToSend) return;
-      
+
       const encodedText = encodeURIComponent(textToSend);
       const intentUri = `intent://send?text=${encodedText}#Intent;scheme=supertonic;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;S.android.intent.extra.TEXT=${encodedText};S.browser_fallback_url=https%3A%2F%2Fgithub.com%2F;end`;
       try {
@@ -289,13 +411,28 @@ document.addEventListener('DOMContentLoaded', function() {
       } catch (e) { statusBadge.textContent = "Error"; }
   });
 
+  // Fluff Event Listeners
+  if (cleanBtn) {
+      cleanBtn.addEventListener('click', () => {
+          const text = textInput.innerText;
+          if (!text) return;
+          // Stop playback if active
+          stopPlayback(false);
+          fluffManager.enterMode(text);
+      });
+  }
+  if (prevFluffBtn) prevFluffBtn.addEventListener('click', () => fluffManager.prev());
+  if (nextFluffBtn) nextFluffBtn.addEventListener('click', () => fluffManager.next());
+  if (delFluffBtn) delFluffBtn.addEventListener('click', () => fluffManager.deleteCurrent());
+  if (delAllFluffBtn) delAllFluffBtn.addEventListener('click', () => fluffManager.deleteAll());
+  if (doneFluffBtn) doneFluffBtn.addEventListener('click', () => fluffManager.exitMode());
+
   // --- Functions ---
 
   function enterPlaybackMode(text) {
       if (isPlaybackMode) return;
-      let fixedText = text.replace(/([a-z])\.([A-Z])/g, '$1. $2').replace(/([a-z])([A-Z])/g, '$1 $2');
-      const sentenceRegex = /(?<=[.!?]['"”’)\}\]]*)\s+(?=['"“‘\(\{\[]*[A-Z])|(?<=[;—])\s+/;
-      sentences = fixedText.split(sentenceRegex).map((s, i) => ({ text: s.trim(), index: i })).filter(s => s.text.length > 0);
+      const normalizedText = textProcessor.normalize(text);
+      sentences = textProcessor.splitIntoSentences(normalizedText);
       textInput.innerHTML = sentences.map((s, i) => `<span class="sentence" data-index="${i}">${s.text} </span>`).join('');
       textInput.contentEditable = false;
       isPlaybackMode = true;
@@ -303,6 +440,7 @@ document.addEventListener('DOMContentLoaded', function() {
       statusBadge.textContent = "🎧 Ready";
       playbackProgress.style.display = 'flex';
       progressTotal.textContent = sentences.length;
+      updateCleanBtnVisibility();
   }
 
   function enterEditMode() {
@@ -311,6 +449,7 @@ document.addEventListener('DOMContentLoaded', function() {
       isPlaybackMode = false;
       editModeRadio.checked = true;
       statusBadge.textContent = "✏️ Edit Mode";
+      updateCleanBtnVisibility();
   }
 
   function seekTo(index) {
@@ -436,11 +575,22 @@ document.addEventListener('DOMContentLoaded', function() {
           stopIcon.style.display = 'block';
           playPauseBtn.classList.add('playing');
           statusBadge.textContent = paused ? "⏸️ Paused" : "🎧 Playing";
+
+          // Hide Fetch button if active (Playing OR Paused) - Only Send remains
           fetchBtn.style.display = 'none';
-          settingsCard.style.opacity = '0.6';
-          settingsCard.style.pointerEvents = 'none';
-          serverControlsCard.style.opacity = '0.6';
-          serverControlsCard.style.pointerEvents = 'none';
+
+          if (playing) {
+              settingsCard.style.opacity = '0.6';
+              settingsCard.style.pointerEvents = 'none';
+              serverControlsCard.style.opacity = '0.6';
+              serverControlsCard.style.pointerEvents = 'none';
+          } else {
+              // Allow settings changes when paused
+              settingsCard.style.opacity = '1';
+              settingsCard.style.pointerEvents = 'auto';
+              serverControlsCard.style.opacity = '1';
+              serverControlsCard.style.pointerEvents = 'auto';
+          }
       } else {
           playIcon.style.display = 'block';
           stopIcon.style.display = 'none';
@@ -451,6 +601,19 @@ document.addEventListener('DOMContentLoaded', function() {
           serverControlsCard.style.opacity = '1';
           serverControlsCard.style.pointerEvents = 'auto';
       }
+      updateCleanBtnVisibility(playing, paused);
+  }
+
+  function updateCleanBtnVisibility(isPlaying = false, isPaused = false) {
+      // Hide Clean button if Fluff Mode is active OR if session is active (Playing or Paused)
+      if (fluffManager.isActive || isPlaying || isPaused) {
+          cleanBtn.style.display = 'none';
+      } else {
+          // Check for actual text content, ignoring whitespace/newlines
+          const text = textInput.innerText.trim();
+          const hasText = text.length > 0;
+          cleanBtn.style.display = hasText ? 'flex' : 'none';
+      }
   }
 
   function highlightSentence(index) {
@@ -460,8 +623,10 @@ document.addEventListener('DOMContentLoaded', function() {
       const next = textInput.querySelector(`.sentence[data-index="${index}"]`);
       if (next) {
           next.classList.add('active');
-          const relativeTop = next.offsetTop - textInput.offsetTop;
-          textInput.scrollTo({ top: relativeTop - (textInput.offsetHeight / 3), behavior: 'smooth' });
+          // Since textInput is relative, next.offsetTop is already relative to the scrollable container
+          const relativeTop = next.offsetTop;
+          const halfHeight = textInput.offsetHeight / 2;
+          textInput.scrollTo({ top: relativeTop - halfHeight, behavior: 'auto' });
       }
   }
 

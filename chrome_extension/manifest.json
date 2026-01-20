@@ -14,7 +14,7 @@
     "storage",
     "tts",
     "offscreen",
-    "management"
+    "contextMenus"
   ],
   "host_permissions": [
     "http://127.0.0.1:8080/*"
@@ -27,7 +27,7 @@
     "service_worker": "background.js"
   },
   "web_accessible_resources": [{
-    "resources": ["icons/*.png", "worklet.js", "offscreen.html", "offscreen.js", "currencyNormalizer.js"],
+    "resources": ["icons/*.png", "worklet.js", "offscreen.html", "offscreen.js", "currencyNormalizer.js", "textProcessor.js"],
     "matches": ["<all_urls>"]
   }]
 }

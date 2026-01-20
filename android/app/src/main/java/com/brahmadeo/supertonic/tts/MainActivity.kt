@@ -9,57 +9,104 @@ import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
 import android.os.IBinder
-import android.view.MenuItem
-import android.view.MotionEvent
-import android.view.View
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
-import android.widget.AutoCompleteTextView
-import android.widget.Button
-import android.widget.EditText
-import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.core.content.ContextCompat
-import android.speech.tts.TextToSpeech
-import android.util.Log
+import com.brahmadeo.supertonic.tts.service.IPlaybackListener
 import com.brahmadeo.supertonic.tts.service.IPlaybackService
 import com.brahmadeo.supertonic.tts.service.PlaybackService
+import com.brahmadeo.supertonic.tts.ui.MainScreen
+import com.brahmadeo.supertonic.tts.ui.theme.SupertonicTheme
 import com.brahmadeo.supertonic.tts.utils.HistoryManager
-import com.google.android.material.appbar.MaterialToolbar
-import com.google.android.material.slider.Slider
+import com.brahmadeo.supertonic.tts.utils.LexiconManager
+import com.brahmadeo.supertonic.tts.utils.QueueManager
 import kotlinx.coroutines.*
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : ComponentActivity() {
 
-    private lateinit var toolbar: MaterialToolbar
-    private lateinit var langSpinner: AutoCompleteTextView
-    private lateinit var voiceSpinner: AutoCompleteTextView
-    private lateinit var speedSeekBar: Slider
-    private lateinit var speedValue: TextView
-    private lateinit var qualitySeekBar: Slider
-    private lateinit var qualityValue: TextView
-    private lateinit var inputText: EditText
-    private lateinit var synthButton: Button
-    
-    private var currentSteps = 5
-    private var selectedVoiceFile = "M1.json"
-    private var currentLang = "en"
-    private var currentSpeed = 1.05f
+    // UI State
+    private var inputTextState = mutableStateOf("")
+    private var isSynthesizingState = mutableStateOf(true) // Start disabled (loading)
 
+    // Settings State
+    private var currentLangState = mutableStateOf("en")
+    private var selectedVoiceFileState = mutableStateOf("M1.json")
+    private var selectedVoiceFile2State = mutableStateOf("M2.json")
+    private var isMixingEnabledState = mutableStateOf(false)
+    private var mixAlphaState = mutableFloatStateOf(0.5f)
+    private var currentSpeedState = mutableFloatStateOf(1.1f)
+    private var currentStepsState = mutableIntStateOf(5)
+
+    // Mini Player State
+    private var showMiniPlayerState = mutableStateOf(false)
+    private var miniPlayerTitleState = mutableStateOf("Now Playing")
+    private var miniPlayerIsPlayingState = mutableStateOf(false)
+
+    // Data
+    private val voiceFiles = mutableStateMapOf<String, String>()
+    private val languages = mapOf(
+        "English" to "en",
+        "French" to "fr",
+        "Portuguese" to "pt",
+        "Spanish" to "es",
+        "Korean" to "ko"
+    )
+
+    private var currentModelVersion = "v1" // "v1" or "v2"
+
+    // Service
     private var playbackService: IPlaybackService? = null
     private var isBound = false
+
+    // Dialog State
+    private var showQueueDialog = mutableStateOf(false)
+    private var queueDialogText = ""
+
+    private val playbackListener = object : IPlaybackListener.Stub() {
+        override fun onStateChanged(isPlaying: Boolean, hasContent: Boolean, isSynthesizing: Boolean) {
+            runOnUiThread {
+                miniPlayerIsPlayingState.value = isPlaying
+                if (hasContent || isSynthesizing) {
+                    showMiniPlayerState.value = true
+                    val lastText = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).getString("last_text", "")
+                    if (!lastText.isNullOrEmpty()) {
+                        miniPlayerTitleState.value = lastText
+                    }
+                } else {
+                    showMiniPlayerState.value = false
+                }
+            }
+        }
+        override fun onProgress(current: Int, total: Int) { }
+        override fun onPlaybackStopped() {
+            runOnUiThread {
+                showMiniPlayerState.value = false
+                miniPlayerIsPlayingState.value = false
+            }
+        }
+        override fun onExportComplete(success: Boolean, path: String) { }
+    }
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(className: ComponentName, service: IBinder) {
             playbackService = IPlaybackService.Stub.asInterface(service)
             isBound = true
+            try {
+                playbackService?.setListener(playbackListener)
+            } catch (e: Exception) { e.printStackTrace() }
         }
 
         override fun onServiceDisconnected(arg0: ComponentName) {
@@ -67,8 +114,6 @@ class MainActivity : AppCompatActivity() {
             playbackService = null
         }
     }
-
-    private val scope = CoroutineScope(Dispatchers.Main + Job())
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -80,157 +125,375 @@ class MainActivity : AppCompatActivity() {
         if (result.resultCode == RESULT_OK) {
             val selectedText = result.data?.getStringExtra("selected_text")
             if (!selectedText.isNullOrEmpty()) {
-                inputText.setText(selectedText)
-                
-                AlertDialog.Builder(this)
-                    .setTitle(getString(R.string.play_selected_title))
-                    .setMessage(getString(R.string.play_selected_message))
-                    .setPositiveButton(getString(R.string.yes)) { _, _ ->
-                        generateAndPlay(selectedText)
-                    }
-                    .setNegativeButton(getString(R.string.no), null)
-                    .show()
+                inputTextState.value = selectedText
             }
         }
     }
 
-    private var voiceFiles = mutableMapOf<String, String>()
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
 
-        toolbar = findViewById(R.id.topAppBar)
-        langSpinner = findViewById(R.id.langSpinner)
-        voiceSpinner = findViewById(R.id.voiceSpinner)
-        speedSeekBar = findViewById(R.id.speedSeekBar)
-        speedValue = findViewById(R.id.speedValue)
-        qualitySeekBar = findViewById(R.id.qualitySeekBar)
-        qualityValue = findViewById(R.id.qualityValue)
-        inputText = findViewById(R.id.inputText)
-        synthButton = findViewById(R.id.synthButton)
-
-        inputText.setOnTouchListener { v, event ->
-            v.parent.requestDisallowInterceptTouchEvent(true)
-            if ((event.action and MotionEvent.ACTION_MASK) == MotionEvent.ACTION_UP) {
-                v.parent.requestDisallowInterceptTouchEvent(false)
-            }
-            false
-        }
-
-        // Auto-clear placeholder text on focus
-        val placeholder = "Hello world, this is Supertonic TTS on Android. Select a voice and speed below!"
-        inputText.setOnFocusChangeListener { _, hasFocus ->
-            if (hasFocus && inputText.text.toString() == placeholder) {
-                inputText.setText("")
-            }
-        }
-
-        // Load saved preferences
-        val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
-        currentSteps = prefs.getInt("diffusion_steps", 5)
-        qualitySeekBar.value = currentSteps.toFloat()
-        qualityValue.text = "$currentSteps steps"
-
-        currentLang = prefs.getString("selected_lang", "en") ?: "en"
-
-        toolbar.setOnMenuItemClickListener { menuItem ->
-            when (menuItem.itemId) {
-                R.id.action_reset -> {
-                    inputText.setText("")
-                    val stopIntent = Intent(this, PlaybackService::class.java).apply { action = "STOP_PLAYBACK" }
-                    startService(stopIntent)
-                    Toast.makeText(this, getString(R.string.action_reset), Toast.LENGTH_SHORT).show()
-                    true
-                }
-                R.id.action_saved -> {
-                    startActivity(Intent(this, SavedAudioActivity::class.java))
-                    true
-                }
-                R.id.action_history -> {
-                    historyLauncher.launch(Intent(this, HistoryActivity::class.java))
-                    true
-                }
-                R.id.action_lexicon -> {
-                    startActivity(Intent(this, LexiconActivity::class.java))
-                    true
-                }
-                else -> false
-            }
-        }
-
-        setupLangSpinner()
-        setupSpeedControl()
-        setupQualityControl()
+        loadPreferences()
         checkNotificationPermission()
 
-        // Explicitly disable and show loading state
-        synthButton.isEnabled = false
-        synthButton.text = getString(R.string.loading_engine)
-        toolbar.title = getString(R.string.initializing)
-
-        // Warm up the service process via private AIDL
         val bindIntent = Intent(this, PlaybackService::class.java)
         bindService(bindIntent, connection, Context.BIND_AUTO_CREATE)
-        
-        com.brahmadeo.supertonic.tts.utils.LexiconManager.load(this)
 
-        scope.launch(Dispatchers.IO) {
-            val modelPath = copyAssets()
+        LexiconManager.load(this)
+        QueueManager.initialize(this)
+
+        // Initial setup
+        val savedLang = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).getString("selected_lang", "en") ?: "en"
+        currentModelVersion = if (savedLang == "en") "v1" else "v2"
+
+        // Asset Copy Task
+        CoroutineScope(Dispatchers.IO).launch {
+            copyAssets() // Now copies both v1 and v2
             withContext(Dispatchers.Main) {
-                setupVoiceSpinner()
+                setupVoicesMap()
             }
+
+            val modelPath = File(filesDir, "$currentModelVersion/onnx").absolutePath
+            val libPath = applicationInfo.nativeLibraryDir + "/libonnxruntime.so"
+
+            // Initialize with the correct model based on saved language
+            if (SupertonicTTS.initialize(modelPath, libPath)) {
+                withContext(Dispatchers.Main) {
+                    isSynthesizingState.value = false // Enable button
+                }
+            }
+        }
+
+        handleIntent(intent)
+        checkResumeState()
+
+        setContent {
+            SupertonicTheme {
+                if (showQueueDialog.value) {
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { showQueueDialog.value = false },
+                        title = { Text(getString(R.string.playback_active_title)) },
+                        text = { Text(getString(R.string.playback_active_message)) },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                addToQueue(queueDialogText)
+                                showQueueDialog.value = false
+                            }) { Text(getString(R.string.add_to_queue)) }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = {
+                                playNow(queueDialogText)
+                                showQueueDialog.value = false
+                            }) { Text(getString(R.string.play_now)) }
+                        }
+                    )
+                }
+
+                // Get localized placeholder
+                val placeholder = getLocalizedResource(this, currentLangState.value, R.string.default_input_text)
+
+                MainScreen(
+                    inputText = inputTextState.value,
+                    onInputTextChange = { inputTextState.value = it },
+                    placeholderText = placeholder,
+                    isSynthesizing = isSynthesizingState.value,
+                    onSynthesizeClick = {
+                        val textToPlay = inputTextState.value.ifEmpty { placeholder }
+                        generateAndPlay(textToPlay)
+                    },
+
+                    languages = languages,
+                    currentLangCode = currentLangState.value,
+                    onLangChange = {
+                        currentLangState.value = it
+                        saveStringPref("selected_lang", it)
+                        
+                        val newVersion = if (it == "en") "v1" else "v2"
+                        if (newVersion != currentModelVersion) {
+                            switchModel(newVersion)
+                        }
+                    },
+
+                    voices = voiceFiles,
+                    selectedVoiceFile = selectedVoiceFileState.value,
+                    onVoiceChange = {
+                        if (selectedVoiceFileState.value != it) {
+                            selectedVoiceFileState.value = it
+                            saveStringPref("selected_voice", it)
+                            val resetIntent = Intent(this, PlaybackService::class.java).apply { action = "RESET_ENGINE" }
+                            startService(resetIntent)
+                        }
+                    },
+
+                    isMixingEnabled = isMixingEnabledState.value,
+                    onMixingEnabledChange = { isMixingEnabledState.value = it },
+                    selectedVoiceFile2 = selectedVoiceFile2State.value,
+                    onVoice2Change = {
+                        selectedVoiceFile2State.value = it
+                        saveStringPref("selected_voice_2", it)
+                    },
+                    mixAlpha = mixAlphaState.value,
+                    onMixAlphaChange = { mixAlphaState.value = it },
+
+                    speed = currentSpeedState.value,
+                    onSpeedChange = { currentSpeedState.value = it },
+                    steps = currentStepsState.value,
+                    onStepsChange = {
+                        currentStepsState.value = it
+                        getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).edit().putInt("diffusion_steps", it).apply()
+                    },
+
+                    onResetClick = {
+                        inputTextState.value = ""
+                        val stopIntent = Intent(this, PlaybackService::class.java).apply { action = "STOP_PLAYBACK" }
+                        startService(stopIntent)
+                    },
+                    onSavedAudioClick = { startActivity(Intent(this, SavedAudioActivity::class.java)) },
+                    onHistoryClick = { historyLauncher.launch(Intent(this, HistoryActivity::class.java)) },
+                    onQueueClick = { startActivity(Intent(this, QueueActivity::class.java)) },
+                    onLexiconClick = { startActivity(Intent(this, LexiconActivity::class.java)) },
+
+                    showMiniPlayer = showMiniPlayerState.value,
+                    miniPlayerTitle = miniPlayerTitleState.value,
+                    miniPlayerIsPlaying = miniPlayerIsPlayingState.value,
+                    onMiniPlayerClick = {
+                        val intent = Intent(this, PlaybackActivity::class.java)
+                        intent.flags = Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                        startActivity(intent)
+                    },
+                    onMiniPlayerPlayPauseClick = {
+                         if (playbackService?.isServiceActive == true) {
+                            try {
+                                if (miniPlayerIsPlayingState.value) playbackService?.pause() else playbackService?.play()
+                            } catch (e: Exception) { e.printStackTrace() }
+                        }
+                    }
+                )
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (isBound && playbackService != null) {
+            try {
+                playbackService?.setListener(playbackListener)
+            } catch (e: Exception) { e.printStackTrace() }
+        }
+    }
+
+    private fun getLocalizedResource(context: Context, localeCode: String, resId: Int): String {
+        val locale = java.util.Locale(localeCode)
+        val config = android.content.res.Configuration(context.resources.configuration)
+        config.setLocale(locale)
+        val localizedContext = context.createConfigurationContext(config)
+        return localizedContext.getString(resId)
+    }
+
+    private fun loadPreferences() {
+        val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
+        currentStepsState.intValue = prefs.getInt("diffusion_steps", 5)
+        currentLangState.value = prefs.getString("selected_lang", "en") ?: "en"
+        selectedVoiceFileState.value = prefs.getString("selected_voice", "M1.json") ?: "M1.json"
+        selectedVoiceFile2State.value = prefs.getString("selected_voice_2", "M2.json") ?: "M2.json"
+    }
+
+    private fun saveStringPref(key: String, value: String) {
+        getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).edit().putString(key, value).apply()
+    }
+
+    private fun checkNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
+    private fun setupVoicesMap() {
+        val voiceResources = mapOf(
+            "M1.json" to R.string.voice_m1,
+            "M2.json" to R.string.voice_m2,
+            "M3.json" to R.string.voice_m3,
+            "M4.json" to R.string.voice_m4,
+            "M5.json" to R.string.voice_m5,
+            "F1.json" to R.string.voice_f1,
+            "F2.json" to R.string.voice_f2,
+            "F3.json" to R.string.voice_f3,
+            "F4.json" to R.string.voice_f4,
+            "F5.json" to R.string.voice_f5
+        )
+
+        voiceResources.forEach { (filename, resId) ->
+            voiceFiles[getString(resId)] = filename
+        }
+
+        // Check v1 dir for default listing (assuming same names in v2)
+        val voiceDir = File(filesDir, "v1/voice_styles")
+        if (voiceDir.exists()) {
+            val files = voiceDir.listFiles { _, name -> name.endsWith(".json") }
+            files?.forEach { file ->
+                if (!voiceResources.containsKey(file.name)) {
+                    val friendlyName = file.name.removeSuffix(".json")
+                    voiceFiles[friendlyName] = file.name
+                }
+            }
+        }
+    }
+
+    private fun copyAssets() {
+        val assetManager = assets
+        
+        fun copyDir(assetPath: String, targetDir: File) {
+            if (!targetDir.exists()) targetDir.mkdirs()
+            val files = assetManager.list(assetPath) ?: return
+            for (filename in files) {
+                val fullAssetPath = "$assetPath/$filename"
+                val subFiles = assetManager.list(fullAssetPath)
+                if (subFiles != null && subFiles.isNotEmpty()) {
+                    copyDir(fullAssetPath, File(targetDir, filename))
+                } else {
+                    val file = File(targetDir, filename)
+                    try {
+                        val inFile = assetManager.open(fullAssetPath)
+                        val outStream = FileOutputStream(file)
+                        inFile.copyTo(outStream)
+                        inFile.close()
+                        outStream.close()
+                    } catch (e: IOException) {
+                        // Ignore errors
+                    }
+                }
+            }
+        }
+
+        // Copy v1 and v2 folders
+        copyDir("v1", File(filesDir, "v1"))
+        copyDir("v2", File(filesDir, "v2"))
+    }
+
+    private fun switchModel(version: String) {
+        if (currentModelVersion == version) return
+        
+        currentModelVersion = version
+        isSynthesizingState.value = true // Disable UI during switch
+        
+        CoroutineScope(Dispatchers.IO).launch {
+            SupertonicTTS.release()
             
+            val modelPath = File(filesDir, "$version/onnx").absolutePath
             val libPath = applicationInfo.nativeLibraryDir + "/libonnxruntime.so"
             
-            if (modelPath != null) {
-                if (SupertonicTTS.initialize(modelPath, libPath)) {
-                    val socClass = SupertonicTTS.getSoC()
-                    val socName = when(socClass) {
-                        3 -> "Flagship"
-                        2 -> "High-End"
-                        1 -> "Mid-Range"
-                        0 -> "Low-End"
-                        else -> "Unknown"
-                    }
-                    
-                    withContext(Dispatchers.Main) {
-                        toolbar.title = getString(R.string.ready_soc_fmt, socName)
-                        synthButton.text = getString(R.string.synthesize_button)
-                        synthButton.isEnabled = true
-                    }
-                } else {
-                    withContext(Dispatchers.Main) {
-                        toolbar.title = getString(R.string.init_failed)
-                        synthButton.text = getString(R.string.engine_error)
-                    }
+            if (SupertonicTTS.initialize(modelPath, libPath)) {
+                withContext(Dispatchers.Main) {
+                    isSynthesizingState.value = false
+                    Toast.makeText(this@MainActivity, "Switched to model $version", Toast.LENGTH_SHORT).show()
                 }
             } else {
                 withContext(Dispatchers.Main) {
-                    toolbar.title = getString(R.string.asset_copy_failed)
-                    synthButton.text = getString(R.string.asset_error)
+                    Toast.makeText(this@MainActivity, "Failed to switch model", Toast.LENGTH_SHORT).show()
                 }
             }
         }
+    }
 
-        synthButton.setOnClickListener {
-            val text = inputText.text.toString()
-            if (text.isNotEmpty()) {
-                generateAndPlay(text)
+    private fun generateAndPlay(text: String) {
+        var stylePath = File(filesDir, "$currentModelVersion/voice_styles/${selectedVoiceFileState.value}").absolutePath
+        if (!File(stylePath).exists()) {
+             Toast.makeText(this, "Voice style not found", Toast.LENGTH_SHORT).show()
+             return
+        }
+
+        if (isMixingEnabledState.value) {
+            val stylePath2 = File(filesDir, "$currentModelVersion/voice_styles/${selectedVoiceFile2State.value}").absolutePath
+            if (File(stylePath2).exists()) {
+                stylePath = "$stylePath;$stylePath2;${mixAlphaState.value}"
             }
         }
         
-        handleIntent(intent)
-        checkResumeState()
+        // Generate friendly voice name
+        val v1Name = voiceFiles.entries.find { it.value == selectedVoiceFileState.value }?.key ?: "Voice 1"
+        val v2Name = voiceFiles.entries.find { it.value == selectedVoiceFile2State.value }?.key ?: "Voice 2"
+        val voiceName = if (isMixingEnabledState.value) "Mixed: $v1Name + $v2Name" else v1Name
+
+        HistoryManager.saveItem(this, text, voiceName)
+
+        try {
+            if (playbackService?.isServiceActive == true) {
+                queueDialogText = text
+                showQueueDialog.value = true
+            } else {
+                launchPlaybackActivity(text, stylePath)
+            }
+        } catch (e: Exception) {
+            launchPlaybackActivity(text, stylePath)
+        }
+    }
+
+    private fun addToQueue(text: String) {
+        var stylePath = File(filesDir, "$currentModelVersion/voice_styles/${selectedVoiceFileState.value}").absolutePath
+        if (isMixingEnabledState.value) {
+            val stylePath2 = File(filesDir, "$currentModelVersion/voice_styles/${selectedVoiceFile2State.value}").absolutePath
+            stylePath = "$stylePath;$stylePath2;${mixAlphaState.value}"
+        }
+
+        try {
+            playbackService?.addToQueue(
+                text,
+                currentLangState.value,
+                stylePath,
+                currentSpeedState.value,
+                currentStepsState.intValue,
+                0
+            )
+            Toast.makeText(this, getString(R.string.added_to_queue), Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun playNow(text: String) {
+        var stylePath = File(filesDir, "$currentModelVersion/voice_styles/${selectedVoiceFileState.value}").absolutePath
+        if (isMixingEnabledState.value) {
+            val stylePath2 = File(filesDir, "$currentModelVersion/voice_styles/${selectedVoiceFile2State.value}").absolutePath
+            stylePath = "$stylePath;$stylePath2;${mixAlphaState.value}"
+        }
+        launchPlaybackActivity(text, stylePath)
+    }
+
+    private fun launchPlaybackActivity(text: String, stylePath: String) {
+        val intent = Intent(this, PlaybackActivity::class.java).apply {
+            putExtra(PlaybackActivity.EXTRA_TEXT, text)
+            putExtra(PlaybackActivity.EXTRA_VOICE_PATH, stylePath)
+            putExtra(PlaybackActivity.EXTRA_SPEED, currentSpeedState.value)
+            putExtra(PlaybackActivity.EXTRA_STEPS, currentStepsState.intValue)
+            putExtra(PlaybackActivity.EXTRA_LANG, currentLangState.value)
+        }
+        startActivity(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent == null) return
+        if (intent.action == Intent.ACTION_SEND && intent.type == "text/plain") {
+            val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
+            if (!sharedText.isNullOrEmpty()) {
+                inputTextState.value = sharedText
+            }
+        } else {
+            val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: intent.data?.getQueryParameter("text")
+            if (!text.isNullOrEmpty()) {
+                inputTextState.value = text
+            }
+        }
     }
 
     private fun checkResumeState() {
         val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
         val lastText = prefs.getString("last_text", null)
         val isPlaying = prefs.getBoolean("is_playing", false)
-        
+
         if (!lastText.isNullOrEmpty() && isPlaying) {
-            AlertDialog.Builder(this)
+             AlertDialog.Builder(this)
                 .setTitle(getString(R.string.resume_title))
                 .setMessage(getString(R.string.resume_message))
                 .setPositiveButton(getString(R.string.yes)) { _, _ ->
@@ -242,7 +505,6 @@ class MainActivity : AppCompatActivity() {
                     getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).edit()
                         .putBoolean("is_playing", false)
                         .apply()
-                    // Housekeeping stop
                     val stopIntent = Intent(this, PlaybackService::class.java)
                     stopIntent.action = "STOP_PLAYBACK"
                     startService(stopIntent)
@@ -257,199 +519,12 @@ class MainActivity : AppCompatActivity() {
         handleIntent(intent)
     }
 
-    private fun handleIntent(intent: Intent?) {
-        if (intent == null) return
-
-        if (intent.action == Intent.ACTION_SEND && intent.type == "text/plain") {
-            val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
-            if (!sharedText.isNullOrEmpty()) {
-                inputText.setText(sharedText)
-                toolbar.title = getString(R.string.shared_text)
-            }
-        } else {
-            val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: intent.data?.getQueryParameter("text")
-            
-            if (!text.isNullOrEmpty()) {
-                inputText.setText(text)
-                toolbar.title = getString(R.string.fetched_web_text)
-            }
-        }
-    }
-
-    private fun setupQualityControl() {
-        qualitySeekBar.addOnChangeListener { _, value, _ ->
-            currentSteps = value.toInt()
-            qualityValue.text = "$currentSteps steps"
-            getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
-                .edit()
-                .putInt("diffusion_steps", currentSteps)
-                .apply()
-        }
-    }
-
-    private fun checkNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
-    }
-
-    private fun setupLangSpinner() {
-        val languages = linkedMapOf(
-            "Auto (English)" to "en",
-            "French" to "fr",
-            "Portuguese" to "pt",
-            "Spanish" to "es",
-            "Korean" to "ko"
-        )
-        val langNames = languages.keys.toList()
-        val adapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, langNames)
-        langSpinner.setAdapter(adapter)
-
-        val savedLangCode = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).getString("selected_lang", "en") ?: "en"
-        val savedLangName = languages.entries.find { it.value == savedLangCode }?.key ?: "Auto (English)"
-        langSpinner.setText(savedLangName, false)
-        currentLang = savedLangCode
-
-        langSpinner.onItemClickListener = AdapterView.OnItemClickListener { _, _, position, _ ->
-            val name = langNames[position]
-            currentLang = languages[name] ?: "en"
-            getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
-                .edit().putString("selected_lang", currentLang).apply()
-        }
-    }
-
-    private fun setupVoiceSpinner() {
-        voiceFiles.clear()
-        
-        // Define voices using resource IDs
-        val voiceResources = mapOf(
-            "M1.json" to R.string.voice_m1,
-            "M2.json" to R.string.voice_m2,
-            "M3.json" to R.string.voice_m3,
-            "M4.json" to R.string.voice_m4,
-            "M5.json" to R.string.voice_m5,
-            "F1.json" to R.string.voice_f1,
-            "F2.json" to R.string.voice_f2,
-            "F3.json" to R.string.voice_f3,
-            "F4.json" to R.string.voice_f4,
-            "F5.json" to R.string.voice_f5
-        )
-
-        // Populate map with localized strings
-        voiceResources.forEach { (filename, resId) ->
-            voiceFiles[getString(resId)] = filename
-        }
-
-        // Also check for any custom/extra voices in the directory not in our hardcoded list
-        val voiceDir = File(filesDir, "voice_styles")
-        if (voiceDir.exists()) {
-            val files = voiceDir.listFiles { _, name -> name.endsWith(".json") }
-            files?.forEach { file ->
-                if (!voiceResources.containsKey(file.name)) {
-                    val friendlyName = file.name.removeSuffix(".json")
-                    voiceFiles[friendlyName] = file.name
-                }
-            }
-        }
-
-        val voiceNames = voiceFiles.keys.toList().sorted()
-        val adapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, voiceNames)
-        voiceSpinner.setAdapter(adapter)
-        
-        val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
-        val savedFile = prefs.getString("selected_voice", "M1.json")
-        val savedName = voiceFiles.entries.find { it.value == savedFile }?.key ?: voiceNames.firstOrNull()
-        
-        if (savedName != null) {
-            voiceSpinner.setText(savedName, false)
-            selectedVoiceFile = voiceFiles[savedName] ?: "M1.json"
-        }
-
-        voiceSpinner.onItemClickListener = AdapterView.OnItemClickListener { _, _, position, _ ->
-            val name = voiceNames[position]
-            val newVoice = voiceFiles[name] ?: "M1.json"
-            
-            if (selectedVoiceFile != newVoice) {
-                selectedVoiceFile = newVoice
-                getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
-                    .edit().putString("selected_voice", selectedVoiceFile).apply()
-                
-                val resetIntent = Intent(this, PlaybackService::class.java).apply { action = "RESET_ENGINE" }
-                startService(resetIntent)
-            }
-        }
-    }
-
-    private fun setupSpeedControl() {
-        speedSeekBar.addOnChangeListener { _, value, _ ->
-            currentSpeed = value
-            speedValue.text = String.format("%.2fx", currentSpeed)
-        }
-    }
-
-    private fun copyAssets(): String? {
-        val filesDir = filesDir
-        val targetDir = File(filesDir, "onnx")
-        if (!targetDir.exists()) targetDir.mkdirs()
-        
-        try {
-            val assetManager = assets
-            val onnxFiles = assetManager.list("onnx") ?: return null
-            for (filename in onnxFiles) {
-                val file = File(targetDir, filename)
-                val inFile = assetManager.open("onnx/$filename")
-                val outStream = FileOutputStream(file)
-                inFile.copyTo(outStream)
-                inFile.close()
-                outStream.close()
-            }
-            
-            val styleDir = File(filesDir, "voice_styles")
-            if (!styleDir.exists()) styleDir.mkdirs()
-            val styleFiles = assetManager.list("voice_styles") ?: emptyArray()
-             for (filename in styleFiles) {
-                val file = File(styleDir, filename)
-                val inFile = assetManager.open("voice_styles/$filename")
-                val outStream = FileOutputStream(file)
-                inFile.copyTo(outStream)
-                inFile.close()
-                outStream.close()
-            }
-            return targetDir.absolutePath
-        } catch (e: IOException) {
-            return null
-        }
-    }
-
-    private fun generateAndPlay(text: String) {
-        val stylePath = File(filesDir, "voice_styles/$selectedVoiceFile").absolutePath
-        
-        if (!File(stylePath).exists()) {
-             toolbar.subtitle = "Error: Voice style not found"
-             return
-        }
-
-        val voiceName = voiceSpinner.text.toString()
-        HistoryManager.saveItem(this, text, voiceName)
-
-        val intent = Intent(this, PlaybackActivity::class.java).apply {
-            putExtra(PlaybackActivity.EXTRA_TEXT, text)
-            putExtra(PlaybackActivity.EXTRA_VOICE_PATH, stylePath)
-            putExtra(PlaybackActivity.EXTRA_SPEED, currentSpeed)
-            putExtra(PlaybackActivity.EXTRA_STEPS, currentSteps)
-            putExtra(PlaybackActivity.EXTRA_LANG, currentLang)
-        }
-        startActivity(intent)
-    }
-
     override fun onDestroy() {
         super.onDestroy()
         if (isBound) {
             unbindService(connection)
             isBound = false
         }
-        scope.cancel()
+        // scope.cancel() // Don't cancel IO scope to allow asset copy to finish if backgrounded
     }
 }

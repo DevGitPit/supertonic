@@ -25,15 +25,15 @@ async function safeRuntimeMessage(message, retries = 3, delay = 100) {
       return await chrome.runtime.sendMessage(message);
     } catch (error) {
       const errorMsg = error.message || '';
-      const isRetryable = errorMsg.includes('Could not establish connection') || 
+      const isRetryable = errorMsg.includes('Could not establish connection') ||
                          errorMsg.includes('Receiving end does not exist');
-      
+
       if (isRetryable && i < retries - 1) {
         console.log(`[BACKGROUND] Message retry ${i + 1}/${retries} for ${message.type}...`);
         await new Promise(resolve => setTimeout(resolve, delay * (i + 1)));
         continue;
       }
-      
+
       if (!isRetryable && !errorMsg.includes('Receiving end does not exist')) {
         console.warn('[BACKGROUND] Non-retryable message error:', error.message);
       }
@@ -48,11 +48,11 @@ async function closeOffscreen() {
         await safeRuntimeMessage({ type: 'CLEANUP' });
         // Small delay to allow offscreen to receive cleanup signal
         await new Promise(resolve => setTimeout(resolve, 300));
-        
+
         const existingContexts = await chrome.runtime.getContexts({
             contextTypes: ['OFFSCREEN_DOCUMENT']
         });
-        
+
         if (existingContexts.length > 0) {
             await chrome.offscreen.closeDocument();
             console.log('[BACKGROUND] Offscreen closed');
@@ -182,7 +182,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     })();
     return true;
   }
-  
+
   // --- HANDLER: STOP ---
   if (request.type === 'CMD_STOP' || request.type === 'CMD_FORCE_CLEANUP') {
     (async () => {
@@ -299,18 +299,21 @@ function handleSystemTTS(request) {
 }
 
 // ==========================================
-// 7. LIFECYCLE
+// 8. CONTEXT MENU
 // ==========================================
 
-// Close offscreen when extension is disabled
-if (chrome.management && chrome.management.onDisabled) {
-    chrome.management.onDisabled.addListener(async (info) => {
-      if (info.id === chrome.runtime.id) await closeOffscreen();
-    });
-}
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: "send-to-supertonic",
+    title: "Send to Supertonic TTS",
+    contexts: ["selection"]
+  });
+});
 
-// Proper way to handle suspension in Chrome Extensions
-chrome.runtime.onSuspend.addListener(async () => {
-  console.log('[BACKGROUND] Suspending, cleaning up');
-  await closeOffscreen();
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === "send-to-supertonic" && info.selectionText) {
+    chrome.storage.local.set({ savedText: info.selectionText }, () => {
+      console.log('[BACKGROUND] Saved selected text to storage');
+    });
+  }
 });

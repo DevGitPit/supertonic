@@ -8,45 +8,35 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.IBinder
 import android.os.RemoteException
-import android.view.LayoutInflater
-import android.view.Menu
-import android.view.MenuItem
-import android.view.View
-import android.view.ViewGroup
-import android.widget.*
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.runtime.*
 import androidx.core.content.FileProvider
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
+import com.brahmadeo.supertonic.tts.service.IPlaybackService
 import com.brahmadeo.supertonic.tts.service.PlaybackService
+import com.brahmadeo.supertonic.tts.ui.LexiconEditDialog
+import com.brahmadeo.supertonic.tts.ui.LexiconScreen
+import com.brahmadeo.supertonic.tts.ui.theme.SupertonicTheme
 import com.brahmadeo.supertonic.tts.utils.LexiconItem
 import com.brahmadeo.supertonic.tts.utils.LexiconManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-import com.google.android.material.materialswitch.MaterialSwitch
-import com.google.android.material.textfield.TextInputEditText
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
 
-class LexiconActivity : AppCompatActivity() {
+class LexiconActivity : ComponentActivity() {
 
-    private lateinit var recyclerView: RecyclerView
-    private lateinit var emptyStateText: TextView
-    private lateinit var addRuleFab: ExtendedFloatingActionButton
-    private lateinit var adapter: LexiconAdapter
-    private val rules = mutableListOf<LexiconItem>()
-
-    private var playbackService: com.brahmadeo.supertonic.tts.service.IPlaybackService? = null
+    private val rulesState = mutableStateOf<List<LexiconItem>>(emptyList())
+    private var playbackService: IPlaybackService? = null
     private var isBound = false
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(className: ComponentName, service: IBinder) {
-            playbackService = com.brahmadeo.supertonic.tts.service.IPlaybackService.Stub.asInterface(service)
+            playbackService = IPlaybackService.Stub.asInterface(service)
             isBound = true
         }
 
@@ -62,47 +52,99 @@ class LexiconActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_lexicon)
 
-        val toolbar = findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.lexiconToolbar)
-        setSupportActionBar(toolbar)
-        toolbar.setNavigationOnClickListener { finish() }
-
-        recyclerView = findViewById(R.id.lexiconRecyclerView)
-        emptyStateText = findViewById(R.id.emptyStateText)
-        addRuleFab = findViewById(R.id.addRuleFab)
-
-        recyclerView.layoutManager = LinearLayoutManager(this)
-        loadRules()
-
-        addRuleFab.setOnClickListener {
-            showEditDialog(null)
-        }
+        // Load initial rules
+        refreshRules()
 
         val intent = Intent(this, PlaybackService::class.java)
         bindService(intent, connection, Context.BIND_AUTO_CREATE)
-    }
 
-    override fun onCreateOptionsMenu(menu: Menu?): Boolean {
-        menuInflater.inflate(R.menu.lexicon_menu, menu)
-        return true
-    }
+        setContent {
+            SupertonicTheme {
+                var showEditDialog by remember { mutableStateOf(false) }
+                var editingItem by remember { mutableStateOf<LexiconItem?>(null) }
 
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return when (item.itemId) {
-            R.id.action_export -> {
-                performExport()
-                true
+                if (showEditDialog) {
+                    LexiconEditDialog(
+                        item = editingItem,
+                        onDismiss = { showEditDialog = false },
+                        onSave = { term, replacement, ignoreCase ->
+                            saveRule(editingItem, term, replacement, ignoreCase)
+                            showEditDialog = false
+                        },
+                        onTest = { replacement ->
+                            testPronunciation(replacement)
+                        }
+                    )
+                }
+
+                LexiconScreen(
+                    rules = rulesState.value,
+                    onBackClick = { finish() },
+                    onImportClick = { importLauncher.launch("application/json") },
+                    onExportClick = { performExport() },
+                    onAddClick = {
+                        editingItem = null
+                        showEditDialog = true
+                    },
+                    onEditClick = { item ->
+                        editingItem = item
+                        showEditDialog = true
+                    },
+                    onDeleteClick = { item ->
+                        deleteRule(item)
+                    }
+                )
             }
-            R.id.action_import -> {
-                importLauncher.launch("application/json")
-                true
-            }
-            else -> super.onOptionsItemSelected(item)
         }
     }
 
+    private fun refreshRules() {
+        rulesState.value = LexiconManager.load(this)
+    }
+
+    private fun saveRule(existingItem: LexiconItem?, term: String, replacement: String, ignoreCase: Boolean) {
+        val currentRules = rulesState.value.toMutableList()
+
+        if (existingItem != null) {
+            // Edit existing (find by ID or reference if possible, but list is reloaded often)
+            // Ideally LexiconItem has an ID.
+            val index = currentRules.indexOfFirst { it.id == existingItem.id }
+            if (index != -1) {
+                currentRules[index] = existingItem.copy(
+                    term = term,
+                    replacement = replacement,
+                    ignoreCase = ignoreCase
+                )
+            }
+        } else {
+            // Add new
+            currentRules.add(LexiconItem(
+                term = term,
+                replacement = replacement,
+                ignoreCase = ignoreCase
+            ))
+        }
+
+        LexiconManager.save(this, currentRules)
+        LexiconManager.reload(this) // Reload in native if needed, though Helper might need dynamic reload
+        // Actually LexiconManager.load(this) in PlaybackService onCreate handles loading.
+        // If we want dynamic update in Service without restart, PlaybackService needs a reload method.
+        // But for now, user might need to restart service or we assume static load.
+        // The original code called LexiconManager.reload(this).
+        refreshRules()
+    }
+
+    private fun deleteRule(item: LexiconItem) {
+        val currentRules = rulesState.value.toMutableList()
+        currentRules.removeIf { it.id == item.id }
+        LexiconManager.save(this, currentRules)
+        LexiconManager.reload(this)
+        refreshRules()
+    }
+
     private fun performExport() {
+        val rules = rulesState.value
         if (rules.isEmpty()) {
             Toast.makeText(this, getString(R.string.no_rules_export), Toast.LENGTH_SHORT).show()
             return
@@ -177,8 +219,11 @@ class LexiconActivity : AppCompatActivity() {
                 } else {
                     val existing = currentRules[existingIndex]
                     if (existing.replacement != imported.replacement || existing.ignoreCase != imported.ignoreCase) {
-                        existing.replacement = imported.replacement
-                        existing.ignoreCase = imported.ignoreCase
+                        // Replace the item with updated values
+                        currentRules[existingIndex] = existing.copy(
+                            replacement = imported.replacement,
+                            ignoreCase = imported.ignoreCase
+                        )
                         updatedCount++
                     }
                 }
@@ -187,7 +232,8 @@ class LexiconActivity : AppCompatActivity() {
             if (addedCount > 0 || updatedCount > 0) {
                 LexiconManager.save(this, currentRules)
                 LexiconManager.reload(this)
-                loadRules()
+                refreshRules()
+
                 MaterialAlertDialogBuilder(this)
                     .setTitle(getString(R.string.import_complete_title))
                     .setMessage(getString(R.string.import_stats_fmt, addedCount, updatedCount))
@@ -200,74 +246,6 @@ class LexiconActivity : AppCompatActivity() {
             e.printStackTrace()
             Toast.makeText(this, getString(R.string.import_error), Toast.LENGTH_LONG).show()
         }
-    }
-
-    private fun loadRules() {
-        rules.clear()
-        rules.addAll(LexiconManager.load(this))
-        adapter = LexiconAdapter(rules, 
-            onEdit = { showEditDialog(it) },
-            onDelete = { deleteRule(it) }
-        )
-        recyclerView.adapter = adapter
-        updateEmptyState()
-    }
-
-    private fun updateEmptyState() {
-        emptyStateText.visibility = if (rules.isEmpty()) View.VISIBLE else View.GONE
-    }
-
-    private fun showEditDialog(item: LexiconItem?) {
-        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_edit_lexicon, null)
-        val editTerm = dialogView.findViewById<TextInputEditText>(R.id.editTerm)
-        val editReplacement = dialogView.findViewById<TextInputEditText>(R.id.editReplacement)
-        val switchIgnoreCase = dialogView.findViewById<MaterialSwitch>(R.id.switchIgnoreCase)
-        val testBtn = dialogView.findViewById<Button>(R.id.testRuleBtn)
-        val saveBtn = dialogView.findViewById<Button>(R.id.saveRuleBtn)
-
-        item?.let {
-            editTerm.setText(it.term)
-            editReplacement.setText(it.replacement)
-            switchIgnoreCase.isChecked = it.ignoreCase
-        }
-
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setView(dialogView)
-            .create()
-
-        testBtn.setOnClickListener {
-            val replacement = editReplacement.text.toString()
-            if (replacement.isNotEmpty()) {
-                testPronunciation(replacement)
-            } else {
-                Toast.makeText(this, getString(R.string.enter_replacement_msg), Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        saveBtn.setOnClickListener {
-            val term = editTerm.text.toString().trim()
-            val replacement = editReplacement.text.toString().trim()
-            
-            if (term.isEmpty() || replacement.isEmpty()) {
-                Toast.makeText(this, getString(R.string.empty_fields_msg), Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-
-            if (item != null) {
-                item.term = term
-                item.replacement = replacement
-                item.ignoreCase = switchIgnoreCase.isChecked
-            } else {
-                rules.add(LexiconItem(term = term, replacement = replacement, ignoreCase = switchIgnoreCase.isChecked))
-            }
-            
-            LexiconManager.save(this, rules)
-            LexiconManager.reload(this)
-            loadRules()
-            dialog.dismiss()
-        }
-
-        dialog.show()
     }
 
     private fun testPronunciation(text: String) {
@@ -289,47 +267,11 @@ class LexiconActivity : AppCompatActivity() {
         }
     }
 
-    private fun deleteRule(item: LexiconItem) {
-        rules.remove(item)
-        LexiconManager.save(this, rules)
-        LexiconManager.reload(this)
-        loadRules()
-    }
-
     override fun onDestroy() {
         super.onDestroy()
         if (isBound) {
             unbindService(connection)
             isBound = false
         }
-    }
-
-    class LexiconAdapter(
-        private val items: List<LexiconItem>,
-        private val onEdit: (LexiconItem) -> Unit,
-        private val onDelete: (LexiconItem) -> Unit
-    ) : RecyclerView.Adapter<LexiconAdapter.ViewHolder>() {
-
-        class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-            val term: TextView = view.findViewById(R.id.termText)
-            val replacement: TextView = view.findViewById(R.id.replacementText)
-            val deleteBtn: ImageButton = view.findViewById(R.id.deleteRuleBtn)
-        }
-
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-            val view = LayoutInflater.from(parent.context)
-                .inflate(R.layout.item_lexicon_rule, parent, false)
-            return ViewHolder(view)
-        }
-
-        override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-            val item = items[position]
-            holder.term.text = item.term
-            holder.replacement.text = item.replacement
-            holder.itemView.setOnClickListener { onEdit(item) }
-            holder.deleteBtn.setOnClickListener { onDelete(item) }
-        }
-
-        override fun getItemCount() = items.size
     }
 }

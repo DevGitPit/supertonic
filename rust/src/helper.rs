@@ -124,7 +124,8 @@ pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
     // Revert to NFKD normalization as required for Korean Jamo decomposition
     let mut text: String = text.nfkd().collect();
 
-    // Remove emojis (wide Unicode range)
+    if lang == "en" {
+        // Remove emojis (wide Unicode range)
     let emoji_pattern = Regex::new(r"[\x{1F600}-\x{1F64F}\x{1F300}-\x{1F5FF}\x{1F680}-\x{1F6FF}\x{1F700}-\x{1F77F}\x{1F780}-\x{1F7FF}\x{1F800}-\x{1F8FF}\x{1F900}-\x{1F9FF}\x{1FA00}-\x{1FA6F}\x{1FA70}-\x{1FAFF}\x{2600}-\x{26FF}\x{2700}-\x{27BF}\x{1F1E6}-\x{1F1FF}]+").unwrap();
     text = emoji_pattern.replace_all(&text, "").to_string();
 
@@ -201,14 +202,17 @@ pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
             text.push('.');
         }
     }
-
-    // Validate language
-    if !is_valid_lang(lang) {
-        bail!("Invalid language: {}. Available: {:?}", lang, AVAILABLE_LANGS);
     }
 
-    // Wrap text with language tags
-    text = format!("<{}>{}</{}>", lang, text, lang);
+    // Validate language
+    // if !is_valid_lang(lang) {
+    //    bail!("Invalid language: {}. Available: {:?}", lang, AVAILABLE_LANGS);
+    // }
+
+    // Wrap text with language tags - V2 needs tags, V1 (English) does not
+    if lang != "en" {
+        text = format!("<{}>{}</{}>", lang, text, lang);
+    }
 
     Ok(text)
 }
@@ -258,7 +262,8 @@ pub fn sample_noisy_latent(
 
     let mut noisy_latent = Array3::<f32>::zeros((bsz, latent_dim_val, latent_len));
 
-    let normal = Normal::new(0.0, 1.0).unwrap();
+    // Reduced temperature (0.667) improves stability and reduces word skipping/hallucinations
+    let normal = Normal::new(0.0, 0.667).unwrap();
     let mut rng = rand::thread_rng();
 
     for b in 0..bsz {
@@ -288,10 +293,11 @@ pub fn sample_noisy_latent(
     (noisy_latent, latent_mask)
 }
 
-// ============================================================================ 
+// ============================================================================
 // WAV File I/O
-// ============================================================================ 
+// ============================================================================
 
+#[allow(dead_code)]
 pub fn write_wav_file<P: AsRef<Path>>(
     filename: P,
     audio_data: &[f32],
@@ -497,10 +503,11 @@ fn split_sentences(text: &str) -> Vec<String> {
     }
 }
 
-// ============================================================================ 
+// ============================================================================
 // Utility Functions
-// ============================================================================ 
+// ============================================================================
 
+#[allow(dead_code)]
 pub fn timer<F, T>(name: &str, f: F) -> Result<T>
 where
     F: FnOnce() -> Result<T>,
@@ -513,6 +520,7 @@ where
     Ok(result)
 }
 
+#[allow(dead_code)]
 pub fn sanitize_filename(text: &str, max_len: usize) -> String {
     // Take first max_len characters (Unicode code points, not bytes)
     text.chars()
@@ -609,9 +617,9 @@ impl TextToSpeech {
         let (_, duration_data) = dp_outputs["duration"].try_extract_tensor::<f32>()?;
         let mut duration: Vec<f32> = duration_data.to_vec();
         
-        // Apply speed factor to duration and add safety padding
+        // Apply speed factor to duration
         for dur in duration.iter_mut() {
-            *dur = (*dur / speed) + 0.3;
+            *dur /= speed;
         }
 
         // Encode text
@@ -704,11 +712,16 @@ impl TextToSpeech {
                 return Err(anyhow::anyhow!("Synthesis cancelled by user"));
             }
             
-            let (wav, _) = self._infer(&[chunk.clone()], &[lang.to_string()], style, total_step, speed)?;
-            
-            // Use full vocoder output to prevent cutting off tails/words
-            let wav_chunk = wav.as_slice();
-            let dur = wav_chunk.len() as f32 / self.sample_rate as f32;
+            let (wav, duration) = self._infer(&[chunk.clone()], &[lang.to_string()], style, total_step, speed)?;
+
+            // Truncate audio based on predicted duration to remove trailing silence
+            let dur = duration[0];
+            let sample_count = (dur * self.sample_rate as f32) as usize;
+            let wav_chunk = if sample_count < wav.len() {
+                &wav[..sample_count]
+            } else {
+                &wav[..]
+            };
 
             // Send audio chunk
             if !callback(i, num_chunks, Some(wav_chunk)) {
@@ -732,6 +745,7 @@ impl TextToSpeech {
         Ok((wav_cat, dur_cat))
     }
 
+    #[allow(dead_code)]
     pub fn batch(
         &mut self,
         text_list: &[String],
@@ -814,6 +828,21 @@ pub fn load_voice_style(voice_style_paths: &[String], verbose: bool) -> Result<S
         ttl: ttl_style,
         dp: dp_style,
     })
+}
+
+/// Load and mix two voice styles
+pub fn load_and_mix_voice_styles(path1: &str, path2: &str, alpha: f32) -> Result<Style> {
+    let s1 = load_voice_style(&[path1.to_string()], false)?;
+    let s2 = load_voice_style(&[path2.to_string()], false)?;
+
+    if s1.ttl.dim() != s2.ttl.dim() || s1.dp.dim() != s2.dp.dim() {
+        anyhow::bail!("Voice style dimensions mismatch");
+    }
+
+    let ttl = &s1.ttl * (1.0 - alpha) + &s2.ttl * alpha;
+    let dp = &s1.dp * (1.0 - alpha) + &s2.dp * alpha;
+
+    Ok(Style { ttl, dp })
 }
 
 /// Load TTS components

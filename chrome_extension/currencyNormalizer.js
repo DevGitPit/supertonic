@@ -98,52 +98,52 @@ class CurrencyNormalizer {
             // CRITICAL: Must come before plain symbol+amount rule to prevent "m" being read as meters
             // Fixed regex construction with double backslashes
             {
-                pattern: new RegExp(`(${symPattern})(\d+(?:\.\d+)?)\s*(trillion|billion|million|crore|lakh|bn|mn|tn|m|b|k)\b`, 'gi'),
+                pattern: new RegExp(`(${symPattern})(\\d+(?:\\.\\d+)?)\\s*(trillion|billion|million|crore|lakh|bn|mn|tn|m|b|k)\\b`, 'gi'),
                 replacement: (match, symbol, amount, suffix) => {
                     const currencyName = this.currencySymbols[symbol] || 'dollars';
                     const magnitude = this.expandMagnitude(suffix);
                     const formattedAmount = this.formatAmount(amount);
-                    
+
                     return `${formattedAmount} ${magnitude} ${currencyName}`;
                 }
             },
-            
+
             // Rule 5: Parenthetical conversions (£800m ($1.08bn)), (SR3mn)
             // Adds "equivalent to" for clarity
             {
-                pattern: new RegExp(`\((${symPattern}|C\$|CA\$|A\$|AU\$|US\$|SR|RMB)(\d+(?:\.\d+)?)\s*(trillion|billion|million|crore|lakh|bn|mn|tn|m|b|k)\)`, 'gi'),
+                pattern: new RegExp(`\\((${symPattern}|C\\$|CA\\$|A\\$|AU\\$|US\\$|SR|RMB)(\\d+(?:\\.\\d+)?)\\s*(trillion|billion|million|crore|lakh|bn|mn|tn|m|b|k)\\)`, 'gi'),
                 replacement: (match, symbol, amount, suffix) => {
                     let key = symbol.toUpperCase();
                     if (key.startsWith('S') && !key.includes('$') && key !== 'SR') key = key.replace('S', 'S$');
-                    
+
                     const currencyName = this.currencyPrefixes[key] || this.currencySymbols[symbol] || 'dollars';
                     const magnitude = this.expandMagnitude(suffix);
                     const formattedAmount = this.formatAmount(amount);
-                    
+
                     return `equivalent to ${formattedAmount} ${magnitude} ${currencyName}`;
                 }
             },
-            
+
             // Rule 5b: Parenthetical whole amounts ($800,000), (SR 3000)
             {
-                pattern: new RegExp(`\((${symPattern}|C\$|CA\$|A\$|AU\$|US\$|SR|RMB)\s*(\d+(?:\.\d+)?)\)`, 'gi'),
+                pattern: new RegExp(`\\((${symPattern}|C\\$|CA\\$|A\\$|AU\\$|US\\$|SR|RMB)\\s*(\\d+(?:\\.\\d+)?)\\)`, 'gi'),
                 replacement: (match, symbol, amount) => {
                     let key = symbol.toUpperCase();
                     if (key.startsWith('S') && !key.includes('$') && key !== 'SR') key = key.replace('S', 'S$');
-                    
+
                     const currencyName = this.currencyPrefixes[key] || this.currencySymbols[symbol] || 'dollars';
                     const formattedAmount = this.formatAmount(amount);
-                    
+
                     return `equivalent to ${formattedAmount} ${currencyName}`;
                 }
             },
-            
+
             // Rule 6: Plain symbol + amount with decimals (£10.50, €99.99)
             {
-                pattern: new RegExp(`(${symPattern})(\d+)\.(\d{2})\b`, 'g'),
+                pattern: new RegExp(`(${symPattern})(\\d+)\\.(\\d{2})\\b`, 'g'),
                 replacement: (match, symbol, whole, cents) => {
                     const currencyName = this.currencySymbols[symbol] || 'dollars';
-                    
+
                     // Special handling for Indian Rupee
                     if (symbol === '₹' || symbol === '\u20B9') {
                         const formattedWhole = this.formatIndianAmount(whole);
@@ -156,22 +156,22 @@ class CurrencyNormalizer {
                     if (cents === '00') {
                         return `${whole} ${currencyName}`;
                     }
-                    
+
                     return `${whole} ${currencyName} and ${cents} cents`;
                 }
             },
-            
+
             // Rule 7: Plain symbol + whole amount (£100, €50)
             {
-                pattern: new RegExp(`(${symPattern})(\d+)\b`, 'g'),
+                pattern: new RegExp(`(${symPattern})(\\d+)\\b`, 'g'),
                 replacement: (match, symbol, amount) => {
                     const currencyName = this.currencySymbols[symbol] || 'dollars';
-                    
+
                     if (symbol === '₹' || symbol === '\u20B9') {
                         const formattedAmount = this.formatIndianAmount(amount);
                         return `${formattedAmount} rupees`;
                     }
-                    
+
                     return `${amount} ${currencyName}`;
                 }
             }

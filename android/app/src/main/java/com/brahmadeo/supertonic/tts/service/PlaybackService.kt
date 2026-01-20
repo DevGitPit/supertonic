@@ -26,6 +26,8 @@ import com.brahmadeo.supertonic.tts.SupertonicTTS
 import com.brahmadeo.supertonic.tts.utils.LanguageDetector
 import com.brahmadeo.supertonic.tts.utils.TextNormalizer
 import com.brahmadeo.supertonic.tts.utils.WavUtils
+import com.brahmadeo.supertonic.tts.utils.QueueManager
+import com.brahmadeo.supertonic.tts.utils.QueueItem
 import kotlinx.coroutines.*
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -39,6 +41,18 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
     private val binder = object : IPlaybackService.Stub() {
         override fun synthesizeAndPlay(text: String, lang: String, stylePath: String, speed: Float, steps: Int, startIndex: Int) {
             this@PlaybackService.synthesizeAndPlay(text, lang, stylePath, speed, steps, startIndex)
+        }
+
+        override fun addToQueue(text: String, lang: String, stylePath: String, speed: Float, steps: Int, startIndex: Int) {
+            this@PlaybackService.addToQueue(text, lang, stylePath, speed, steps, startIndex)
+        }
+
+        override fun play() {
+            this@PlaybackService.play()
+        }
+
+        override fun pause() {
+            this@PlaybackService.pause()
         }
 
         override fun stop() {
@@ -118,7 +132,8 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
         super.onCreate()
         createNotificationChannel()
         com.brahmadeo.supertonic.tts.utils.LexiconManager.load(this)
-        
+        com.brahmadeo.supertonic.tts.utils.QueueManager.initialize(this)
+
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
         wakeLock = powerManager.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Supertonic:PlaybackWakeLock")
@@ -133,7 +148,9 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
             isActive = true
         }
 
-        val modelPath = File(filesDir, "onnx").absolutePath
+        val savedLang = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).getString("selected_lang", "en") ?: "en"
+        val modelVersion = if (savedLang == "en") "v1" else "v2"
+        val modelPath = File(filesDir, "$modelVersion/onnx").absolutePath
         val libPath = applicationInfo.nativeLibraryDir + "/libonnxruntime.so"
         SupertonicTTS.initialize(modelPath, libPath)
     }
@@ -143,7 +160,9 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
             stopPlayback()
         } else if (intent?.action == "RESET_ENGINE") {
             SupertonicTTS.release()
-            val modelPath = File(filesDir, "onnx").absolutePath
+            val savedLang = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).getString("selected_lang", "en") ?: "en"
+            val modelVersion = if (savedLang == "en") "v1" else "v2"
+            val modelPath = File(filesDir, "$modelVersion/onnx").absolutePath
             val libPath = applicationInfo.nativeLibraryDir + "/libonnxruntime.so"
             SupertonicTTS.initialize(modelPath, libPath)
         }
@@ -152,6 +171,17 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
 
     fun isServiceActive(): Boolean {
         return isPlaying || isSynthesizing
+    }
+
+    fun addToQueue(text: String, lang: String, stylePath: String, speed: Float, steps: Int, startIndex: Int) {
+        QueueManager.add(QueueItem(
+            text = text,
+            lang = lang,
+            stylePath = stylePath,
+            speed = speed,
+            steps = steps,
+            startIndex = startIndex
+        ))
     }
 
     private var synthesisJob: Job? = null
@@ -193,11 +223,12 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
                         if (SupertonicTTS.isCancelled() || !isActive || !isSynthesizing) break
 
                         val sentence = sentences[index]
-                        
+
                         // Per-sentence granular detection
-                        val sentenceLang = LanguageDetector.detect(sentence, lang)
+                        // val sentenceLang = LanguageDetector.detect(sentence, lang)
+                        val sentenceLang = lang // Strict enforcement as per requirement
                         val normalizedText = textNormalizer.normalize(sentence, sentenceLang)
-                        
+
                         val audioData = SupertonicTTS.generateAudio(normalizedText, sentenceLang, stylePath, speed, 0.0f, steps, null)
                         
                         if (audioData != null && audioData.isNotEmpty()) {
@@ -226,7 +257,15 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
                             listener?.onProgress(totalSentences, totalSentences)
                         } catch (e: RemoteException) { listener = null }
                         notifyListenerState(true)
-                        stopPlayback()
+
+                        // Check queue for next item
+                        val nextItem = QueueManager.next()
+                        if (nextItem != null) {
+                            SupertonicTTS.reset() // Explicit JNI Handshake
+                            synthesizeAndPlay(nextItem.text, nextItem.lang, nextItem.stylePath, nextItem.speed, nextItem.steps, nextItem.startIndex)
+                        } else {
+                            stopPlayback()
+                        }
                     }
                 }
             }
@@ -398,7 +437,8 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
                     var success = true
                     for (sentence in sentences) {
                         if (!isActive) { success = false; break }
-                        val sentenceLang = LanguageDetector.detect(sentence, lang)
+                        // val sentenceLang = LanguageDetector.detect(sentence, lang)
+                        val sentenceLang = lang
                         val normalizedText = textNormalizer.normalize(sentence, sentenceLang)
                         val audioData = SupertonicTTS.generateAudio(normalizedText, sentenceLang, stylePath, speed, 0.0f, steps, null)
                         if (audioData != null) {
