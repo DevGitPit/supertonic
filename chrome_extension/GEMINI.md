@@ -15,9 +15,10 @@ This directory contains the source code for the **Supertonic Chrome Extension**,
 *   **`background.js`**: The service worker that orchestrates TTS requests. It manages an **Offscreen Document** (`offscreen.html`) to handle audio playback constraints in Manifest V3 and implements a polling fallback for Android environments where TTS events might be unreliable.
 
 ### Core Logic
-*   **Text Normalization**: 
+*   **Text Normalization**:
+    *   `textProcessor.js`: Centralized logic for text normalization, sentence splitting, and "fluff" removal (navigation links, headers).
     *   `currencyNormalizer.js`: A dedicated class for converting complex currency formats (e.g., "$1.5bn", "€500m", "₹10k") into speakable text ("1 point 5 billion dollars").
-    *   `numberUtils.js`: (Likely) handles general number formatting, phone numbers, and measurements.
+    *   `numberUtils.js`: Handles general number formatting.
 *   **Playback**: Uses the `chrome.tts` API, delegating actual synthesis to the local backend.
 *   **Communication & Stability**:
     *   **OFFSCREEN_READY Handshake**: Implements an explicit handshake between the background service worker and offscreen document to ensure reliable initialization.
