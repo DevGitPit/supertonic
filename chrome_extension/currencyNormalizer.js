@@ -226,4 +226,6 @@ class CurrencyNormalizer {
 // Export for use in other modules
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = CurrencyNormalizer;
+} else {
+    window.CurrencyNormalizer = CurrencyNormalizer;
 }
