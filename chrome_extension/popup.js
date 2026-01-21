@@ -55,6 +55,16 @@ document.addEventListener('DOMContentLoaded', function() {
           this.currentIndex = this.suspects.length > 0 ? 0 : -1;
           this.updateHighlight();
           statusBadge.textContent = "🧹 Cleaning";
+
+          // Add global click listener for toggling (delegation)
+          // We remove it on exit to prevent leaks/duplicates
+          this.clickListener = (e) => {
+              const lineWrapper = e.target.closest('.line-wrapper');
+              if (lineWrapper) {
+                  this.toggleLine(lineWrapper);
+              }
+          };
+          textInput.addEventListener('click', this.clickListener);
       }
 
       render(text) {
@@ -62,12 +72,48 @@ document.addEventListener('DOMContentLoaded', function() {
           const html = lines.map((line, i) => {
               const isSuspect = this.suspects.some(s => s.index === i);
               const suspectClass = isSuspect ? 'suspect-fluff' : '';
+              // Store index in data attribute for easy access
               return `<div class="line-wrapper ${suspectClass}" data-line="${i}">${line || '<br>'}</div>`;
           }).join('');
           textInput.innerHTML = html;
       }
 
+      toggleLine(el) {
+          const index = parseInt(el.dataset.line);
+          if (isNaN(index)) return;
+
+          if (el.classList.contains('suspect-fluff')) {
+              // UNMARK: User wants to keep this line
+              el.classList.remove('suspect-fluff');
+              el.classList.add('manually-kept');
+              // Remove from suspects array
+              this.suspects = this.suspects.filter(s => s.index !== index);
+          } else {
+              // MARK: User wants to delete this line
+              el.classList.add('suspect-fluff');
+              el.classList.remove('manually-kept');
+              // Add to suspects array if not present
+              if (!this.suspects.some(s => s.index === index)) {
+                  this.suspects.push({
+                      index: index,
+                      text: el.innerText,
+                      reason: "Manual Selection"
+                  });
+                  this.suspects.sort((a, b) => a.index - b.index);
+              }
+          }
+
+          // Update navigation index if needed
+          if (this.suspects.length > 0) {
+              // If current index is now invalid or points to nothing, reset to closest
+              if (this.currentIndex === -1) this.currentIndex = 0;
+          } else {
+              this.currentIndex = -1;
+          }
+      }
+
       updateHighlight() {
+          // Only used for "Navigation" (Up/Down buttons), not click selection
           const prev = textInput.querySelector('.suspect-fluff.active');
           if (prev) prev.classList.remove('active');
 
@@ -110,8 +156,10 @@ document.addEventListener('DOMContentLoaded', function() {
       }
 
       deleteAll() {
+          // Delete ALL currently marked elements (respecting user toggles)
           const els = textInput.querySelectorAll('.suspect-fluff');
           els.forEach(el => el.remove());
+          // Clear internal array
           this.suspects = [];
           this.currentIndex = -1;
       }
@@ -122,9 +170,17 @@ document.addEventListener('DOMContentLoaded', function() {
           textInput.contentEditable = true;
           statusBadge.textContent = "✏️ Ready";
 
+          if (this.clickListener) {
+              textInput.removeEventListener('click', this.clickListener);
+              this.clickListener = null;
+          }
+
           // Get text back from the div wrappers
+          // We use innerText to preserve line breaks, but need to be careful about empty lines
+          // The .line-wrapper divs are block elements, so they create newlines naturally
           const cleanText = textInput.innerText;
-          textInput.innerText = cleanText;
+          textInput.innerText = cleanText; // Reset to plain text
+
           chrome.storage.local.set({ savedText: cleanText });
           updateCleanBtnVisibility();
       }
@@ -134,6 +190,13 @@ document.addEventListener('DOMContentLoaded', function() {
   const textProcessor = new TextProcessor();
 
   // --- Initialization ---
+
+  // Get current tab URL to configure TextProcessor strategy
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0] && tabs[0].url) {
+          textProcessor.setUrl(tabs[0].url);
+      }
+  });
 
   // Restore preferences
   chrome.storage.local.get(['savedText'], (result) => {
@@ -154,6 +217,9 @@ document.addEventListener('DOMContentLoaded', function() {
       statusBadge.textContent = "Fetching...";
       try {
           const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          // Fetch URL again just in case
+          if (tab.url) textProcessor.setUrl(tab.url);
+
           const result = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => document.body.innerText });
           if (result?.[0]?.result) {
               textInput.innerText = result[0].result.trim();

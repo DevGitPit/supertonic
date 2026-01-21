@@ -235,15 +235,30 @@
         .line-wrapper {
             display: block;
             min-height: 1.2em; /* Ensure empty lines take space */
+            border-left: 3px solid transparent;
+            padding-left: 4px;
+            cursor: pointer; /* Interaction hint */
         }
+        /* Hover effect for manual toggling */
+        #textInput[contenteditable="false"] .line-wrapper:hover {
+            background-color: rgba(0, 0, 0, 0.05);
+        }
+
         .suspect-fluff {
             background-color: rgba(255, 165, 0, 0.2); /* Orange tint */
             border-left: 3px solid orange;
-            padding-left: 4px;
         }
+
+        /* Highlight for current selection (if using Prev/Next) */
         .suspect-fluff.active {
             background-color: rgba(255, 165, 0, 0.5);
             font-weight: bold;
+        }
+
+        /* Manually kept lines (user unchecked them) */
+        .manually-kept {
+            border-left: 3px solid var(--md-sys-color-primary);
+            background-color: rgba(0, 106, 106, 0.05); /* Teal tint */
         }
     </style>
 </head>
