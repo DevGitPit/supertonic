@@ -289,7 +289,7 @@ class TextNormalizer {
         val rawSentences = protectedText.split(pattern)
         
         val refinedSentences = mutableListOf<String>()
-        val MAX_LENGTH = 200
+        val MAX_LENGTH = 300
 
         for (raw in rawSentences) {
             if (raw.length <= MAX_LENGTH) {
@@ -305,6 +305,11 @@ class TextNormalizer {
                         currentPart.append(part)
                     } else {
                         if (currentPart.isNotEmpty()) {
+                            // Fix audio cutoff: If breaking at a comma, replace it with a period
+                            // to force a clean "end of sentence" intonation for this chunk.
+                            if (currentPart.endsWith(",")) {
+                                currentPart.setCharAt(currentPart.length - 1, '.')
+                            }
                             refinedSentences.add(currentPart.toString())
                             currentPart.clear()
                         }
