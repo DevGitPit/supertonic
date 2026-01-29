@@ -68,8 +68,8 @@ class LexiconActivity : ComponentActivity() {
                     LexiconEditDialog(
                         item = editingItem,
                         onDismiss = { showEditDialog = false },
-                        onSave = { term, replacement, ignoreCase ->
-                            saveRule(editingItem, term, replacement, ignoreCase)
+                        onSave = { term, replacement, ignoreCase, isRegex ->
+                            saveRule(editingItem, term, replacement, ignoreCase, isRegex)
                             showEditDialog = false
                         },
                         onTest = { replacement ->
@@ -103,35 +103,30 @@ class LexiconActivity : ComponentActivity() {
         rulesState.value = LexiconManager.load(this)
     }
 
-    private fun saveRule(existingItem: LexiconItem?, term: String, replacement: String, ignoreCase: Boolean) {
+    private fun saveRule(existingItem: LexiconItem?, term: String, replacement: String, ignoreCase: Boolean, isRegex: Boolean) {
         val currentRules = rulesState.value.toMutableList()
 
         if (existingItem != null) {
-            // Edit existing (find by ID or reference if possible, but list is reloaded often)
-            // Ideally LexiconItem has an ID.
             val index = currentRules.indexOfFirst { it.id == existingItem.id }
             if (index != -1) {
                 currentRules[index] = existingItem.copy(
                     term = term,
                     replacement = replacement,
-                    ignoreCase = ignoreCase
+                    ignoreCase = ignoreCase,
+                    isRegex = isRegex
                 )
             }
         } else {
-            // Add new
             currentRules.add(LexiconItem(
                 term = term,
                 replacement = replacement,
-                ignoreCase = ignoreCase
+                ignoreCase = ignoreCase,
+                isRegex = isRegex
             ))
         }
 
         LexiconManager.save(this, currentRules)
-        LexiconManager.reload(this) // Reload in native if needed, though Helper might need dynamic reload
-        // Actually LexiconManager.load(this) in PlaybackService onCreate handles loading.
-        // If we want dynamic update in Service without restart, PlaybackService needs a reload method.
-        // But for now, user might need to restart service or we assume static load.
-        // The original code called LexiconManager.reload(this).
+        LexiconManager.reload(this)
         refreshRules()
     }
 
@@ -158,6 +153,7 @@ class LexiconActivity : ComponentActivity() {
                 obj.put("term", rule.term)
                 obj.put("replacement", rule.replacement)
                 obj.put("ignoreCase", rule.ignoreCase)
+                obj.put("isRegex", rule.isRegex)
                 jsonArray.put(obj)
             }
 
@@ -197,7 +193,8 @@ class LexiconActivity : ComponentActivity() {
                         id = obj.optString("id", java.util.UUID.randomUUID().toString()),
                         term = obj.getString("term"),
                         replacement = obj.getString("replacement"),
-                        ignoreCase = obj.optBoolean("ignoreCase", true)
+                        ignoreCase = obj.optBoolean("ignoreCase", true),
+                        isRegex = obj.optBoolean("isRegex", false)
                     ))
                 }
             }

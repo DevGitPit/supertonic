@@ -10,7 +10,8 @@ data class LexiconItem(
     val id: String = java.util.UUID.randomUUID().toString(),
     var term: String,
     var replacement: String,
-    var ignoreCase: Boolean = true
+    var ignoreCase: Boolean = true,
+    var isRegex: Boolean = false
 )
 
 object LexiconManager {
@@ -40,7 +41,8 @@ object LexiconManager {
                     id = obj.optString("id", java.util.UUID.randomUUID().toString()),
                     term = obj.getString("term"),
                     replacement = obj.getString("replacement"),
-                    ignoreCase = obj.optBoolean("ignoreCase", true)
+                    ignoreCase = obj.optBoolean("ignoreCase", true),
+                    isRegex = obj.optBoolean("isRegex", false)
                 ))
             }
         } catch (e: Exception) {
@@ -63,6 +65,7 @@ object LexiconManager {
                 obj.put("term", item.term)
                 obj.put("replacement", item.replacement)
                 obj.put("ignoreCase", item.ignoreCase)
+                obj.put("isRegex", item.isRegex)
                 jsonArray.put(obj)
             }
             
@@ -84,9 +87,19 @@ object LexiconManager {
             if (item.term.isBlank()) continue
             
             val flags = if (item.ignoreCase) Pattern.CASE_INSENSITIVE else 0
-            // Whole word matching
-            val pattern = Pattern.compile("\\b${Pattern.quote(item.term)}\\b", flags)
-            processed = pattern.matcher(processed).replaceAll(item.replacement)
+            
+            try {
+                val pattern = if (item.isRegex) {
+                    Pattern.compile(item.term, flags)
+                } else {
+                    // Whole word matching with quoting
+                    Pattern.compile("\\b${Pattern.quote(item.term)}\\b", flags)
+                }
+                processed = pattern.matcher(processed).replaceAll(item.replacement)
+            } catch (e: Exception) {
+                // Ignore invalid regex patterns to prevent crashes during playback
+                e.printStackTrace()
+            }
         }
         return processed
     }

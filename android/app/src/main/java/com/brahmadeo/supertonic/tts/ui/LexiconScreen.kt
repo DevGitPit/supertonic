@@ -145,12 +145,21 @@ fun LexiconItemRow(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.primary
                 )
-                if (!item.ignoreCase) {
-                    Text(
-                        text = "Case sensitive",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (item.isRegex) {
+                        Text(
+                            text = "Regex",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
+                    if (!item.ignoreCase) {
+                        Text(
+                            text = "Case sensitive",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
             IconButton(onClick = onDelete) {
@@ -168,12 +177,13 @@ fun LexiconItemRow(
 fun LexiconEditDialog(
     item: LexiconItem?,
     onDismiss: () -> Unit,
-    onSave: (String, String, Boolean) -> Unit,
+    onSave: (String, String, Boolean, Boolean) -> Unit,
     onTest: (String) -> Unit
 ) {
     var term by remember { mutableStateOf(item?.term ?: "") }
     var replacement by remember { mutableStateOf(item?.replacement ?: "") }
     var ignoreCase by remember { mutableStateOf(item?.ignoreCase ?: true) }
+    var isRegex by remember { mutableStateOf(item?.isRegex ?: false) }
     var error by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
@@ -184,7 +194,7 @@ fun LexiconEditDialog(
                 OutlinedTextField(
                     value = term,
                     onValueChange = { term = it },
-                    label = { Text("Term (e.g. LLMs)") },
+                    label = { Text(if (isRegex) "Regex Pattern" else "Term (e.g. LLMs)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -209,6 +219,20 @@ fun LexiconEditDialog(
                         onCheckedChange = { ignoreCase = it }
                     )
                 }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Regex Mode",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Switch(
+                        checked = isRegex,
+                        onCheckedChange = { isRegex = it }
+                    )
+                }
                 if (error != null) {
                     Text(
                         text = error!!,
@@ -224,7 +248,7 @@ fun LexiconEditDialog(
                     if (term.isBlank() || replacement.isBlank()) {
                         error = "Fields cannot be empty"
                     } else {
-                        onSave(term.trim(), replacement.trim(), ignoreCase)
+                        onSave(term.trim(), replacement.trim(), ignoreCase, isRegex)
                     }
                 }
             ) {
