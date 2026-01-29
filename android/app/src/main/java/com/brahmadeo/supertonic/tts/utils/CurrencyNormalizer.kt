@@ -83,6 +83,19 @@ class CurrencyNormalizer {
             "$formattedAmount $magnitude $currencyName"
         }
 
+        // Rule 2b: ISO code currency ranges (INR 5000 - INR 10000)
+        // Matches: inr5000-inr10000, INR 5000 - INR 10000
+        add("\\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW|SR|RMB)\\s*(\\d+(?:\\.\\d+)?)\\s*-\\s*\\1\\s*(\\d+(?:\\.\\d+)?)\\b") { m ->
+            val code = m.group(1)?.uppercase(Locale.ROOT) ?: ""
+            val amount1 = m.group(2) ?: ""
+            val amount2 = m.group(3) ?: ""
+            
+            val currencyName = currencyPrefixes[code] ?: code
+            val formattedAmount1 = formatAmount(amount1)
+            val formattedAmount2 = formatAmount(amount2)
+            "$formattedAmount1 to $formattedAmount2 $currencyName"
+        }
+
         // Rule 3: ISO code currencies without magnitude (CAD 500, SR 3000)
         add("\\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW|SR|RMB)\\s*(\\d+(?:\\.\\d+)?)\\b") { m ->
             val code = m.group(1)?.uppercase(Locale.ROOT) ?: ""
