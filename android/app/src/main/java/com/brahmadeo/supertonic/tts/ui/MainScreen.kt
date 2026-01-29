@@ -27,6 +27,7 @@ fun MainScreen(
     onInputTextChange: (String) -> Unit,
     placeholderText: String,
     isSynthesizing: Boolean,
+    isInitializing: Boolean,
     onSynthesizeClick: () -> Unit,
 
     // Voice & Language
@@ -100,11 +101,19 @@ fun MainScreen(
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = onSynthesizeClick,
-                text = { Text(if (isSynthesizing) "Synthesizing..." else "Synthesize") },
+                text = { 
+                    Text(
+                        when {
+                            isInitializing -> "Initializing..."
+                            isSynthesizing -> "Synthesizing..."
+                            else -> "Synthesize"
+                        }
+                    ) 
+                },
                 icon = { Icon(painterResource(android.R.drawable.ic_btn_speak_now), contentDescription = null) },
                 expanded = true,
-                containerColor = if (isSynthesizing) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.primaryContainer,
-                contentColor = if (isSynthesizing) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimaryContainer
+                containerColor = if (isSynthesizing || isInitializing) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.primaryContainer,
+                contentColor = if (isSynthesizing || isInitializing) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimaryContainer
             )
         }
     ) { paddingValues ->
