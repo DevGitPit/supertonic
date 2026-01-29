@@ -58,6 +58,7 @@
     <string name="replacement_hint">Replacement (e.g. L L Ems)</string>
     <string name="ignore_case_label">Ignore Case</string>
     <string name="test_button">Test</string>
+    <string name="testing_pronunciation_fmt">Testing pronunciation of %1$s</string>
     <string name="save_button">Save</string>
     <string name="enter_replacement_msg">Enter replacement to test</string>
     <string name="empty_fields_msg">Term and Replacement cannot be empty</string>

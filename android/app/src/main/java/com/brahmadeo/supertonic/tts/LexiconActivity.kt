@@ -259,17 +259,22 @@ class LexiconActivity : ComponentActivity() {
         val version = if (selectedLang == "en") "v1" else "v2"
         val voiceFile = prefs.getString("selected_voice", "M1.json") ?: "M1.json"
         
-        // Ensure we point to the correct versioned directory
         val stylePath = File(filesDir, "$version/voice_styles/$voiceFile").absolutePath
-        val steps = prefs.getInt("diffusion_steps", 5)
+        
+        // Use higher steps (10) for test to ensure short words are audible and clear
+        val testSteps = 10
 
-        // Ensure text ends with punctuation to prevent cutoff during TEST only
         val cleanText = text.trim()
-        val finalText = if (cleanText.matches(Regex(".*[.!?]$"))) cleanText else "$cleanText."
+        if (cleanText.isEmpty()) return
+        
+        // Pad the word to increase reliability for the model
+        val testMsg = getString(R.string.testing_pronunciation_fmt, cleanText)
+        val finalText = "$testMsg."
+
+        Toast.makeText(this, testMsg, Toast.LENGTH_SHORT).show()
 
         try {
-            // synthesizeAndPlay handles stopping previous playback internally
-            playbackService?.synthesizeAndPlay(finalText, selectedLang, stylePath, 1.0f, steps, 0)
+            playbackService?.synthesizeAndPlay(finalText, selectedLang, stylePath, 1.0f, testSteps, 0)
         } catch (e: RemoteException) {
             e.printStackTrace()
         }
