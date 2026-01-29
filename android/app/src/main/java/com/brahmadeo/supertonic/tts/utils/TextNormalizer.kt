@@ -309,6 +309,34 @@ class TextNormalizer {
                             // to force a clean "end of sentence" intonation for this chunk.
                             if (currentPart.endsWith(",")) {
                                 currentPart.setCharAt(currentPart.length - 1, '.')
+
+                                // Fix "CapitalizedWord." reading as "Word dot":
+                                // If the word before the comma is capitalized (e.g. "Rudyard,"),
+                                // lowercase it ("rudyard.") so it's read as a sentence end, not an initial.
+                                var i = currentPart.length - 2
+                                while (i >= 0 && Character.isLetterOrDigit(currentPart[i])) {
+                                    i--
+                                }
+                                val wordStart = i + 1
+                                // Check if preceded by dot (e.g. "U.P.S.") -> Don't touch
+                                val precededByDot = i >= 0 && currentPart[i] == '.'
+                                
+                                if (!precededByDot && wordStart < currentPart.length - 1) {
+                                    val firstChar = currentPart[wordStart]
+                                    if (Character.isUpperCase(firstChar)) {
+                                        // Ensure it's TitleCase (not acronym "UPS") and len > 1 (not "I")
+                                        var isTitleCase = true
+                                        for (j in wordStart + 1 until currentPart.length - 1) {
+                                            if (Character.isUpperCase(currentPart[j])) {
+                                                isTitleCase = false
+                                                break
+                                            }
+                                        }
+                                        if (isTitleCase && (currentPart.length - 1 - wordStart) > 1) {
+                                            currentPart.setCharAt(wordStart, Character.toLowerCase(firstChar))
+                                        }
+                                    }
+                                }
                             }
                             refinedSentences.add(currentPart.toString())
                             currentPart.clear()
