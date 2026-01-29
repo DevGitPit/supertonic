@@ -260,8 +260,28 @@ class MainActivity : ComponentActivity() {
                     miniPlayerTitle = miniPlayerTitleState.value,
                     miniPlayerIsPlaying = miniPlayerIsPlayingState.value,
                     onMiniPlayerClick = {
-                        val intent = Intent(this, PlaybackActivity::class.java)
-                        intent.flags = Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                        val intent = Intent(this, PlaybackActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                            
+                            // Always pass current state to ensure PlaybackActivity can render/update
+                            val lastText = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).getString("last_text", "") ?: ""
+                            if (lastText.isNotEmpty()) {
+                                putExtra(PlaybackActivity.EXTRA_TEXT, lastText)
+                                
+                                // Determine current voice path (might need to reconstruct based on selection)
+                                var stylePath = File(filesDir, "$currentModelVersion/voice_styles/${selectedVoiceFileState.value}").absolutePath
+                                if (isMixingEnabledState.value) {
+                                    val stylePath2 = File(filesDir, "$currentModelVersion/voice_styles/${selectedVoiceFile2State.value}").absolutePath
+                                    stylePath = "$stylePath;$stylePath2;${mixAlphaState.value}"
+                                }
+                                putExtra(PlaybackActivity.EXTRA_VOICE_PATH, stylePath)
+                                
+                                putExtra(PlaybackActivity.EXTRA_SPEED, currentSpeedState.value)
+                                putExtra(PlaybackActivity.EXTRA_STEPS, currentStepsState.intValue)
+                                putExtra(PlaybackActivity.EXTRA_LANG, currentLangState.value)
+                                putExtra("is_resume", true)
+                            }
+                        }
                         startActivity(intent)
                     },
                     onMiniPlayerPlayPauseClick = {
@@ -424,6 +444,22 @@ class MainActivity : ComponentActivity() {
 
         try {
             if (playbackService?.isServiceActive == true) {
+                // Check if we are trying to play the exact same text that is currently active
+                val lastText = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE).getString("last_text", "")
+                if (text == lastText) {
+                    val intent = Intent(this, PlaybackActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                        putExtra(PlaybackActivity.EXTRA_TEXT, text)
+                        putExtra(PlaybackActivity.EXTRA_VOICE_PATH, stylePath)
+                        putExtra(PlaybackActivity.EXTRA_SPEED, currentSpeedState.value)
+                        putExtra(PlaybackActivity.EXTRA_STEPS, currentStepsState.intValue)
+                        putExtra(PlaybackActivity.EXTRA_LANG, currentLangState.value)
+                        putExtra("is_resume", true) // Hint to PlaybackActivity that we are resuming
+                    }
+                    startActivity(intent)
+                    return
+                }
+
                 queueDialogText = text
                 showQueueDialog.value = true
             } else {

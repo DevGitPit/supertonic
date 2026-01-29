@@ -69,6 +69,7 @@ class PlaybackActivity : ComponentActivity() {
             runOnUiThread {
                 isPlayingState.value = false
                 isServiceActiveState.value = false
+                finish() // Auto-close activity when playback finishes
             }
         }
 
@@ -109,25 +110,7 @@ class PlaybackActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        currentText = intent.getStringExtra(EXTRA_TEXT) ?: ""
-        currentVoicePath = intent.getStringExtra(EXTRA_VOICE_PATH) ?: ""
-        currentSpeed = intent.getFloatExtra(EXTRA_SPEED, 1.0f)
-        currentSteps = intent.getIntExtra(EXTRA_STEPS, 5)
-        currentLang = intent.getStringExtra(EXTRA_LANG) ?: "en"
-
-        if (intent.getBooleanExtra("is_resume", false) && currentText.isEmpty()) {
-             val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
-             currentText = prefs.getString("last_text", "") ?: ""
-             currentVoicePath = prefs.getString("last_voice_path", "") ?: ""
-             currentSpeed = prefs.getFloat("last_speed", 1.0f)
-             currentSteps = prefs.getInt("last_steps", 5)
-             currentLang = prefs.getString("last_lang", "en") ?: "en"
-             currentIndexState.intValue = prefs.getInt("last_index", 0)
-        }
-
-        setupList(currentText)
-
+        processIntent(intent)
         setContent {
             SupertonicTheme {
                 PlaybackScreen(
@@ -152,6 +135,33 @@ class PlaybackActivity : ComponentActivity() {
 
         val intent = Intent(this, PlaybackService::class.java)
         bindService(intent, connection, Context.BIND_AUTO_CREATE)
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent?.let { processIntent(it) }
+    }
+
+    private fun processIntent(intent: Intent) {
+        val newText = intent.getStringExtra(EXTRA_TEXT) ?: ""
+        if (newText.isNotEmpty()) {
+            currentText = newText
+            currentVoicePath = intent.getStringExtra(EXTRA_VOICE_PATH) ?: ""
+            currentSpeed = intent.getFloatExtra(EXTRA_SPEED, 1.0f)
+            currentSteps = intent.getIntExtra(EXTRA_STEPS, 5)
+            currentLang = intent.getStringExtra(EXTRA_LANG) ?: "en"
+            setupList(currentText)
+        } else if (intent.getBooleanExtra("is_resume", false)) {
+             val prefs = getSharedPreferences("SupertonicPrefs", Context.MODE_PRIVATE)
+             currentText = prefs.getString("last_text", "") ?: ""
+             currentVoicePath = prefs.getString("last_voice_path", "") ?: ""
+             currentSpeed = prefs.getFloat("last_speed", 1.0f)
+             currentSteps = prefs.getInt("last_steps", 5)
+             currentLang = prefs.getString("last_lang", "en") ?: "en"
+             currentIndexState.intValue = prefs.getInt("last_index", 0)
+             if (currentText.isNotEmpty()) setupList(currentText)
+        }
     }
 
     override fun onResume() {

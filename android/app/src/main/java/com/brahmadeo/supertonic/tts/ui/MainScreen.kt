@@ -1,21 +1,21 @@
 package com.brahmadeo.supertonic.tts.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.brahmadeo.supertonic.tts.R
@@ -69,6 +69,10 @@ fun MainScreen(
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
+    // Swipe Gesture State
+    val swipeThreshold = 100.dp
+    var offsetX by remember { mutableFloatStateOf(0f) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -98,26 +102,84 @@ fun MainScreen(
                 )
             )
         },
+        bottomBar = {
+            if (showMiniPlayer) {
+                ElevatedCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
+                    onClick = onMiniPlayerClick
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .padding(12.dp)
+                            .fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Now Playing",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = miniPlayerTitle,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        IconButton(onClick = onMiniPlayerPlayPauseClick) {
+                            Icon(
+                                imageVector = if (miniPlayerIsPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (miniPlayerIsPlaying) "Pause" else "Play"
+                            )
+                        }
+                    }
+                }
+            }
+        },
         floatingActionButton = {
+            val buttonText = when {
+                isInitializing -> "Initializing..."
+                isSynthesizing -> "Synthesizing..."
+                else -> "Synthesize"
+            }
+            val isLoading = isInitializing || isSynthesizing
+
             ExtendedFloatingActionButton(
                 onClick = onSynthesizeClick,
-                text = { 
-                    Text(
-                        when {
-                            isInitializing -> "Initializing..."
-                            isSynthesizing -> "Synthesizing..."
-                            else -> "Synthesize"
-                        }
-                    ) 
-                },
+                text = { Text(buttonText) },
                 icon = { Icon(painterResource(android.R.drawable.ic_btn_speak_now), contentDescription = null) },
                 expanded = true,
-                containerColor = if (isSynthesizing || isInitializing) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.primaryContainer,
-                contentColor = if (isSynthesizing || isInitializing) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimaryContainer
+                containerColor = if (isLoading) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.primaryContainer,
+                contentColor = if (isLoading) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimaryContainer
             )
         }
     ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            if (offsetX < -swipeThreshold.toPx()) {
+                                // Swipe Left (dragged left, offsetX negative)
+                                onMiniPlayerClick() 
+                            }
+                            offsetX = 0f
+                        },
+                        onHorizontalDrag = { _, dragAmount ->
+                            offsetX += dragAmount
+                        }
+                    )
+                }
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -231,49 +293,38 @@ fun MainScreen(
                         }
                     }
                 }
-
-                Spacer(modifier = Modifier.height(80.dp)) // Spacing for FAB and MiniPlayer
             }
 
-            // Mini Player Overlay
+            // Visual Hint for Swipe
             if (showMiniPlayer) {
-                ElevatedCard(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(16.dp)
-                        .fillMaxWidth(),
-                    shape = MaterialTheme.shapes.large,
-                    colors = CardDefaults.elevatedCardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+                val alpha by infiniteTransition.animateFloat(
+                    initialValue = 0.3f,
+                    targetValue = 0.8f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(1000, easing = LinearEasing),
+                        repeatMode = RepeatMode.Reverse
                     ),
-                    onClick = onMiniPlayerClick
+                    label = "alpha"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 4.dp)
+                        .size(width = 24.dp, height = 48.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = alpha),
+                            shape = MaterialTheme.shapes.small
+                        ),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .padding(12.dp)
-                            .fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Now Playing",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = miniPlayerTitle,
-                                style = MaterialTheme.typography.bodyMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        IconButton(onClick = onMiniPlayerPlayPauseClick) {
-                            Icon(
-                                imageVector = if (miniPlayerIsPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = if (miniPlayerIsPlaying) "Pause" else "Play"
-                            )
-                        }
-                    }
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowLeft,
+                        contentDescription = "Swipe to Player",
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = alpha + 0.2f),
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
             }
         }
