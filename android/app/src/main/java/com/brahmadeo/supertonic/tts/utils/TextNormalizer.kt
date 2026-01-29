@@ -217,11 +217,6 @@ class TextNormalizer {
         val letterNumberPattern = Pattern.compile("([a-zA-Z])(\\d)")
         fixedText = letterNumberPattern.matcher(fixedText).replaceAll("$1 $2")
 
-        // Break up navigation menu "soup" (Skip to main content...)
-        // Insert period before specific keywords if not already preceded by punctuation
-        val navPattern = Pattern.compile("(?<![.!?]\\s)\\b(Skip to|Sign In|Subscribe|OPEN SIDE|MENU|Add to myFT|Save|Print this page|Published|Copyright|©)\\b", Pattern.CASE_INSENSITIVE)
-        fixedText = navPattern.matcher(fixedText).replaceAll(". $1")
-
         // Step 1: Currency
         var normalized = currencyNormalizer.normalize(fixedText)
         
