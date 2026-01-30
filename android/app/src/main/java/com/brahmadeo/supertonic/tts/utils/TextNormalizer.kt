@@ -23,6 +23,12 @@ class TextNormalizer {
             rulesList.add(Rule(Pattern.compile(regex, Pattern.CASE_INSENSITIVE), replacement))
         }
 
+        // PARENTHESES SPACING (Audio Fix)
+        // Adds space inside parentheses to fix tokenization artifacts
+        addLambda("\\(([^)]+)\\)") { m ->
+            "( ${m.group(1)} )"
+        }
+
         // RANGE NORMALIZATION (e.g. 10-15 years -> 10 to 15 years)
         // Matches digits separated by hyphen (-), en dash (–), or em dash (—)
         addLambda("\\b(\\d+)\\s*[-–—]\\s*(\\d+)\\b") { m ->
@@ -361,30 +367,94 @@ class TextNormalizer {
         }.filter { it.isNotEmpty() }
 
         // Chunking Logic: Accumulate sentences up to MAX_LENGTH (300)
-        // FIXED: Removed premature 'return' that made this unreachable
         val chunkedSentences = mutableListOf<String>()
         var currentChunk = StringBuilder()
         val CHUNK_LIMIT = 300
 
-        for (sentence in processedSentences) {
-            if (currentChunk.length + sentence.length + 1 <= CHUNK_LIMIT) {
-                if (currentChunk.isNotEmpty()) {
-                    currentChunk.append(" ")
+        var i = 0
+        while (i < processedSentences.size) {
+            val sentence = processedSentences[i]
+            val isVolatile = sentence.trim().endsWith("?") || sentence.trim().endsWith("!")
+
+            if (isVolatile) {
+                // HANDLE VOLATILE SENTENCE
+                var partToAnchor = sentence
+
+                // Sub-rule: If long (> 40 chars), try to split off a stable prefix
+                if (sentence.length > 40) {
+                    val lastComma = sentence.lastIndexOf(',')
+                    val lastColon = sentence.lastIndexOf(':')
+                    val lastSemi = sentence.lastIndexOf(';')
+                    val splitIndex = maxOf(lastComma, lastColon, lastSemi)
+
+                    if (splitIndex > 0 && splitIndex < sentence.length - 1) {
+                        val stablePart = sentence.substring(0, splitIndex + 1).trim()
+                        val volatilePart = sentence.substring(splitIndex + 1).trim()
+
+                        // Add stable part to PREVIOUS chunk context
+                        if (currentChunk.length + stablePart.length + 1 <= CHUNK_LIMIT) {
+                            if (currentChunk.isNotEmpty()) currentChunk.append(" ")
+                            currentChunk.append(stablePart)
+                        } else {
+                            if (currentChunk.isNotEmpty()) {
+                                chunkedSentences.add(currentChunk.toString())
+                                currentChunk.clear()
+                            }
+                            // If stablePart itself is huge (unlikely), add it directly
+                            if (stablePart.length > CHUNK_LIMIT) {
+                                chunkedSentences.add(stablePart)
+                            } else {
+                                currentChunk.append(stablePart)
+                            }
+                        }
+                        partToAnchor = volatilePart
+                    }
                 }
-                currentChunk.append(sentence)
-            } else {
+
+                // ISOLATION: Flush everything before the volatile part (The Barrier)
                 if (currentChunk.isNotEmpty()) {
                     chunkedSentences.add(currentChunk.toString())
                     currentChunk.clear()
                 }
-                // If a single sentence is huge (handled above but safety check), add it
-                if (sentence.length > CHUNK_LIMIT) {
-                    chunkedSentences.add(sentence)
-                } else {
+
+                // Start new chunk with volatile part
+                currentChunk.append(partToAnchor)
+
+                // ANCHORING: Try to pull in the next sentence to stabilize intonation
+                if (i + 1 < processedSentences.size) {
+                    val nextSentence = processedSentences[i + 1]
+                    val nextIsVolatile = nextSentence.trim().endsWith("?") || nextSentence.trim().endsWith("!")
+
+                    // Only anchor if the next sentence is STABLE and fits
+                    if (!nextIsVolatile && currentChunk.length + nextSentence.length + 1 <= CHUNK_LIMIT) {
+                        currentChunk.append(" ").append(nextSentence)
+                        i++ // Consume next sentence
+                    }
+                }
+
+            } else {
+                // HANDLE STABLE SENTENCE
+                if (currentChunk.length + sentence.length + 1 <= CHUNK_LIMIT) {
+                    if (currentChunk.isNotEmpty()) {
+                        currentChunk.append(" ")
+                    }
                     currentChunk.append(sentence)
+                } else {
+                    if (currentChunk.isNotEmpty()) {
+                        chunkedSentences.add(currentChunk.toString())
+                        currentChunk.clear()
+                    }
+                    // If a single sentence is huge (handled above but safety check), add it
+                    if (sentence.length > CHUNK_LIMIT) {
+                        chunkedSentences.add(sentence)
+                    } else {
+                        currentChunk.append(sentence)
+                    }
                 }
             }
+            i++
         }
+
         if (currentChunk.isNotEmpty()) {
             chunkedSentences.add(currentChunk.toString())
         }

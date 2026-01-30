@@ -50,80 +50,98 @@ class CurrencyNormalizer {
             rulesList.add(Rule(Pattern.compile(regex, Pattern.CASE_INSENSITIVE), replacement))
         }
 
-        // Rule 0: Remove commas from numbers
-        // Use lookaround to avoid word boundary issues with symbols (e.g. $800,000)
-        add("(?<!\\d)(\\d{1,3}(?:,\\d{3})+)(?!\\d)") { m ->
-            m.group(0)?.replace(",", "") ?: ""
+        // ----------------------------------------------------------------------
+        // RULE 0: Global Comma Cleanup
+        // ----------------------------------------------------------------------
+        // Removes commas from numbers (e.g., "5,000" -> "5000") to make parsing easier.
+        add("(\\d{1,3}(?:,\\d{3})+)") { m ->
+            m.group(1)?.replace(",", "") ?: ""
         }
 
-        // Rule 1: Prefixed currencies with magnitude (SR3mn, RMB2bn)
-        add("(C\\$|CA\\$|A\\$|AU\\$|US\\$|NZ\\$|HK\\$|S\\$|SR|RMB)(\\d+(?:\\.\\d+)?)\\s*(trillion|billion|million|crore|lakh|bn|mn|tn|m|b|k)") { m ->
+        // ----------------------------------------------------------------------
+        // RULE 1: Dual Magnitude (The "Lakh Crore" Fix) -> High Priority
+        // ----------------------------------------------------------------------
+        // Matches: INR 42.7 lakh crore, ₹ 15.7 thousand crore
+        add("\\b(INR|₹)\\s*([\\d.]+(?:\\.\\d+)?)\\s*(lakh|thousand|k)\\s*(crore|cr)\\b") { m ->
+            val symbol = m.group(1)?.uppercase(Locale.ROOT) ?: ""
+            val amount = m.group(2) ?: ""
+            val mag1 = expandMagnitude(m.group(3) ?: "")
+            val mag2 = expandMagnitude(m.group(4) ?: "")
+
+            val currencyName = if (symbol == "₹" || symbol == "INR") "Indian rupees" else "rupees"
+            val formattedAmount = formatAmount(amount)
+            
+            "$formattedAmount $mag1 $mag2 $currencyName"
+        }
+
+        // ----------------------------------------------------------------------
+        // RULE 2: Parenthetical Currency Ranges
+        // ----------------------------------------------------------------------
+        // Matches: (INR5,000-INR10,000), (INR50crore-INR100crore)
+        add("\\((CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW|SR|RMB)\\s*([\\d.]+(?:\\s*(?:crore|lakh|bn|mn|m|b|k))?)\\s*-\\s*\\1\\s*([\\d.]+(?:\\s*(?:crore|lakh|bn|mn|m|b|k))?)\\)") { m ->
+            val code = m.group(1)?.uppercase(Locale.ROOT) ?: ""
+            val val1 = m.group(2)?.trim() ?: ""
+            val val2 = m.group(3)?.trim() ?: ""
+
+            val currencyName = currencyPrefixes[code] ?: code
+            "between $val1 and $val2 $currencyName"
+        }
+
+        // ----------------------------------------------------------------------
+        // RULE 3: Prefixed currencies with magnitude
+        // ----------------------------------------------------------------------
+        // Matches: SR3mn, RMB2bn, USD 5 billion
+        add("(C\\$|CA\\$|A\\$|AU\\$|US\\$|NZ\\$|HK\\$|S\\$|SR|RMB|CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW)\\s*([\\d.]+(?:\\.\\d+)?)\\s*(trillion|billion|million|crore|lakh|bn|mn|tn|m|b|k)") { m ->
             val prefix = m.group(1) ?: ""
             val amount = m.group(2) ?: ""
             val suffix = m.group(3) ?: ""
-            
+
             var key = prefix.uppercase(Locale.ROOT)
-            if (key.startsWith("S") && !key.contains("$") && key != "SR") key = key.replace("S", "S$")
-            
-            val currencyName = currencyPrefixes[key] ?: currencyPrefixes[key.replace("$", "")] ?: "dollars"
+            if (key.startsWith("S") && !key.contains("$") && key != "SR" && key != "SGD") key = key.replace("S", "S$")
+
+            val currencyName = currencyPrefixes[key] ?: currencyPrefixes[key.replace("$", "")] ?: key
             val magnitude = expandMagnitude(suffix)
             val formattedAmount = formatAmount(amount)
             "$formattedAmount $magnitude $currencyName"
         }
 
-        // Rule 2: ISO codes or prefixes with optional space and magnitude (SR 3mn, RMB 2bn)
-        add("\\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW|SR|RMB)\\s*(\\d+(?:\\.\\d+)?)\\s*(trillion|billion|million|crore|lakh|bn|mn|tn|m|b|k)") { m ->
+        // ----------------------------------------------------------------------
+        // RULE 4: Standard ISO code without magnitude
+        // ----------------------------------------------------------------------
+        // Matches: CAD 500, INR 5000
+        add("\\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW|SR|RMB)\\s*([\\d.]+(?:\\.\\d+)?)\\b") { m ->
             val code = m.group(1)?.uppercase(Locale.ROOT) ?: ""
             val amount = m.group(2) ?: ""
-            val suffix = m.group(3) ?: ""
-            
-            val currencyName = currencyPrefixes[code] ?: code
-            val magnitude = expandMagnitude(suffix)
-            val formattedAmount = formatAmount(amount)
-            "$formattedAmount $magnitude $currencyName"
-        }
 
-        // Rule 2b: ISO code currency ranges (INR 5000 - INR 10000)
-        // Matches: inr5000-inr10000, INR 5000 - INR 10000
-        add("\\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW|SR|RMB)\\s*(\\d+(?:\\.\\d+)?)\\s*-\\s*\\1\\s*(\\d+(?:\\.\\d+)?)\\b") { m ->
-            val code = m.group(1)?.uppercase(Locale.ROOT) ?: ""
-            val amount1 = m.group(2) ?: ""
-            val amount2 = m.group(3) ?: ""
-            
-            val currencyName = currencyPrefixes[code] ?: code
-            val formattedAmount1 = formatAmount(amount1)
-            val formattedAmount2 = formatAmount(amount2)
-            "$formattedAmount1 to $formattedAmount2 $currencyName"
-        }
-
-        // Rule 3: ISO code currencies without magnitude (CAD 500, SR 3000)
-        add("\\b(CAD|AUD|USD|GBP|EUR|INR|JPY|CNY|SGD|NZD|HKD|KRW|SR|RMB)\\s*(\\d+(?:\\.\\d+)?)\\b") { m ->
-            val code = m.group(1)?.uppercase(Locale.ROOT) ?: ""
-            val amount = m.group(2) ?: ""
-            
             val currencyName = currencyPrefixes[code] ?: code
             val formattedAmount = formatAmount(amount)
             "$formattedAmount $currencyName"
         }
 
-        // Rule 4: Symbol + amount + magnitude (£800m, €500bn)
-        add("($symPattern)(\\d+(?:\\.\\d+)?)\\s*(trillion|billion|million|crore|lakh|bn|mn|tn|m|b|k)\\b") { m ->
+        // ----------------------------------------------------------------------
+        // RULE 5: Symbol + amount + magnitude
+        // ----------------------------------------------------------------------
+        // Matches: £800m, €500bn
+        add("($symPattern)([\\d.]+(?:\\.\\d+)?)\\s*(trillion|billion|million|crore|lakh|bn|mn|tn|m|b|k)\\b") { m ->
             val symbol = m.group(1) ?: "$"
             val amount = m.group(2) ?: ""
             val suffix = m.group(3) ?: ""
-            
+
             val currencyName = currencySymbols[symbol] ?: "dollars"
             val magnitude = expandMagnitude(suffix)
             val formattedAmount = formatAmount(amount)
             "$formattedAmount $magnitude $currencyName"
         }
 
-        // Rule 5: Parenthetical magnitudes (£800m ($1.08bn), (SR3mn))
-        add("\\(($symPattern|C\\$|CA\\$|A\\$|AU\\$|US\\$|SR|RMB)(\\d+(?:\\.\\d+)?)\\s*(trillion|billion|million|crore|lakh|bn|mn|tn|m|b|k)\\)") { m ->
+        // ----------------------------------------------------------------------
+        // RULE 6: Parenthetical Equivalents
+        // ----------------------------------------------------------------------
+        // Matches: ($1.08bn), (SR3mn)
+        add("\\(($symPattern|C\\$|CA\\$|A\\$|AU\\$|US\\$|SR|RMB)\\s*([\\d.]+(?:\\.\\d+)?)(?:\\s*(trillion|billion|million|crore|lakh|bn|mn|tn|m|b|k))?\\)") { m ->
             val symbol = m.group(1) ?: "$"
             val amount = m.group(2) ?: ""
             val suffix = m.group(3) ?: ""
-            
+
             var key = symbol.uppercase(Locale.ROOT)
             if (key.startsWith("S") && !key.contains("$") && key != "SR") key = key.replace("S", "S$")
 
@@ -132,38 +150,25 @@ class CurrencyNormalizer {
             } else {
                 currencySymbols[symbol] ?: "dollars"
             }
-            
-            val magnitude = expandMagnitude(suffix)
+
+            val magnitude = if (suffix.isNotEmpty()) expandMagnitude(suffix) else ""
             val formattedAmount = formatAmount(amount)
-            "equivalent to $formattedAmount $magnitude $currencyName"
+            
+            val magString = if (magnitude.isNotEmpty()) " $magnitude" else ""
+            "equivalent to $formattedAmount$magString $currencyName"
         }
 
-        // Rule 5b: Parenthetical whole amounts ($800,000), (SR 3000)
-        add("\\(($symPattern|C\\$|CA\\$|A\\$|AU\\$|US\\$|SR|RMB)\\s*(\\d+(?:\\.\\d+)?)\\)") { m ->
-            val symbol = m.group(1) ?: "$"
-            val amount = m.group(2) ?: ""
-            
-            var key = symbol.uppercase(Locale.ROOT)
-            if (key.startsWith("S") && !key.contains("$") && key != "SR") key = key.replace("S", "S$")
-
-            val currencyName = if (key.length > 1) {
-                currencyPrefixes[key] ?: currencyPrefixes[key.replace("$", "")] ?: "dollars"
-            } else {
-                currencySymbols[symbol] ?: "dollars"
-            }
-            
-            val formattedAmount = formatAmount(amount)
-            "equivalent to $formattedAmount $currencyName"
-        }
-
-        // Rule 6: Plain symbol + amount with decimals (£10.50)
+        // ----------------------------------------------------------------------
+        // RULE 7: Plain symbol + amount with decimals
+        // ----------------------------------------------------------------------
+        // Matches: £10.50, $5.99
         add("($symPattern)(\\d+)\\.(\\d{2})\\b") { m ->
             val symbol = m.group(1) ?: "$"
             val whole = m.group(2) ?: ""
             val cents = m.group(3) ?: ""
-            
+
             val currencyName = currencySymbols[symbol] ?: "dollars"
-            
+
             if (symbol == "₹" || symbol == "\u20B9") {
                 val formattedWhole = formatIndianAmount(whole)
                 if (cents == "00") {
@@ -180,12 +185,15 @@ class CurrencyNormalizer {
             }
         }
 
-        // Rule 7
+        // ----------------------------------------------------------------------
+        // RULE 8: Plain symbol + integer amount
+        // ----------------------------------------------------------------------
+        // Matches: $500, ₹100
         add("($symPattern)(\\d+)\\b") { m ->
             val symbol = m.group(1) ?: "$"
             val amount = m.group(2) ?: ""
             val currencyName = currencySymbols[symbol] ?: "dollars"
-            
+
             if (symbol == "₹" || symbol == "\u20B9") {
                 val formattedAmount = formatIndianAmount(amount)
                 "$formattedAmount rupees"
@@ -204,6 +212,8 @@ class CurrencyNormalizer {
             "mn", "m" -> "million"
             "b" -> "billion"
             "k" -> "thousand"
+            "cr", "crore" -> "crore"
+            "lakh" -> "lakh"
             else -> suffix
         }
     }
