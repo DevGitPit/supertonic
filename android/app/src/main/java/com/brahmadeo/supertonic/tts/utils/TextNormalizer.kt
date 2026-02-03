@@ -282,7 +282,8 @@ class TextNormalizer {
         
         abbreviations.forEachIndexed { index, abbr ->
             val placeholder = "__ABBR${index}__"
-            protectedText = protectedText.replace(abbr, placeholder, ignoreCase = true)
+            val pattern = Pattern.compile("\\b" + Pattern.quote(abbr), Pattern.CASE_INSENSITIVE)
+            protectedText = pattern.matcher(protectedText).replaceAll(placeholder)
         }
         
         // Split by:
