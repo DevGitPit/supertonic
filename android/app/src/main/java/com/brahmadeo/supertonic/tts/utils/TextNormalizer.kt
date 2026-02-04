@@ -23,6 +23,12 @@ class TextNormalizer {
             rulesList.add(Rule(Pattern.compile(regex, Pattern.CASE_INSENSITIVE), replacement))
         }
 
+        // QUOTE PUNCTUATION SPACING (Model Stability)
+        // Adds space between double quote and punctuation (".) -> (" .) to prevent audio glitches
+        addLambda("([\"”])([.!?])") { m ->
+            "${m.group(1)} ${m.group(2)}"
+        }
+
         // PARENTHESES SPACING (Audio Fix)
         // Adds space inside parentheses to fix tokenization artifacts
         addLambda("\\(([^)]+)\\)") { m ->
