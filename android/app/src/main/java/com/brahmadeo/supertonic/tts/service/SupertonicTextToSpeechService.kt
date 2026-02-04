@@ -143,8 +143,8 @@ class SupertonicTextToSpeechService : TextToSpeechService() {
         // Only broadcast voices for the currently selected language
         val locale = when(selectedLang) {
             "ko" -> Locale.KOREA
-            "es" -> Locale("es", "ES")
-            "pt" -> Locale("pt", "PT")
+            "es" -> Locale.forLanguageTag("es-ES")
+            "pt" -> Locale.forLanguageTag("pt-PT")
             "fr" -> Locale.FRANCE
             else -> Locale.US
         }

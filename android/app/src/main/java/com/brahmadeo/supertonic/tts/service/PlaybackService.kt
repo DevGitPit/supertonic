@@ -139,7 +139,6 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
         wakeLock = powerManager.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Supertonic:PlaybackWakeLock")
         
         mediaSession = MediaSessionCompat(this, "SupertonicMediaSession").apply {
-            setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onPlay() { this@PlaybackService.play() }
                 override fun onPause() { this@PlaybackService.pause() }
@@ -354,7 +353,7 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
                 listener?.onPlaybackStopped()
             } catch (e: RemoteException) { listener = null }
             updatePlaybackState(PlaybackStateCompat.STATE_STOPPED)
-            stopForeground(true)
+            stopForeground(STOP_FOREGROUND_REMOVE)
         }
     }
 
@@ -449,18 +448,18 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
                     if (success && outputStream.size() > 0) {
                         WavUtils.saveWav(outputFile, outputStream.toByteArray(), SupertonicTTS.getAudioSampleRate())
                         withContext(Dispatchers.Main) {
-                            stopForeground(true)
+                            stopForeground(STOP_FOREGROUND_REMOVE)
                             try { listener?.onExportComplete(true, outputFile.absolutePath) } catch(e: RemoteException){}
                         }
                     } else {
                         withContext(Dispatchers.Main) {
-                            stopForeground(true)
+                            stopForeground(STOP_FOREGROUND_REMOVE)
                             try { listener?.onExportComplete(false, outputFile.absolutePath) } catch(e: RemoteException){}
                         }
                     }
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main) {
-                        stopForeground(true)
+                        stopForeground(STOP_FOREGROUND_REMOVE)
                         try { listener?.onExportComplete(false, outputFile.absolutePath) } catch(e: RemoteException){}
                     }
                 }
