@@ -319,38 +319,10 @@ class TextNormalizer {
                         currentPart.append(part)
                     } else {
                         if (currentPart.isNotEmpty()) {
-                            // Fix audio cutoff: If breaking at a comma, replace it with a period
-                            // to force a clean "end of sentence" intonation for this chunk.
-                            if (currentPart.endsWith(",")) {
-                                currentPart.setCharAt(currentPart.length - 1, '.')
-
-                                // Fix "CapitalizedWord." reading as "Word dot":
-                                // If the word before the comma is capitalized (e.g. "Rudyard,"),
-                                // lowercase it ("rudyard.") so it's read as a sentence end, not an initial.
-                                var i = currentPart.length - 2
-                                while (i >= 0 && Character.isLetterOrDigit(currentPart[i])) {
-                                    i--
-                                }
-                                val wordStart = i + 1
-                                // Check if preceded by dot (e.g. "U.P.S.") -> Don't touch
-                                val precededByDot = i >= 0 && currentPart[i] == '.'
-                                
-                                if (!precededByDot && wordStart < currentPart.length - 1) {
-                                    val firstChar = currentPart[wordStart]
-                                    if (Character.isUpperCase(firstChar)) {
-                                        // Ensure it's TitleCase (not acronym "UPS") and len > 1 (not "I")
-                                        var isTitleCase = true
-                                        for (j in wordStart + 1 until currentPart.length - 1) {
-                                            if (Character.isUpperCase(currentPart[j])) {
-                                                isTitleCase = false
-                                                break
-                                            }
-                                        }
-                                        if (isTitleCase && (currentPart.length - 1 - wordStart) > 1) {
-                                            currentPart.setCharAt(wordStart, Character.toLowerCase(firstChar))
-                                        }
-                                    }
-                                }
+                            // Fix audio cutoff: If breaking at a comma or semi-colon, strip it
+                            // to prevent hard stops or artifacts.
+                            if (currentPart.endsWith(",") || currentPart.endsWith(";")) {
+                                currentPart.deleteCharAt(currentPart.length - 1)
                             }
                             refinedSentences.add(currentPart.toString())
                             currentPart.clear()
@@ -380,83 +352,29 @@ class TextNormalizer {
 
         var i = 0
         while (i < processedSentences.size) {
-            val sentence = processedSentences[i]
-            val isVolatile = sentence.trim().endsWith("?") || sentence.trim().endsWith("!")
+            var sentence = processedSentences[i]
+            
+            // Universal Volatile/Punctuation Fix:
+            // Always insert space before !, ?, ,, ; to stabilize audio
+            // Matches punctuation followed by optional quote/whitespace at end
+            sentence = sentence.replaceFirst(Regex("([!?,;])(['\"”’]?)\\s*$"), " $1$2")
 
-            if (isVolatile) {
-                // HANDLE VOLATILE SENTENCE
-                var partToAnchor = sentence
-
-                // Sub-rule: If long (> 40 chars), try to split off a stable prefix
-                if (sentence.length > 40) {
-                    val lastComma = sentence.lastIndexOf(',')
-                    val lastColon = sentence.lastIndexOf(':')
-                    val lastSemi = sentence.lastIndexOf(';')
-                    val splitIndex = maxOf(lastComma, lastColon, lastSemi)
-
-                    if (splitIndex > 0 && splitIndex < sentence.length - 1) {
-                        val stablePart = sentence.substring(0, splitIndex + 1).trim()
-                        val volatilePart = sentence.substring(splitIndex + 1).trim()
-
-                        // Add stable part to PREVIOUS chunk context
-                        if (currentChunk.length + stablePart.length + 1 <= CHUNK_LIMIT) {
-                            if (currentChunk.isNotEmpty()) currentChunk.append(" ")
-                            currentChunk.append(stablePart)
-                        } else {
-                            if (currentChunk.isNotEmpty()) {
-                                chunkedSentences.add(currentChunk.toString())
-                                currentChunk.clear()
-                            }
-                            // If stablePart itself is huge (unlikely), add it directly
-                            if (stablePart.length > CHUNK_LIMIT) {
-                                chunkedSentences.add(stablePart)
-                            } else {
-                                currentChunk.append(stablePart)
-                            }
-                        }
-                        partToAnchor = volatilePart
-                    }
+            // HANDLE STABLE SENTENCE (Standard Accumulation)
+            if (currentChunk.length + sentence.length + 1 <= CHUNK_LIMIT) {
+                if (currentChunk.isNotEmpty()) {
+                    currentChunk.append(" ")
                 }
-
-                // ISOLATION: Flush everything before the volatile part (The Barrier)
+                currentChunk.append(sentence)
+            } else {
                 if (currentChunk.isNotEmpty()) {
                     chunkedSentences.add(currentChunk.toString())
                     currentChunk.clear()
                 }
-
-                // Start new chunk with volatile part
-                currentChunk.append(partToAnchor)
-
-                // ANCHORING: Try to pull in the next sentence to stabilize intonation
-                if (i + 1 < processedSentences.size) {
-                    val nextSentence = processedSentences[i + 1]
-                    val nextIsVolatile = nextSentence.trim().endsWith("?") || nextSentence.trim().endsWith("!")
-
-                    // Only anchor if the next sentence is STABLE and fits
-                    if (!nextIsVolatile && currentChunk.length + nextSentence.length + 1 <= CHUNK_LIMIT) {
-                        currentChunk.append(" ").append(nextSentence)
-                        i++ // Consume next sentence
-                    }
-                }
-
-            } else {
-                // HANDLE STABLE SENTENCE
-                if (currentChunk.length + sentence.length + 1 <= CHUNK_LIMIT) {
-                    if (currentChunk.isNotEmpty()) {
-                        currentChunk.append(" ")
-                    }
-                    currentChunk.append(sentence)
+                // If a single sentence is huge, add it directly
+                if (sentence.length > CHUNK_LIMIT) {
+                    chunkedSentences.add(sentence)
                 } else {
-                    if (currentChunk.isNotEmpty()) {
-                        chunkedSentences.add(currentChunk.toString())
-                        currentChunk.clear()
-                    }
-                    // If a single sentence is huge (handled above but safety check), add it
-                    if (sentence.length > CHUNK_LIMIT) {
-                        chunkedSentences.add(sentence)
-                    } else {
-                        currentChunk.append(sentence)
-                    }
+                    currentChunk.append(sentence)
                 }
             }
             i++
