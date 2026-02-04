@@ -170,7 +170,8 @@ class PlaybackService : Service(), SupertonicTTS.ProgressListener, AudioManager.
     }
 
     fun isServiceActive(): Boolean {
-        return isPlaying || isSynthesizing
+        // Return true if playing, synthesizing, OR if audio track exists (paused/resumable)
+        return isPlaying || isSynthesizing || audioTrack != null
     }
 
     fun addToQueue(text: String, lang: String, stylePath: String, speed: Float, steps: Int, startIndex: Int) {
